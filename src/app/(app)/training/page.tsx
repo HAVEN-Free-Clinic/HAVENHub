@@ -172,14 +172,13 @@ function CompleteDetail({ accessibleSchedule }: { accessibleSchedule: boolean })
       <SectionHeader className="mb-3.5">What you can do now</SectionHeader>
       <DetailRow tone="success" title="Eligible for shift scheduling" sub="You can now be assigned to clinic shifts" />
       <DetailRow tone="success" title="Training requirement met" sub="Shows as cleared on your volunteer compliance" />
-      <div className="mt-4 flex flex-wrap gap-2.5">
-        {accessibleSchedule && (
+      {accessibleSchedule && (
+        <div className="mt-4 flex flex-wrap gap-2.5">
           <Link href="/schedule" className={buttonClasses("primary", "md", "gap-2 shadow-sm")}>
             <CalendarDays aria-hidden className="h-4 w-4" /> View the schedule
           </Link>
-        )}
-        <BackToHub />
-      </div>
+        </div>
+      )}
     </Card>
   );
 }
@@ -200,9 +199,6 @@ function LockedDetail() {
         title="Or attend the live session"
         sub="Your director records attendance and clears training instantly"
       />
-      <div className="mt-4">
-        <BackToHub />
-      </div>
     </Card>
   );
 }
@@ -233,14 +229,6 @@ function DetailRow({
         <p className="mt-px text-xs text-muted-foreground">{sub}</p>
       </div>
     </div>
-  );
-}
-
-function BackToHub() {
-  return (
-    <Link href="/" className={buttonClasses("outline")}>
-      Back to Hub
-    </Link>
   );
 }
 
@@ -323,9 +311,9 @@ export default async function TrainingPage() {
           );
         })
       )}
-      <div className="mt-4 flex justify-end">
-        <BackToHub />
-      </div>
+      {/* No "Back to Hub" buttons: the breadcrumb above the title is Hub ›
+          Training, and a lone outline button under a narrow card, repeated in
+          two of the panels as well, read as the page's main action. */}
     </div>
   );
 }

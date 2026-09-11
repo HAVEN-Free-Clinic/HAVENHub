@@ -327,7 +327,13 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
                   </span>
                 </TD>
                 <TD>
-                  <Badge tone={d.tone}>{d.label}</Badge>
+                  {/* No decision is an absence, not a status: the house "-"
+                      rather than a grey "None" badge in every undecided row. */}
+                  {d.status === "NONE" ? (
+                    <span className="text-subtle-foreground">-</span>
+                  ) : (
+                    <Badge tone={d.tone}>{d.label}</Badge>
+                  )}
                 </TD>
               </TR>
             );

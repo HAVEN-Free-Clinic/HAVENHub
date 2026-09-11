@@ -117,10 +117,15 @@ export function ComplianceCells({ row }: { row: ComplianceRowData }) {
         <CalendarDate value={expiresAt} />
       </TD>
       <TD className="text-foreground-soft text-xs">
+        {/* The date always, on its own line, and the verifier under it only when
+            known. Name-then-date made an unknown verifier (an imported or
+            system-verified certificate) read as a different column: sometimes
+            "name date", sometimes a bare date. */}
         {row.cert?.verifiedAt ? (
-          <span>
-            {row.verifiedByName} <DateOnly value={row.cert.verifiedAt} />
-          </span>
+          <>
+            <span className="whitespace-nowrap"><DateOnly value={row.cert.verifiedAt} /></span>
+            {row.verifiedByName && <span className="block text-subtle-foreground">by {row.verifiedByName}</span>}
+          </>
         ) : (
           "-"
         )}

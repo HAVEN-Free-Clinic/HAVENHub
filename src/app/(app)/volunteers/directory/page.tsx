@@ -146,83 +146,10 @@ export default async function DirectoryPage({ searchParams }: PageProps) {
         </Alert>
       )}
 
-      {/* Distinct PEOPLE, not seats. See the service's module comment.
-          A scoped viewer gets four tiles, not five: attendings are faculty who
-          belong to no department, so there is no such thing as "your" share of
-          them and a zero would read as a bug rather than as a boundary. */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        <StatCard label="Active people" value={summary.activePeople} tone="brand" />
-        <StatCard label="Directors" value={summary.directors} />
-        <StatCard label="Volunteers" value={summary.volunteers} />
-        <StatCard label="Departments staffed" value={summary.departmentsStaffed} />
-        {clinicWide && <StatCard label="Attendings" value={summary.attendings} />}
-      </div>
-
-      {/* The one number on this page that looks like an error and is not.
-          Rendered only when the overlap actually exists, so a clinic with no
-          dual-role members never sees a caveat about a case it does not have. */}
-      {summary.bothRoles > 0 && (
-        <p className="text-xs text-subtle-foreground">
-          Directors and Volunteers overlap by {summary.bothRoles}{" "}
-          {summary.bothRoles === 1 ? "person" : "people"} who hold both roles in
-          different departments, so the two counts add up to more than Active
-          people. The department table below counts filled roles, not people, for
-          the same reason: {seatTotal.toLocaleString()} roles across{" "}
-          {summary.activePeople.toLocaleString()} people.
-        </p>
-      )}
-
-      <Card>
-        <SectionHeader>By department</SectionHeader>
-        <p className="mt-1 text-xs text-subtle-foreground">
-          Filled roles this term. Someone in two departments is counted in both.
-          Select a row to filter the roster below.
-        </p>
-        <div className="mt-3">
-          <Table>
-            <THead>
-              <TR>
-                <TH>Department</TH>
-                <TH>Directors</TH>
-                <TH>Volunteers</TH>
-                <TH>Total</TH>
-              </TR>
-            </THead>
-            <tbody>
-              {breakdown.map((row) => (
-                <TR key={row.departmentId}>
-                  <TD className="font-medium">
-                    <TextLink
-                      href={`/volunteers/directory?departmentId=${row.departmentId}`}
-                    >
-                      {row.code}
-                    </TextLink>
-                    <span className="block text-xs font-normal text-subtle-foreground">
-                      {row.name}
-                    </span>
-                  </TD>
-                  <TD className="text-foreground-soft">{row.directors}</TD>
-                  <TD className="text-foreground-soft">{row.volunteers}</TD>
-                  <TD className="font-medium">{row.total}</TD>
-                </TR>
-              ))}
-              <TR>
-                <TD className="font-medium">
-                  {clinicWide ? "All departments" : "Your departments"}
-                </TD>
-                <TD className="font-medium">
-                  {breakdown.reduce((s, r) => s + r.directors, 0)}
-                </TD>
-                <TD className="font-medium">
-                  {breakdown.reduce((s, r) => s + r.volunteers, 0)}
-                </TD>
-                <TD className="font-medium">{seatTotal}</TD>
-              </TR>
-            </tbody>
-          </Table>
-        </div>
-      </Card>
-
+      {/* The roster first: it is what people open the Directory for. The
+          headcount (tiles, overlap note, By department) used to come first
+          and put the roster about a screen down, behind a table of every
+          department. */}
       <Card>
         <SectionHeader>Roster</SectionHeader>
 
@@ -384,6 +311,83 @@ export default async function DirectoryPage({ searchParams }: PageProps) {
           basePath="/volunteers/directory"
           params={sp}
         />
+      </Card>
+
+      {/* Distinct PEOPLE, not seats. See the service's module comment.
+          A scoped viewer gets four tiles, not five: attendings are faculty who
+          belong to no department, so there is no such thing as "your" share of
+          them and a zero would read as a bug rather than as a boundary. */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <StatCard label="Active people" value={summary.activePeople} tone="brand" />
+        <StatCard label="Directors" value={summary.directors} />
+        <StatCard label="Volunteers" value={summary.volunteers} />
+        <StatCard label="Departments staffed" value={summary.departmentsStaffed} />
+        {clinicWide && <StatCard label="Attendings" value={summary.attendings} />}
+      </div>
+
+      {/* The one number on this page that looks like an error and is not.
+          Rendered only when the overlap actually exists, so a clinic with no
+          dual-role members never sees a caveat about a case it does not have. */}
+      {summary.bothRoles > 0 && (
+        <p className="text-xs text-subtle-foreground">
+          Directors and Volunteers overlap by {summary.bothRoles}{" "}
+          {summary.bothRoles === 1 ? "person" : "people"} who hold both roles in
+          different departments, so the two counts add up to more than Active
+          people. The department table below counts filled roles, not people, for
+          the same reason: {seatTotal.toLocaleString()} roles across{" "}
+          {summary.activePeople.toLocaleString()} people.
+        </p>
+      )}
+
+      <Card>
+        <SectionHeader>By department</SectionHeader>
+        <p className="mt-1 text-xs text-subtle-foreground">
+          Filled roles this term. Someone in two departments is counted in both.
+          Select a row to filter the roster above.
+        </p>
+        <div className="mt-3">
+          <Table>
+            <THead>
+              <TR>
+                <TH>Department</TH>
+                <TH>Directors</TH>
+                <TH>Volunteers</TH>
+                <TH>Total</TH>
+              </TR>
+            </THead>
+            <tbody>
+              {breakdown.map((row) => (
+                <TR key={row.departmentId}>
+                  <TD className="font-medium">
+                    <TextLink
+                      href={`/volunteers/directory?departmentId=${row.departmentId}`}
+                    >
+                      {row.code}
+                    </TextLink>
+                    <span className="block text-xs font-normal text-subtle-foreground">
+                      {row.name}
+                    </span>
+                  </TD>
+                  <TD className="text-foreground-soft">{row.directors}</TD>
+                  <TD className="text-foreground-soft">{row.volunteers}</TD>
+                  <TD className="font-medium">{row.total}</TD>
+                </TR>
+              ))}
+              <TR>
+                <TD className="font-medium">
+                  {clinicWide ? "All departments" : "Your departments"}
+                </TD>
+                <TD className="font-medium">
+                  {breakdown.reduce((s, r) => s + r.directors, 0)}
+                </TD>
+                <TD className="font-medium">
+                  {breakdown.reduce((s, r) => s + r.volunteers, 0)}
+                </TD>
+                <TD className="font-medium">{seatTotal}</TD>
+              </TR>
+            </tbody>
+          </Table>
+        </div>
       </Card>
 
       {/* Clinic-wide only. Attendings are faculty: they hold no membership and

@@ -33,7 +33,8 @@ import { Spinner } from "@/platform/ui/spinner";
 import { cx } from "@/platform/ui/cx";
 import { displayDate } from "@/modules/schedule/engine/display";
 import { isoDateKey } from "@/platform/dates";
-import { rolesForDept } from "@/modules/schedule/engine/capacity";
+import { rolesForDept, type MedRole } from "@/modules/schedule/engine/capacity";
+import { boardTotals, type PersonTotals } from "@/modules/schedule/engine/board-totals";
 import { compareBuilderMembers } from "@/modules/schedule/engine/member-order";
 import type { BuilderMember, BuilderAssignmentEntry } from "@/modules/schedule/services/builder";
 import { sortClinicDates } from "./clinic-date-order";
@@ -136,6 +137,58 @@ function tagKeys(deptCode: string): ShiftTagKey[] {
 
 // Shared cell chrome, so the eight branches below cannot drift apart.
 const CELL_BASE = "relative border-b border-r border-border text-center align-middle min-w-[52px]";
+
+// ---------------------------------------------------------------------------
+// Running totals
+// ---------------------------------------------------------------------------
+
+const NO_TOTALS: PersonTotals = { shifts: 0, triage: 0, walkin: 0, cc: 0 };
+
+function plural(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+/**
+ * A person's term at a glance, carried in the pinned name column.
+ *
+ * Here rather than in a column of its own because the grid scrolls sideways
+ * across ~18 dates: a total parked past the last Saturday would be off-screen
+ * exactly when a director is looking for it. The name column is already pinned,
+ * so this rides along for free and is always visible.
+ *
+ * Counts are shown even at zero. A blank reads as "not computed"; a 0 reads as
+ * "nobody", and who has none is the thing being scanned for.
+ */
+function RowTotals({ totals, roles }: { totals: PersonTotals; roles: readonly MedRole[] }) {
+  return (
+    <span className="ml-auto inline-flex items-center gap-1 pl-2">
+      {roles.map((role) => (
+        <span
+          key={role}
+          // Same chip colour the cells and the legend use for this shift, so the
+          // tally and the cells it counts read as the same thing.
+          style={tagChipStyle(role)}
+          title={`${TAG_LABEL[role]}: ${totals[role]}`}
+          className="rounded-sm px-1 text-[10px] font-semibold leading-tight tabular-nums"
+        >
+          {TAG_SHORT[role]}
+          {totals[role]}
+        </span>
+      ))}
+      <span
+        title={plural(totals.shifts, "shift", "shifts")}
+        className={cx(
+          "min-w-[1.25rem] rounded-md px-1 py-0.5 text-center text-[11px] font-semibold leading-none tabular-nums",
+          totals.shifts === 0
+            ? "bg-muted text-subtle-foreground"
+            : "bg-brand-faint text-brand-fg",
+        )}
+      >
+        {totals.shifts}
+      </span>
+    </span>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // CellContent -- pure display, no interactivity
@@ -589,6 +642,24 @@ export function BuilderGrid({
   const sortedClinicDates = sortClinicDates(clinicDates);
   const closedDates = new Set(closedDateKeys ?? []);
 
+  // Counted from the board rather than the server, which is what keeps these
+  // live: the grid runs with refreshOnChange off, so nothing here re-renders
+  // from a page load, but every optimistic write and every change-stream
+  // snapshot replaces board.assignments wholesale and these move with it.
+  //
+  // Former members are excluded from the date totals for the same reason
+  // builderView's countableMemberIds excludes them: a leftover shift is shown so
+  // it can be cleared, not counted as coverage. Their own row total still counts
+  // it, because that number answers a question about the person, not the clinic.
+  const medRoles = rolesForDept(deptCode);
+  const totals = boardTotals({
+    assignments: assignmentsByDate,
+    dateKeys: sortedClinicDates.map(isoDateKey),
+    countableIds: new Set(
+      rows.filter((r) => r.status !== "former").map((r) => r.personId),
+    ),
+  });
+
   return (
     <div>
       <GridLegend deptCode={deptCode} />
@@ -672,6 +743,10 @@ export function BuilderGrid({
                         // shift; they are not an assignable active member.
                         <Badge tone="warning">Former</Badge>
                       )}
+                      <RowTotals
+                        totals={totals.perPerson[row.personId] ?? NO_TOTALS}
+                        roles={medRoles}
+                      />
                     </div>
                   </th>
                   {sortedClinicDates.map((d) => {
@@ -694,6 +769,35 @@ export function BuilderGrid({
               );
             })}
           </tbody>
+          {/* Pinned to the bottom for the same reason the date row is pinned to
+              the top: a coverage number that has scrolled out of the box cannot
+              be read while placing the shift that changes it. */}
+          <tfoot>
+            <tr className="bg-muted">
+              <th
+                scope="row"
+                className="sticky bottom-0 left-0 z-30 bg-muted border-t border-r border-border px-3 py-2 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
+              >
+                Volunteers
+              </th>
+              {sortedClinicDates.map((d) => {
+                const dk = isoDateKey(d);
+                const count = totals.volunteersByDate[dk] ?? 0;
+                return (
+                  <td
+                    key={dk}
+                    title={`${displayDate(dk)}: ${plural(count, "volunteer", "volunteers")}`}
+                    className={cx(
+                      "sticky bottom-0 z-20 bg-muted border-t border-r border-border px-2 py-2 text-center text-xs font-semibold tabular-nums",
+                      count === 0 ? "text-subtle-foreground" : "text-muted-foreground",
+                    )}
+                  >
+                    {count}
+                  </td>
+                );
+              })}
+            </tr>
+          </tfoot>
         </table>
       </MatrixScroll>
     </div>

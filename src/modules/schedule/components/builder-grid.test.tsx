@@ -520,3 +520,130 @@ describe("BuilderGrid availability colors", () => {
     expect(out).toContain("Not available");
   });
 });
+
+describe("BuilderGrid running totals", () => {
+  const dates = [d(2026, 9, 5), d(2026, 9, 12), d(2026, 9, 19)];
+  const D1 = "2026-09-05";
+  const D2 = "2026-09-12";
+
+  /** A second member, so a date can hold more than one person. */
+  function other(id: string, name: string, kind: BuilderMember["kind"] = "VOLUNTEER") {
+    return { ...member, person: { ...member.person, id, name }, kind };
+  }
+
+  // The ask this exists for: a director building a term needs to see who is
+  // under-booked without counting filled cells across 18 columns by eye.
+  it("shows how many shifts each person has, in the pinned name column", () => {
+    const out = renderGrid(dates, [], {
+      assignmentsByDate: {
+        [D1]: { p1: assignment("VOLUNTEER") },
+        [D2]: { p1: assignment("VOLUNTEER") },
+      },
+    });
+
+    expect(out).toContain('title="2 shifts"');
+  });
+
+  it("says shift in the singular for a person who has one", () => {
+    const out = renderGrid(dates, [], {
+      assignmentsByDate: { [D1]: { p1: assignment("VOLUNTEER") } },
+    });
+
+    expect(out).toContain('title="1 shift"');
+  });
+
+  // Zero is the number a director is scanning for, so it is shown rather than
+  // left blank: an empty cell reads as "not computed", a 0 reads as "nobody".
+  it("shows a zero for someone with no shifts yet", () => {
+    const out = renderGrid(dates);
+
+    expect(out).toContain('title="0 shifts"');
+  });
+
+  it("counts a department's medical role beside the shift total", () => {
+    const out = renderGrid(dates, [], {
+      deptCode: "SCTP",
+      assignmentsByDate: {
+        [D1]: { p1: assignment("VOLUNTEER", { triage: true }) },
+        [D2]: { p1: assignment("VOLUNTEER", { triage: true }) },
+      },
+    });
+
+    expect(out).toContain('title="Triage: 2"');
+  });
+
+  it("counts the care coordinator role for a JCTP board", () => {
+    const out = renderGrid(dates, [], {
+      deptCode: "JCTP",
+      assignmentsByDate: { [D1]: { p1: assignment("VOLUNTEER", { cc: true }) } },
+    });
+
+    expect(out).toContain('title="Care coordinator: 1"');
+  });
+
+  // rolesForDept is empty outside SCTP and JCTP; a Nursing director should not
+  // be shown a triage tally that can only ever read zero.
+  it("leaves out medical roles the department does not run", () => {
+    const out = renderGrid(dates, [], {
+      deptCode: "MED",
+      assignmentsByDate: { [D1]: { p1: assignment("VOLUNTEER") } },
+    });
+
+    expect(out).not.toContain("Triage:");
+    expect(out).not.toContain("Care coordinator:");
+  });
+
+  it("totals the volunteers on each date in a footer row", () => {
+    const out = renderGrid(dates, [], {
+      members: [member, other("p2", "Bob Volunteer")],
+      assignmentsByDate: {
+        [D1]: { p1: assignment("VOLUNTEER"), p2: assignment("VOLUNTEER") },
+      },
+    });
+
+    expect(out).toContain("Volunteers");
+    expect(out).toContain('title="Sep 5: 2 volunteers"');
+  });
+
+  // Deliberately NOT the Day view's onShift, which counts directors too. Ops
+  // asked the grid for volunteers, so the row says Volunteers and means it.
+  it("counts volunteers only, not the directors or the shadows", () => {
+    const out = renderGrid(dates, [], {
+      members: [member, other("p2", "Dana Director", "DIRECTOR"), other("p3", "Sam Shadow")],
+      assignmentsByDate: {
+        [D1]: {
+          p1: assignment("VOLUNTEER"),
+          p2: assignment("DIRECTOR"),
+          p3: assignment("SHADOW"),
+        },
+      },
+    });
+
+    expect(out).toContain('title="Sep 5: 1 volunteer"');
+  });
+
+  // An offboarded person still holding a shift is shown so it can be cleared,
+  // but they are not coverage. Their own row total stays true regardless.
+  it("leaves a former member out of the date total while still counting their row", () => {
+    const out = renderGrid(dates, [], {
+      assignmentsByDate: {
+        [D1]: { p1: assignment("VOLUNTEER"), "p-gone": assignment("VOLUNTEER") },
+      },
+    });
+
+    expect(out).toContain("Former");
+    expect(out).toContain('title="Sep 5: 1 volunteer"');
+    // Both rows carry one shift of their own.
+    expect(out).toContain('title="1 shift"');
+  });
+
+  // Same reasoning as the pinned header row: a total at the far end of an
+  // 18-week term is useless if it has scrolled out of the box.
+  it("pins the totals row to the bottom of the scroll box", () => {
+    const out = renderGrid(dates);
+
+    expect(out).toContain("sticky bottom-0");
+    // The footer's own corner cell outranks both the column and the row.
+    expect(out).toContain("sticky bottom-0 left-0 z-30");
+  });
+});

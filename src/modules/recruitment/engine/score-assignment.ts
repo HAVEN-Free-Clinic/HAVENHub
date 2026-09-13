@@ -68,9 +68,9 @@ function addTo(map: Map<string, Set<string>>, key: string, value: string): void 
  * Divide a cycle's applications among its scorer pool so each one is read by
  * `target` people.
  *
- * Incremental by design: run it after every pool or roster change and it tops
- * up what is short without disturbing what is already settled. Two rules make
- * that safe.
+ * Incremental by design: run it after every pool, roster, or target change and
+ * it tops up what is short and takes back what is over, without disturbing what
+ * is already settled. Two rules make that safe.
  *
  * A recorded score is never undone. It counts toward the target even when its
  * author is outside the pool (a lead scoring from the detail page is a real
@@ -105,6 +105,33 @@ export function allocateAssignments(input: AllocateInput): AllocateResult {
   }
 
   const target = Math.max(0, Math.trunc(input.target));
+
+  // A lowered target leaves applications over it. Take the surplus back before
+  // topping anything up, so the top-ups see the piles as they will really be.
+  // Only unstarted work comes back, and each assignment comes off whichever of
+  // its scorers holds the biggest pile, so every pile shrinks evenly rather
+  // than one person's emptying.
+  for (const application of input.applications) {
+    const assigned = assignedBy.get(application.id);
+    if (!assigned) continue;
+    const scorers = scoredBy.get(application.id);
+    const surplus = new Set([...assigned, ...(scorers ?? [])]).size - target;
+    if (surplus <= 0) continue;
+    const ordered = [...assigned]
+      .filter((s) => !scorers?.has(s))
+      .sort(
+        (a, b) =>
+          (load.get(b) ?? 0) - (load.get(a) ?? 0) ||
+          tieBreak(a, application.id) - tieBreak(b, application.id) ||
+          (a < b ? -1 : 1),
+      );
+    for (const scorerId of ordered.slice(0, surplus)) {
+      remove.push({ applicationId: application.id, scorerId });
+      assigned.delete(scorerId);
+      load.set(scorerId, (load.get(scorerId) ?? 0) - 1);
+    }
+  }
+
   const add: AssignmentPair[] = [];
   for (const application of input.applications) {
     const covered = new Set([

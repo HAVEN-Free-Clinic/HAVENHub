@@ -165,6 +165,20 @@ describe("setCycleScoring", () => {
     expect(after.filter((r) => r.applicationId !== late.id)).toEqual(before);
   });
 
+  it("takes back the extra reads when the target is lowered", async () => {
+    const { cycle, lead, scorers } = await seed();
+    const apps = [await application(cycle.id, "a"), await application(cycle.id, "b")];
+    await setCycleScoring(cycle.id, { scorerIds: scorers.map((s) => s.id), target: 3 }, lead.id);
+
+    const result = await setCycleScoring(cycle.id, { scorerIds: scorers.map((s) => s.id), target: 2 }, lead.id);
+
+    expect(result).toEqual({ added: 0, removed: 2 });
+    const rows = await assignmentsFor(cycle.id);
+    for (const app of apps) {
+      expect(rows.filter((r) => r.applicationId === app.id)).toHaveLength(2);
+    }
+  });
+
   it("moves a departed scorer's unscored work but keeps the score they gave", async () => {
     const { cycle, lead, scorers } = await seed();
     const [ann, bea, cal] = scorers;

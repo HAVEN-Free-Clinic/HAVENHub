@@ -17,6 +17,11 @@ import {
   spanishScoreTone,
 } from "@/platform/languages/catalog";
 import {
+  bulkAssessmentFlash,
+  parseBulkAssessmentEntries,
+  recordLanguageAssessmentsInBulk,
+} from "@/platform/languages/bulk-assessment";
+import {
   ASSESSMENT_SEASONS,
   addPersonToSpanishHistory,
   linkSpanishAssessmentToPerson,
@@ -186,6 +191,29 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
     redirect(tabHref("queue", { ok: "Assessment recorded." }));
   }
 
+  /**
+   * The queue's bulk bar: one verdict on every ticked row, each still recorded
+   * through that row's own single write. A partial run lands as `error`, whose
+   * toast does not auto-dismiss, so a reviewer cannot miss the rows that stayed.
+   */
+  async function bulkAssessAction(formData: FormData) {
+    "use server";
+    const actor = await requirePermission("volunteers.verify_spanish");
+    const verified = formData.get("verified") === "true";
+    let flash: { ok: string } | { error: string } = { error: "Could not record those assessments." };
+    try {
+      const entries = parseBulkAssessmentEntries(formData.getAll("entry"));
+      flash = bulkAssessmentFlash(
+        await recordLanguageAssessmentsInBulk(actor.personId, { entries, verified }),
+        verified,
+      );
+    } catch (err) {
+      redirect(tabHref("queue", { error: messageFor(err, "Could not record those assessments.") }));
+    }
+    revalidatePath(BASE_PATH);
+    redirect(tabHref("queue", flash));
+  }
+
   async function updateHistoryAction(formData: FormData) {
     "use server";
     await requirePermission("volunteers.verify_spanish");
@@ -313,6 +341,7 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
           rows={queueRows}
           assessMemberAction={assessMemberAction}
           assessApplicantAction={assessApplicantAction}
+          bulkAssessAction={bulkAssessAction}
         />
       )}
 

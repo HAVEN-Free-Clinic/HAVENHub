@@ -181,6 +181,11 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
   // read-only average below; only scorers get the entry form).
   const scoreSummary = canScore || canDecideRouted ? await committeeScoreSummary(applicationId) : null;
   const myScore = scoreSummary?.scores.find((s) => s.scorerId === person.personId) ?? null;
+  // Every reviewer's score and comment, by name, for the people who act on them:
+  // a lead (review_all) and the director deciding a routed application. A scorer
+  // with neither sees the average and their own score, so each score is formed
+  // before reading anyone else's.
+  const showEveryScore = (scope.all || canDecideRouted) && (scoreSummary?.scores.length ?? 0) > 0;
   // Assignment shapes the speed-score QUEUE; it never gates this form. Scoring
   // an application nobody handed you still works and still counts, so the most
   // it does here is say you have wandered off your own pile.
@@ -441,10 +446,20 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
                   Not assigned to you. Your score still counts.
                 </p>
               )}
+              {showEveryScore && (
+                <ul className="mt-2 divide-y divide-border-subtle">
+                  {scoreSummary.scores.map((s) => (
+                    <li key={s.id} className="py-2 text-sm text-foreground-soft">
+                      <strong className="text-foreground">{s.scorer.name}</strong>: {s.score}/5
+                      {s.comments && <p className="mt-0.5 break-words [overflow-wrap:anywhere]">{s.comments}</p>}
+                    </li>
+                  ))}
+                </ul>
+              )}
               {canScore && (
                 <>
                   <form action={committeeScoreAction.bind(null, id, applicationId)}>
-                    <FormRow className="mt-3">
+                    <FormRow className={showEveryScore ? "mt-1 border-t border-border-subtle pt-3" : "mt-3"}>
                       <RowField label="Your score" width="numeric">
                         <Select name="score" required defaultValue={myScore ? String(myScore.score) : ""}>
                           <option value="" disabled>Select…</option>

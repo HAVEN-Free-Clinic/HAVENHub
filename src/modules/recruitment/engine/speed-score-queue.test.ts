@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { buildSpeedScoreQueue, type SpeedScoreItem } from "./speed-score-queue";
 
 const item = (id: string, myScore: number | null): SpeedScoreItem => ({
-  applicationId: id, name: id, typeLabel: "New", myScore,
+  applicationId: id, name: id, typeLabel: "New", myScore, myComment: null,
 });
 
 describe("buildSpeedScoreQueue", () => {

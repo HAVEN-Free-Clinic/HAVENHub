@@ -1,10 +1,12 @@
 /** One row in the speed-score queue. `myScore` is the viewer's own current
- *  score for the application (null when they have not scored it yet). */
+ *  score for the application (null when they have not scored it yet), and
+ *  `myComment` the comment they saved with it. */
 export type SpeedScoreItem = {
   applicationId: string;
   name: string;
   typeLabel: string;
   myScore: number | null;
+  myComment: string | null;
 };
 
 /** Build the ordered queue and the starting index for the speed-score modal.

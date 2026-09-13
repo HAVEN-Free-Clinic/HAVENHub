@@ -1,4 +1,4 @@
-import type { CommitteeScore } from "@prisma/client";
+import type { CommitteeScore, Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { recordAudit } from "@/platform/audit";
@@ -44,10 +44,28 @@ export async function submitCommitteeScore(
   return saved;
 }
 
-/** Running average + all reviewer scores for an application. */
+export type NamedCommitteeScore = Prisma.CommitteeScoreGetPayload<{ include: { scorer: { select: { name: true } } } }>;
+
+/** Running average + all reviewer scores for an application, each named. Who
+ *  may read the individual rows is the page's call, not this function's. */
 export async function committeeScoreSummary(
   applicationId: string,
-): Promise<{ average: number | null; count: number; scores: CommitteeScore[] }> {
-  const scores = await prisma.committeeScore.findMany({ where: { applicationId }, orderBy: { createdAt: "asc" } });
+): Promise<{ average: number | null; count: number; scores: NamedCommitteeScore[] }> {
+  const scores = await prisma.committeeScore.findMany({
+    where: { applicationId },
+    include: { scorer: { select: { name: true } } },
+    orderBy: { createdAt: "asc" },
+  });
   return { ...scoreAverage(scores.map((s) => s.score)), scores };
+}
+
+/** The scorer's own saved comment on each application in a cycle, keyed by
+ *  application. Only their own: the speed-score roster reaches every scorer, so
+ *  it must never carry anyone else's comments. */
+export async function myCommitteeComments(cycleId: string, scorerId: string): Promise<Map<string, string | null>> {
+  const rows = await prisma.committeeScore.findMany({
+    where: { scorerId, application: { cycleId } },
+    select: { applicationId: true, comments: true },
+  });
+  return new Map(rows.map((r) => [r.applicationId, r.comments]));
 }

@@ -18,6 +18,7 @@ import { can } from "@/platform/rbac/engine";
 import { SpeedScoreLauncher } from "@/modules/recruitment/components/speed-score-launcher";
 import { ScoringAssignmentLauncher } from "@/modules/recruitment/components/scoring-assignment-launcher";
 import { scorerQueueScope } from "@/modules/recruitment/services/score-assignment";
+import { myCommitteeComments } from "@/modules/recruitment/services/committee-scoring";
 import { speedScoreAction, loadReviewApplicationAction, loadScoringPanelAction, setCycleScoringAction } from "./actions";
 import type { SpeedScoreItem } from "@/modules/recruitment/engine/speed-score-queue";
 import { rosterDecision, type RosterDecisionStatus } from "@/modules/recruitment/engine/decision-summary";
@@ -94,6 +95,10 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
     scorerQueueScope(id, person.personId),
   ]);
   const canScore = scope.all || canScorePerm;
+  // The viewer's own saved comments, which the speed-score modal starts each
+  // comment box from. Read on its own rather than through the roster query, which
+  // would put every reviewer's comments in front of every scorer.
+  const myComments = canScore ? await myCommitteeComments(id, person.personId) : new Map<string, string | null>();
   // Null on a cycle with no scorer pool. The column default would otherwise
   // read as a target nobody set and mark every under-two row short.
   const coverageTarget = queueScope.pooled ? cycle.scoresPerApplication : null;
@@ -134,6 +139,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
           name: `${a.applicant.firstName} ${a.applicant.lastName}`,
           typeLabel: applicantTypeLabel(a.applicantType),
           myScore: a.committeeScores.find((c) => c.scorerId === person.personId)?.score ?? null,
+          myComment: myComments.get(a.id) ?? null,
         }))
     : [];
   const decisionFilter = decisionParam && DECISION_STATUSES.has(decisionParam as RosterDecisionStatus)

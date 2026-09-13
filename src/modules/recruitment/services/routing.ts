@@ -2,8 +2,10 @@ import type { Application, Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { recordAudit } from "@/platform/audit";
+import { log, errorAttrs } from "@/platform/logging";
 import { isDualRoleDepartment, nextDualFallback } from "@/platform/dual-roles/catalog";
 import { reviewScope, RecruitmentAuthError, AcceptanceError } from "./review";
+import { assignReturnedApplication } from "./score-assignment";
 
 export class RoutingError extends Error {
   constructor(message: string) { super(message); this.name = "RoutingError"; }
@@ -405,6 +407,19 @@ export async function returnToRouting(
     before: { routedDepartmentCode: departmentCode },
     after: { returnedFromDepartmentCode: departmentCode, reason: reason?.trim() || null },
   });
+
+  // Back with the committee, so back in the speed-score queue. On a pooled cycle
+  // that needs someone assigned to it (assignReturnedApplication). Best-effort:
+  // the return has already committed, and pressing Save on the scoring panel
+  // tops up anything this misses.
+  try {
+    await assignReturnedApplication(updated.cycleId, applicationId);
+  } catch (err) {
+    log.error(
+      "[recruitment] failed to assign scorers to a returned application",
+      errorAttrs(err, { applicationId }),
+    );
+  }
   return updated;
 }
 

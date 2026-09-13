@@ -330,6 +330,9 @@ export async function promoteContracts(
           declared: application.dualRoleDepartments,
           primaryDepartmentCode: dept.code,
           activeDepartmentCodes,
+          // A department that already rejected them during selection has
+          // decided; offering the person to it again would reopen that.
+          declinedBy: application.dualRoleDeclinedBy,
         })) {
           const key = { personId: person.id, termId: cycle.termId, departmentCode };
           const existingInterest = await tx.dualRoleInterest.findUnique({

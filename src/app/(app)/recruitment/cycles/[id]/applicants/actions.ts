@@ -123,10 +123,13 @@ export async function decideRoutedAction(cycleId: string, applicationId: string,
   if (!["ACCEPT", "REJECT", "WAITLIST", "RETURN"].includes(outcome)) {
     redirect(bounce(cycleId, applicationId, { error: "Invalid outcome." }));
   }
-  // Set only on a RETURN whose actor can no longer open the application they just
-  // returned -- see below. Resolved inside the try but acted on after it, so
-  // redirect()'s NEXT_REDIRECT throw is never swallowed by the catch.
-  let returnedOutOfView = false;
+  // Set only when the actor can no longer open the application they just acted on
+  // -- see below. Resolved inside the try but acted on after it, so redirect()'s
+  // NEXT_REDIRECT throw is never swallowed by the catch.
+  let outOfView = false;
+  // Set when a REJECT fell through to a dual-role department instead of standing
+  // (planDualFallback in services/routing.ts).
+  let passedToDual = false;
   try {
     if (outcome === "RETURN") {
       const updated = await returnToRouting(applicationId, person.personId, notes);
@@ -137,19 +140,26 @@ export async function decideRoutedAction(cycleId: string, applicationId: string,
       // its notFound(), and their confirmation was a 404. The recruitment lead sees
       // every application and stays put -- re-routing is their next move and the
       // Routing card is right there.
-      returnedOutOfView = !(await canViewerOpenApplication(
+      outOfView = !(await canViewerOpenApplication(
         // returnToRouting refuses any cycle that is not VOLUNTEER, so a returned
         // application's track is known without re-reading the cycle.
         { ...updated, cycle: { track: "VOLUNTEER" } },
         person.personId,
       ));
     } else {
-      await decideRoutedApplication(applicationId, outcome as "ACCEPT" | "REJECT" | "WAITLIST", person.personId, notes);
+      const updated = await decideRoutedApplication(applicationId, outcome as "ACCEPT" | "REJECT" | "WAITLIST", person.personId, notes);
+      // decideRoutedApplication only leaves a REJECT undecided when it fell
+      // through. That re-routes the application, so the director can lose the page
+      // exactly as on a return.
+      if (outcome === "REJECT" && updated.decision === "PENDING") {
+        passedToDual = true;
+        outOfView = !(await canViewerOpenApplication({ ...updated, cycle: { track: "VOLUNTEER" } }, person.personId));
+      }
     }
     await captureEvent({
       distinctId: person.personId,
       event: outcome === "RETURN" ? "application_returned_to_routing" : "application_decided",
-      properties: { cycle_id: cycleId, application_id: applicationId, outcome },
+      properties: { cycle_id: cycleId, application_id: applicationId, outcome, dual_fallback: passedToDual },
       groups: await termGroupForCycle(cycleId),
     });
   } catch (err) {
@@ -158,13 +168,14 @@ export async function decideRoutedAction(cycleId: string, applicationId: string,
     }
     throw err;
   }
-  // A return is deliberately not "Decision recorded.": it records no decision, it
-  // hands the applicant back still PENDING. Both landing pages resolve
-  // saved=returned to wording that says so (platform/ui/toast/flash.ts).
-  if (returnedOutOfView) {
-    redirect(`/recruitment/cycles/${cycleId}/applicants?saved=returned`);
+  // Neither a return nor a fallback is "Decision recorded.": both leave the
+  // application PENDING. Both landing pages resolve saved=returned and
+  // saved=dual_fallback to wording that says so (platform/ui/toast/flash.ts).
+  const saved = outcome === "RETURN" ? "returned" : passedToDual ? "dual_fallback" : "decision";
+  if (outOfView) {
+    redirect(`/recruitment/cycles/${cycleId}/applicants?saved=${saved}`);
   }
-  redirect(bounce(cycleId, applicationId, { saved: outcome === "RETURN" ? "returned" : "decision" }));
+  redirect(bounce(cycleId, applicationId, { saved }));
 }
 
 export async function scheduleInterviewAction(cycleId: string, applicationId: string, formData: FormData) {

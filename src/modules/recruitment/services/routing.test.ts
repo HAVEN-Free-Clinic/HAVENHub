@@ -425,3 +425,131 @@ describe("applyTierRoutes / applyTierRejects", () => {
     await expect(applyTierRejects([a.id], other.id, null)).rejects.toBeInstanceOf(RecruitmentAuthError);
   });
 });
+
+describe("dual-role fallback", () => {
+  /** The base seed, with VADM and INTP as cycle departments and the applicant's
+   *  dual-option boxes set the way submissions.ts hoists them. */
+  async function seedDual(dualRoleDepartments: string[]) {
+    const base = await seed();
+    await prisma.department.create({ data: { code: "VADM", name: "Vaccine" } });
+    await prisma.department.create({ data: { code: "INTP", name: "Interpreting" } });
+    await prisma.recruitmentCycle.update({
+      where: { id: base.application.cycleId },
+      data: { departments: ["EDUC", "MDIC", "VADM", "INTP"] },
+    });
+    const application = await prisma.application.update({ where: { id: base.application.id }, data: { dualRoleDepartments } });
+    return { ...base, application };
+  }
+
+  it("a department's REJECT passes the applicant to the dual department they ticked, still undecided", async () => {
+    const { lead, application } = await seedDual(["INTP"]);
+    await routeApplication(application.id, "EDUC", lead.id);
+    const after = await decideRoutedApplication(application.id, "REJECT", lead.id, "not for us");
+    expect(after.routedDepartmentCode).toBe("INTP");
+    expect(after.decision).toBe("PENDING");
+    expect(after.decisionNotes).toBeNull();
+    expect(after.dualFallbackAt).not.toBeNull();
+    expect(after.dualFallbackFromDepartmentCode).toBe("EDUC");
+    const audit = await prisma.auditLog.findFirst({ where: { action: "recruitment.dual_fallback" } });
+    expect(audit?.entityId).toBe(application.id);
+  });
+
+  it("tries VADM first, then INTP, then lets the rejection stand", async () => {
+    const { lead, application } = await seedDual(["INTP", "VADM"]);
+    await routeApplication(application.id, "EDUC", lead.id);
+
+    const first = await decideRoutedApplication(application.id, "REJECT", lead.id, null);
+    expect(first.routedDepartmentCode).toBe("VADM");
+
+    const second = await decideRoutedApplication(application.id, "REJECT", lead.id, null);
+    expect(second.routedDepartmentCode).toBe("INTP");
+    expect(second.dualRoleDeclinedBy).toEqual(["VADM"]);
+    // Still names where the fallback started, not the last department to decline.
+    expect(second.dualFallbackFromDepartmentCode).toBe("EDUC");
+
+    const final = await decideRoutedApplication(application.id, "REJECT", lead.id, "no");
+    expect(final.decision).toBe("REJECT");
+    expect(final.routedDepartmentCode).toBe("INTP");
+    expect(final.dualRoleDeclinedBy).toEqual(["INTP", "VADM"]);
+  });
+
+  it("leaves a REJECT final when no dual box was ticked", async () => {
+    const { lead, application } = await seedDual([]);
+    await routeApplication(application.id, "EDUC", lead.id);
+    const after = await decideRoutedApplication(application.id, "REJECT", lead.id, "no");
+    expect(after.decision).toBe("REJECT");
+    expect(after.routedDepartmentCode).toBe("EDUC");
+    expect(after.dualFallbackAt).toBeNull();
+    expect(await prisma.auditLog.count({ where: { action: "recruitment.dual_fallback" } })).toBe(0);
+  });
+
+  it("does not fall through on a WAITLIST", async () => {
+    const { lead, application } = await seedDual(["VADM"]);
+    await routeApplication(application.id, "EDUC", lead.id);
+    const after = await decideRoutedApplication(application.id, "WAITLIST", lead.id, null);
+    expect(after.decision).toBe("WAITLIST");
+    expect(after.routedDepartmentCode).toBe("EDUC");
+  });
+
+  it("an SRR reject before routing falls through too", async () => {
+    const { lead, application } = await seedDual(["VADM"]);
+    const after = await rejectApplication(application.id, lead.id, "bottom tier");
+    expect(after.routedDepartmentCode).toBe("VADM");
+    expect(after.decision).toBe("PENDING");
+    expect(after.dualFallbackAt).not.toBeNull();
+    // Nobody routed them, so there is no department to name.
+    expect(after.dualFallbackFromDepartmentCode).toBeNull();
+  });
+
+  it("an SRR reject of a returned applicant falls through and clears the returned marker", async () => {
+    const { lead, application } = await seedDual(["VADM"]);
+    await routeApplication(application.id, "EDUC", lead.id);
+    await returnToRouting(application.id, lead.id, "not us");
+    const after = await rejectApplication(application.id, lead.id, null);
+    expect(after.routedDepartmentCode).toBe("VADM");
+    expect(after.returnedToRoutingAt).toBeNull();
+    expect(after.returnedFromDepartmentCode).toBeNull();
+    expect(after.dualFallbackFromDepartmentCode).toBe("EDUC");
+  });
+
+  it("still refuses a REJECT under an emailed acceptance, without falling through", async () => {
+    const { lead, application } = await seedDual(["VADM"]);
+    await routeApplication(application.id, "EDUC", lead.id);
+    await decideRoutedApplication(application.id, "ACCEPT", lead.id, null);
+    await prisma.acceptance.updateMany({ where: { applicationId: application.id }, data: { emailedAt: new Date() } });
+    await expect(decideRoutedApplication(application.id, "REJECT", lead.id, null)).rejects.toBeInstanceOf(AcceptanceError);
+    const app = await prisma.application.findUniqueOrThrow({ where: { id: application.id } });
+    expect(app.routedDepartmentCode).toBe("EDUC");
+    expect(app.dualFallbackAt).toBeNull();
+  });
+
+  it("tears down a not-yet-emailed acceptance before falling through", async () => {
+    const { lead, application } = await seedDual(["VADM"]);
+    await routeApplication(application.id, "EDUC", lead.id);
+    await decideRoutedApplication(application.id, "ACCEPT", lead.id, null);
+    const after = await decideRoutedApplication(application.id, "REJECT", lead.id, null);
+    expect(after.routedDepartmentCode).toBe("VADM");
+    expect(await prisma.acceptance.count({ where: { applicationId: application.id } })).toBe(0);
+  });
+
+  it("re-routing a fallback applicant elsewhere clears the fallback but remembers who declined", async () => {
+    const { lead, application } = await seedDual(["INTP", "VADM"]);
+    await routeApplication(application.id, "EDUC", lead.id);
+    await decideRoutedApplication(application.id, "REJECT", lead.id, null); // -> VADM
+    await decideRoutedApplication(application.id, "REJECT", lead.id, null); // -> INTP
+    const rerouted = await routeApplication(application.id, "MDIC", lead.id);
+    expect(rerouted.dualFallbackAt).toBeNull();
+    expect(rerouted.dualFallbackFromDepartmentCode).toBeNull();
+    expect(rerouted.dualRoleDeclinedBy).toEqual(["VADM"]);
+  });
+
+  it("the bottom-tier batch reports how many passed to a dual department", async () => {
+    const { lead, application } = await seedDual(["VADM"]);
+    const applicant = await prisma.applicant.create({ data: { cycleId: application.cycleId, firstName: "P", lastName: "Q", email: "pq@y.edu", emailLower: "pq@y.edu" } });
+    const plain = await prisma.application.create({ data: { cycleId: application.cycleId, applicantId: applicant.id, answers: {}, applicantType: "NEW", departmentChoices: ["EDUC"] } });
+    const res = await applyTierRejects([application.id, plain.id], lead.id, null);
+    expect(res.applied).toBe(2);
+    expect(res.passedToDual).toBe(1);
+    expect((await prisma.application.findUniqueOrThrow({ where: { id: plain.id } })).decision).toBe("REJECT");
+  });
+});

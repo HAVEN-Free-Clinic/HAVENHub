@@ -126,9 +126,9 @@ export async function loadScoringPanel(cycleId: string, viewerId: string): Promi
  * then divide the roster up to match.
  *
  * Idempotent and incremental: press it again after a late application arrives
- * and it tops up only what is short. See allocateAssignments for the rules that
- * make re-running safe (a recorded score is never undone, and only unscored
- * work moves).
+ * and it tops up only what is short; lower the target and it takes back the
+ * unstarted surplus. See allocateAssignments for the rules that make re-running
+ * safe (a recorded score is never undone, and only unscored work moves).
  *
  * Emptying the pool turns the whole feature off for the cycle: the assignments
  * go, and every recruitment.score holder is back to seeing the full roster.
@@ -177,6 +177,16 @@ export async function setCycleScoring(
     scored,
   });
 
+  // One delete per scorer, not per assignment. Lowering the target on a full
+  // cycle takes back hundreds of rows, and a pool is only ever a handful of
+  // people.
+  const removeByScorer = new Map<string, string[]>();
+  for (const r of remove) {
+    const ids = removeByScorer.get(r.scorerId);
+    if (ids) ids.push(r.applicationId);
+    else removeByScorer.set(r.scorerId, [r.applicationId]);
+  }
+
   // Everything above is a read or a pure computation, so the transaction holds
   // only writes. A statement that fails inside a Postgres transaction aborts
   // the whole thing, and there is nothing here worth catching and continuing
@@ -195,8 +205,8 @@ export async function setCycleScoring(
         update: {},
       }),
     ),
-    ...remove.map((r) =>
-      prisma.scoreAssignment.deleteMany({ where: { applicationId: r.applicationId, scorerId: r.scorerId } }),
+    ...[...removeByScorer].map(([scorerId, applicationIds]) =>
+      prisma.scoreAssignment.deleteMany({ where: { scorerId, applicationId: { in: applicationIds } } }),
     ),
     ...(add.length > 0 ? [prisma.scoreAssignment.createMany({ data: add, skipDuplicates: true })] : []),
   ]);

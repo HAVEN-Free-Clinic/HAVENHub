@@ -211,6 +211,53 @@ export async function setCycleScoring(
   return { added: add.length, removed: remove.length };
 }
 
+/**
+ * Give one application that has just come back to the committee its readers,
+ * the way the panel's Save would, without touching anyone else's pile.
+ *
+ * Called when a department hands an application back (returnToRouting). An
+ * application routed at submission, as renewals and first-choice departments
+ * are, was never in the division, so it came back to "Needs re-routing"
+ * assigned to nobody and, on a pooled cycle, sat in no scorer's queue.
+ *
+ * Runs the ordinary allocation over the whole open roster so the new readers
+ * are the least-loaded scorers, but writes only this application's additions
+ * and none of the removals: a hand-back is not the moment to reshuffle other
+ * piles. The application goes first so its picks see today's loads, not loads
+ * inflated by top-ups for other short applications that are not being written.
+ *
+ * A no-op on a cycle with no pool, where every scorer already sees everything.
+ */
+export async function assignReturnedApplication(cycleId: string, applicationId: string): Promise<number> {
+  const [cycle, pool] = await Promise.all([
+    prisma.recruitmentCycle.findUnique({ where: { id: cycleId }, select: { scoresPerApplication: true } }),
+    prisma.cycleScorer.findMany({ where: { cycleId }, select: { personId: true } }),
+  ]);
+  if (!cycle || pool.length === 0) return 0;
+
+  const applications = await eligibleApplications(cycleId);
+  const returned = applications.find((a) => a.id === applicationId);
+  if (!returned) return 0;
+  const ordered = [returned, ...applications.filter((a) => a.id !== applicationId)];
+  const existing = await prisma.scoreAssignment.findMany({
+    where: { applicationId: { in: ordered.map((a) => a.id) } },
+    select: { applicationId: true, scorerId: true },
+  });
+
+  const { add } = allocateAssignments({
+    applications: ordered.map((a) => ({ id: a.id, applicantPersonId: a.applicantPersonId })),
+    scorerIds: pool.map((p) => p.personId),
+    target: cycle.scoresPerApplication,
+    existing,
+    scored: ordered.flatMap((a) => a.scorerIds.map((scorerId) => ({ applicationId: a.id, scorerId }))),
+  });
+  const mine = add.filter((a) => a.applicationId === applicationId);
+  if (mine.length > 0) {
+    await prisma.scoreAssignment.createMany({ data: mine, skipDuplicates: true });
+  }
+  return mine.length;
+}
+
 export type QueueScope = {
   /** False when the cycle has no pool. Every recruitment.score holder then sees
    *  the whole roster, exactly as they did before assignments existed. */

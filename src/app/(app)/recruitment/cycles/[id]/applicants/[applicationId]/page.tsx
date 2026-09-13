@@ -14,6 +14,7 @@ import { scheduleInterviewAction, committeeScoreAction, routeAction, decideRoute
 import { getApplicantAbsenceExcuse } from "@/modules/recruitment/services/training";
 import { priorLanguageVerdicts } from "@/platform/languages";
 import { SPANISH } from "@/platform/languages/catalog";
+import { nextDualFallback } from "@/platform/dual-roles/catalog";
 import { LanguageAssessmentCard } from "@/modules/recruitment/components/language-assessment-card";
 import { ExcuseAbsenceButton } from "@/modules/recruitment/components/excuse-absence-button";
 import { listApplicationInterviews } from "@/modules/recruitment/services/interviews";
@@ -146,6 +147,19 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
   const emailedAcceptance = app.routedDepartmentCode
     ? acceptances.find((a) => a.departmentCode === app.routedDepartmentCode && a.emailedAt != null)
     : undefined;
+  // Where a REJECT recorded here would send the applicant instead of ending the
+  // application (planDualFallback in services/routing.ts). Stated on the Reject
+  // option, so a director is never surprised that the applicant moved on.
+  const rejectPassesTo = app.routedDepartmentCode
+    ? nextDualFallback({
+        declared: app.dualRoleDepartments,
+        declinedBy: app.dualRoleDeclinedBy,
+        rejectingDepartmentCode: app.routedDepartmentCode,
+        cycleDepartments: app.cycle.departments,
+      })
+    : null;
+  // Dual departments that declined before this one, for the fallback note.
+  const declinedEarlier = app.dualRoleDeclinedBy.filter((c) => c !== app.routedDepartmentCode);
   const interviewedDepts = new Set(existingInterviews.map((i) => i.departmentCode));
   const scheduleChoices = choices.filter((d) => !interviewedDepts.has(d));
   const answers = (app.answers ?? {}) as Record<string, unknown>;
@@ -548,6 +562,14 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
                   <p className="mt-3 text-sm text-foreground-soft">
                     Routed to <strong className="text-foreground">{app.routedDepartmentCode}</strong>. Decide directly from the committee score (no interview).
                   </p>
+                  {app.dualFallbackAt && (
+                    <p className="mt-2 text-sm text-foreground-soft">
+                      <Badge>Dual-role fallback</Badge>{" "}
+                      {app.dualFallbackFromDepartmentCode ?? "The recruitment lead"} did not select this applicant
+                      {declinedEarlier.length > 0 ? `, and neither did ${declinedEarlier.join(" or ")}` : ""}. They ticked
+                      the {app.routedDepartmentCode} dual option, so the decision is now {app.routedDepartmentCode}&apos;s.
+                    </p>
+                  )}
                   {emailedAcceptance && (
                     <RescindAcceptanceNotice
                       departmentCode={app.routedDepartmentCode}
@@ -560,7 +582,9 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
                       <RowField label="Outcome">
                         <Select name="outcome" required defaultValue={app.decision === "PENDING" ? "ACCEPT" : app.decision}>
                           <option value="ACCEPT">Accept</option>
-                          <option value="REJECT">Reject</option>
+                          <option value="REJECT">
+                            {rejectPassesTo ? `Reject (passes to ${rejectPassesTo}, their dual option)` : "Reject"}
+                          </option>
                           <option value="WAITLIST">Waitlist</option>
                           {/* Not a decision: hands the applicant back to the
                               recruitment lead with the application still open, for

@@ -33,10 +33,18 @@ export async function speedRouteRouteAction(applicationId: string, departmentCod
   }
 }
 
-export async function speedRouteRejectAction(applicationId: string, notes: string | null = null): Promise<{ error?: string }> {
+export async function speedRouteRejectAction(
+  applicationId: string,
+  notes: string | null = null,
+): Promise<{ error?: string; passedTo?: string }> {
   const person = await requirePersonSession();
   try {
-    await rejectApplication(applicationId, person.personId, notes && notes.trim() ? notes.trim() : null);
+    const updated = await rejectApplication(applicationId, person.personId, notes && notes.trim() ? notes.trim() : null);
+    // A reject that fell through to a dual-role department (planDualFallback in
+    // services/routing.ts) leaves the application routed there, still PENDING.
+    if (updated.decision === "PENDING" && updated.routedDepartmentCode) {
+      return { passedTo: updated.routedDepartmentCode };
+    }
     return {};
   } catch (err) {
     const m = messageIfKnown(err);

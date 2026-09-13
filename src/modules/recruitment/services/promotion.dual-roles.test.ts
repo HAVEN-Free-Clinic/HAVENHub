@@ -117,6 +117,19 @@ it("does not offer a person to the department they were accepted into", async ()
   expect(offers.map((o) => o.departmentCode)).toEqual(["INTP"]);
 });
 
+it("does not offer a department that already declined the applicant during selection", async () => {
+  // The application fell through to VADM after a rejection and VADM said no too
+  // (routing.ts records that in dualRoleDeclinedBy). VADM has decided; promotion
+  // must not put the same person back in its queue.
+  const { srr, contract } = await seedSubmitted({ dualRoleDepartments: ["VADM", "INTP"] });
+  await prisma.application.updateMany({ data: { dualRoleDeclinedBy: ["VADM"] } });
+
+  await promoteContracts([contract.id], srr.id);
+
+  const offers = await prisma.dualRoleInterest.findMany();
+  expect(offers.map((o) => o.departmentCode)).toEqual(["INTP"]);
+});
+
 it("does not offer a department the person is already an active member of", async () => {
   const { srr, contract, term, vadm } = await seedSubmitted({ dualRoleDepartments: ["VADM"] });
   // A returning member who already holds the dual role from an earlier term's

@@ -3,6 +3,7 @@ import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import { RecruitmentAuthError, AcceptanceError } from "./review";
 import { sendRejections, rejectionSummary } from "./decisions";
+import { rejectApplication, decideRoutedApplication } from "./routing";
 
 /** A cycle whose decisions are already released, since that is the gate on
  *  sending rejections at all -- every case below except the ordering test
@@ -96,6 +97,23 @@ it("never emails a waitlisted applicant", async () => {
 
   expect((await sendRejections(cycle.id, srr.id)).sent).toBe(0);
   expect(await rejectionMails()).toHaveLength(0);
+});
+
+it("does not email a rejected applicant still being considered by a dual department, only after its final no", async () => {
+  const { srr, cycle } = await seed();
+  await prisma.department.create({ data: { code: "VADM", name: "Vaccine" } });
+  await prisma.recruitmentCycle.update({ where: { id: cycle.id }, data: { departments: ["SRHD", "MDIC", "VADM"] } });
+  const app = await mkApp(cycle.id, "dual@yale.edu");
+  await prisma.application.update({ where: { id: app.id }, data: { dualRoleDepartments: ["VADM"] } });
+
+  // Rejected in routing, but they ticked VADM, so VADM now has them.
+  await rejectApplication(app.id, srr.id, null);
+  expect((await sendRejections(cycle.id, srr.id)).sent).toBe(0);
+
+  // VADM says no too. Nothing is left, so now they are told.
+  await decideRoutedApplication(app.id, "REJECT", srr.id, null);
+  expect((await sendRejections(cycle.id, srr.id)).sent).toBe(1);
+  expect((await rejectionMails()).map((m) => m.toEmail)).toEqual(["dual@yale.edu"]);
 });
 
 it("never emails an undecided applicant, so an unreviewed application is not told it lost", async () => {

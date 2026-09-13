@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  DUAL_FALLBACK_ORDER,
   DUAL_ROLE_DEPARTMENT_CODES,
   DUAL_ROLE_FIELDS,
   dualRoleDepartmentsFromAnswers,
   dualRolesToRecord,
   isChecked,
   isDualRoleDepartment,
+  nextDualFallback,
 } from "./catalog";
 
 describe("isChecked", () => {
@@ -108,6 +110,81 @@ describe("dualRolesToRecord", () => {
       }),
     ).toEqual(["INTP", "VADM"]);
   });
+
+  it("drops a dual department that already declined this applicant", () => {
+    // Rejected by their department, then by VADM, then accepted by INTP: VADM
+    // has already said no, so promotion must not ask it again.
+    expect(
+      dualRolesToRecord({
+        declared: ["VADM", "INTP"],
+        primaryDepartmentCode: "INTP",
+        activeDepartmentCodes: [],
+        declinedBy: ["VADM"],
+      }),
+    ).toEqual([]);
+  });
+});
+
+describe("nextDualFallback", () => {
+  const cycleDepartments = ["JCTP", "VADM", "INTP"];
+
+  it("sends a rejected applicant to the dual department they ticked", () => {
+    expect(
+      nextDualFallback({ declared: ["INTP"], declinedBy: [], rejectingDepartmentCode: "JCTP", cycleDepartments }),
+    ).toBe("INTP");
+  });
+
+  it("tries VADM before INTP when both are ticked", () => {
+    expect(
+      nextDualFallback({ declared: ["INTP", "VADM"], declinedBy: [], rejectingDepartmentCode: "JCTP", cycleDepartments }),
+    ).toBe("VADM");
+  });
+
+  it("moves on to INTP once VADM has declined", () => {
+    expect(
+      nextDualFallback({ declared: ["INTP", "VADM"], declinedBy: ["VADM"], rejectingDepartmentCode: "VADM", cycleDepartments }),
+    ).toBe("INTP");
+  });
+
+  it("never sends someone back to the department rejecting them", () => {
+    // Routed to VADM as their primary, ticked VADM too, and VADM said no.
+    expect(
+      nextDualFallback({ declared: ["VADM"], declinedBy: [], rejectingDepartmentCode: "VADM", cycleDepartments }),
+    ).toBeNull();
+  });
+
+  it("returns null once every ticked department has declined", () => {
+    expect(
+      nextDualFallback({ declared: ["INTP", "VADM"], declinedBy: ["VADM", "INTP"], rejectingDepartmentCode: "INTP", cycleDepartments }),
+    ).toBeNull();
+  });
+
+  it("returns null when nothing was ticked", () => {
+    expect(
+      nextDualFallback({ declared: [], declinedBy: [], rejectingDepartmentCode: "JCTP", cycleDepartments }),
+    ).toBeNull();
+  });
+
+  it("falls through on a reject that has no department behind it", () => {
+    // SRR's bottom-tier speed reject happens before routing.
+    expect(
+      nextDualFallback({ declared: ["VADM"], declinedBy: [], rejectingDepartmentCode: null, cycleDepartments }),
+    ).toBe("VADM");
+  });
+
+  it("skips a dual department that is not part of the cycle", () => {
+    // routeApplication refuses a department outside the cycle, so falling
+    // through to one would strand the applicant in a queue nobody reviews.
+    expect(
+      nextDualFallback({ declared: ["INTP", "VADM"], declinedBy: [], rejectingDepartmentCode: "JCTP", cycleDepartments: ["JCTP", "INTP"] }),
+    ).toBe("INTP");
+  });
+
+  it("ignores a code that is not a dual-role department", () => {
+    expect(
+      nextDualFallback({ declared: ["MDIC"], declinedBy: [], rejectingDepartmentCode: "JCTP", cycleDepartments: ["JCTP", "MDIC"] }),
+    ).toBeNull();
+  });
 });
 
 describe("the catalog itself", () => {
@@ -115,6 +192,13 @@ describe("the catalog itself", () => {
     expect(DUAL_ROLE_DEPARTMENT_CODES).toEqual(["INTP", "VADM"]);
     expect(isDualRoleDepartment("VADM")).toBe(true);
     expect(isDualRoleDepartment("MDIC")).toBe(false);
+  });
+
+  it("gives every dual-role department a place in the fallback order", () => {
+    // Adding a third dual department must force a decision about where it sits,
+    // rather than leaving it silently unreachable after a rejection.
+    expect(DUAL_FALLBACK_ORDER).toEqual(["VADM", "INTP"]);
+    expect([...DUAL_FALLBACK_ORDER].sort()).toEqual(DUAL_ROLE_DEPARTMENT_CODES);
   });
 
   it("keys the map on the field keys the application template writes", () => {

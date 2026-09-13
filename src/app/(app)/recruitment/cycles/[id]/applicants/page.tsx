@@ -309,7 +309,17 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
                   {formatScoreSummary(scoreAverage(a.committeeScores.map((c) => c.score)), coverageTarget)}
                 </TD>
                 <TD>
-                  <Badge>{applicationStageLabel[stageOf(a)]}</Badge>
+                  <span className="inline-flex flex-wrap items-center gap-1.5">
+                    <Badge>{applicationStageLabel[stageOf(a)]}</Badge>
+                    {/* A rejection passed this applicant to a dual-role department
+                        they ticked (planDualFallback in services/routing.ts), so
+                        the department now deciding should know why it has them. */}
+                    {a.dualFallbackAt && a.routedDepartmentCode && (
+                      <Badge title={`Passed to ${a.routedDepartmentCode} after a rejection, as their dual option`}>
+                        Dual fallback
+                      </Badge>
+                    )}
+                  </span>
                 </TD>
                 <TD className="text-foreground-soft">
                   <span className="inline-flex flex-wrap items-center gap-1.5">

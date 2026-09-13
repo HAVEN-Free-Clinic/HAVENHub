@@ -85,24 +85,70 @@ export function dualRoleDepartmentsFromAnswers(answers: unknown): string[] {
  * The dual departments to actually record an interest in, given what the
  * applicant asked for and where they ended up.
  *
- * Two exclusions, both of which would otherwise create a row that can never be
- * actioned:
+ * Three exclusions, each of which would otherwise create a row that should
+ * never be actioned:
  *
  *  - the primary department. Someone routed to VADM who also ticked the VADM
  *    box is already a VADM volunteer; an interest row would ask VADM's director
  *    to add somebody they can already see on their roster.
  *  - a department they already hold an ACTIVE membership in. A returning member
  *    re-stating a dual role they were granted last term is not new work.
+ *  - a department that already declined them during selection (see
+ *    nextDualFallback). Asking it again at promotion would reopen a decision
+ *    its director has already made.
  *
- * Pure, so both rules are stated once and testable without a database.
+ * Pure, so every rule is stated once and testable without a database.
  */
 export function dualRolesToRecord(input: {
   declared: readonly string[];
   primaryDepartmentCode: string;
   activeDepartmentCodes: readonly string[];
+  declinedBy?: readonly string[];
 }): string[] {
-  const held = new Set([input.primaryDepartmentCode, ...input.activeDepartmentCodes]);
+  const excluded = new Set([
+    input.primaryDepartmentCode,
+    ...input.activeDepartmentCodes,
+    ...(input.declinedBy ?? []),
+  ]);
   return [...new Set(input.declared)]
-    .filter((code) => isDualRoleDepartment(code) && !held.has(code))
+    .filter((code) => isDualRoleDepartment(code) && !excluded.has(code))
     .sort();
+}
+
+/**
+ * The order dual departments are tried in when a rejected applicant ticked
+ * more than one. Every code in DUAL_ROLE_DEPARTMENT_CODES must appear here, so
+ * adding a dual department forces a decision about where it sits.
+ */
+export const DUAL_FALLBACK_ORDER: readonly string[] = Object.freeze(["VADM", "INTP"]);
+
+/**
+ * Where a rejected applicant goes next, or null when the rejection stands.
+ *
+ * A dual box is a real interest in that department, so a "no" from the
+ * department an applicant was routed to (or from the committee before routing)
+ * is not the end of the application while a department they ticked has not yet
+ * had its say. The next one is the first in DUAL_FALLBACK_ORDER that the
+ * applicant ticked, that has not already declined them, that is not the
+ * department rejecting them right now, and that is part of the cycle
+ * (routeApplication refuses anything else, so falling through to it would
+ * strand the applicant in a queue nobody reviews).
+ *
+ * Pure, so the whole rule is stated once and testable without a database.
+ */
+export function nextDualFallback(input: {
+  declared: readonly string[];
+  declinedBy: readonly string[];
+  rejectingDepartmentCode: string | null;
+  cycleDepartments: readonly string[];
+}): string | null {
+  return (
+    DUAL_FALLBACK_ORDER.find(
+      (code) =>
+        input.declared.includes(code) &&
+        !input.declinedBy.includes(code) &&
+        code !== input.rejectingDepartmentCode &&
+        input.cycleDepartments.includes(code),
+    ) ?? null
+  );
 }

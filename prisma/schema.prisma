@@ -2671,6 +2671,19 @@ model Application {
   returnedFromDepartmentCode String?
   returnedById               String?
   returnedReason             String?
+  /// Dual-role fallback (see nextDualFallback in platform/dual-roles). A
+  /// rejection on an application whose applicant ticked a dual box passes it to
+  /// that department instead of ending it. These are the dual department CODES
+  /// that have since rejected the applicant too: the fallback never returns to
+  /// one, and promotion never offers the person to one. Kept when the lead
+  /// re-routes, because the declines still happened.
+  dualRoleDeclinedBy             String[]          @default([])
+  /// Set while the application sits with a dual department because of a
+  /// fallback, and where the fallback started: the department whose rejection
+  /// began it, or null when the recruitment lead rejected before routing. Both
+  /// cleared when the lead routes the application to a different department.
+  dualFallbackAt                 DateTime?
+  dualFallbackFromDepartmentCode String?
   // The routed department's decision on a VOLUNTEER application (no interview).
   // Director-track decisions live on Interview.decision instead.
   decision                   InterviewDecision @default(PENDING)

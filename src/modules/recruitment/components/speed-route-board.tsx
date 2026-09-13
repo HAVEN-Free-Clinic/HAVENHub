@@ -21,7 +21,7 @@ import { SpeedRouteModal } from "./speed-route-modal";
 type Props = {
   board: Board;
   onRoute: (applicationId: string, departmentCode: string) => Promise<{ error?: string }>;
-  onReject: (applicationId: string) => Promise<{ error?: string }>;
+  onReject: (applicationId: string) => Promise<{ error?: string; passedTo?: string }>;
   onReopen: (applicationId: string) => Promise<{ error?: string }>;
   onApplyTop: (entries: { applicationId: string; departmentCode: string }[]) => Promise<BatchResult | { error: string }>;
   onApplyBottom: (applicationIds: string[]) => Promise<BatchResult | { error: string }>;
@@ -249,7 +249,13 @@ export function SpeedRouteBoard({ board, onRoute, onReject, onReopen, onApplyTop
     setDept: (id, value) => setOverrides((p) => ({ ...p, [id]: value })),
     busy,
     onRoute: (id, dept) => runSingle(() => onRoute(id, dept)),
-    onReject: (id) => runSingle(() => onReject(id)),
+    onReject: (id) =>
+      runSingle(async () => {
+        const res = await onReject(id);
+        // The row moves to a department rather than to Rejected, so say where.
+        if (res.passedTo) setNote(`Passed to ${res.passedTo}, the dual-role department they ticked.`);
+        return res;
+      }),
     onReopen: (id) => runSingle(() => onReopen(id)),
   };
 
@@ -280,7 +286,12 @@ export function SpeedRouteBoard({ board, onRoute, onReject, onReopen, onApplyTop
     startBusy(async () => {
       const res = await onApplyBottom(ids);
       if ("error" in res) { setError(res.error); return; }
-      setNote(`Rejected ${res.applied}${res.skipped.length ? `, skipped ${res.skipped.length}` : ""}.`);
+      // Applicants who ticked a dual box pass to that department rather than
+      // being rejected, so they are counted apart.
+      const passed = res.passedToDual ?? 0;
+      setNote(
+        `Rejected ${res.applied - passed}${passed ? `, passed ${passed} to a dual-role department` : ""}${res.skipped.length ? `, skipped ${res.skipped.length}` : ""}.`,
+      );
       refresh();
     });
   }

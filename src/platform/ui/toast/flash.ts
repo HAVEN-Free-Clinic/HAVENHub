@@ -473,6 +473,18 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
     message: () => "Returned to the recruitment lead for re-routing.",
   },
   {
+    // recruitment/cycles/[id]/applicants/actions.ts (decideRoutedAction, a REJECT
+    // that fell through to a dual-role department; see planDualFallback in
+    // services/routing.ts). Same two landing pages as saved=returned, for the same
+    // reason: the application moves to another department, so a department
+    // director loses sight of it. Not "Decision recorded.": no rejection stands.
+    params: ["saved"],
+    matchValues: { saved: "dual_fallback" },
+    pathnames: [APPLICANT_DETAIL_PATHNAME, APPLICANT_ROSTER_PATHNAME],
+    tone: "success",
+    message: () => "Not selected here. Passed to the dual-role department they ticked.",
+  },
+  {
     // recruitment/cycles/[id]/applicants/[applicationId]/page.tsx:263 and
     // recruitment/interviews/[interviewId]/page.tsx:30-37 (savedMessage.rescind). Byte-identical
     // text on both pages.

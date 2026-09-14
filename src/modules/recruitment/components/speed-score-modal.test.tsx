@@ -20,7 +20,15 @@ function item(over: Partial<SpeedScoreItem> & { applicationId: string }): SpeedS
 }
 
 function view(applicationId: string): ReviewApplicationView {
-  return { applicationId, name: applicationId, email: `${applicationId}@yale.edu`, typeLabel: "New", departmentChoices: [], sections: [] };
+  return {
+    applicationId,
+    name: applicationId,
+    email: `${applicationId}@yale.edu`,
+    typeLabel: "New",
+    departmentChoices: [],
+    sections: [],
+    history: { summary: "First application, no earlier record.", rows: [] },
+  };
 }
 
 let mounted: { container: HTMLDivElement; root: Root } | null = null;

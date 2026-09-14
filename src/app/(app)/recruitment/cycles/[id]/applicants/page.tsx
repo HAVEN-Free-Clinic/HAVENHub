@@ -19,6 +19,16 @@ import { SpeedScoreLauncher } from "@/modules/recruitment/components/speed-score
 import { ScoringAssignmentLauncher } from "@/modules/recruitment/components/scoring-assignment-launcher";
 import { scorerQueueScope } from "@/modules/recruitment/services/score-assignment";
 import { myCommitteeComments } from "@/modules/recruitment/services/committee-scoring";
+import { aiReviewsForCycle, type AiReviewView } from "@/modules/recruitment/services/ai-review";
+import { AiFilter } from "@/modules/recruitment/components/ai-filter";
+import {
+  AI_DISAGREEMENT_THRESHOLD,
+  aiRerouteSuggestion,
+  aiScoreGap,
+  formatAiGap,
+  matchesAiRosterFilter,
+  parseAiRosterFilter,
+} from "@/modules/recruitment/engine/ai-review";
 import { speedScoreAction, loadReviewApplicationAction, loadScoringPanelAction, setCycleScoringAction } from "./actions";
 import type { SpeedScoreItem } from "@/modules/recruitment/engine/speed-score-queue";
 import { rosterDecision, type RosterDecisionStatus } from "@/modules/recruitment/engine/decision-summary";
@@ -57,6 +67,7 @@ function rosterQuery(parts: {
   query: string | null;
   decision: string | null;
   department: string | null;
+  ai: string | null;
   sort: string | null;
   dir: string | null;
   page: number | null;
@@ -65,6 +76,7 @@ function rosterQuery(parts: {
   if (parts.query) q.set("q", parts.query);
   if (parts.decision) q.set("decision", parts.decision);
   if (parts.department) q.set("department", parts.department);
+  if (parts.ai) q.set("ai", parts.ai);
   if (parts.sort && parts.dir) {
     q.set("sort", parts.sort);
     q.set("dir", parts.dir);
@@ -74,9 +86,9 @@ function rosterQuery(parts: {
   return s ? `?${s}` : "";
 }
 
-export default async function ApplicantsPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ page?: string; q?: string; decision?: string; department?: string; sort?: string; dir?: string }> }) {
+export default async function ApplicantsPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ page?: string; q?: string; decision?: string; department?: string; ai?: string; sort?: string; dir?: string }> }) {
   const { id } = await params;
-  const { page: pageParam, q: queryParam, decision: decisionParam, department: departmentParam, sort: sortParam, dir: dirParam } = await searchParams;
+  const { page: pageParam, q: queryParam, decision: decisionParam, department: departmentParam, ai: aiParam, sort: sortParam, dir: dirParam } = await searchParams;
   const [person, cycle] = await Promise.all([requirePersonSession(), getCycle(id)]);
   if (!cycle) notFound();
   const apps = await listApplicantsForReview(id, person.personId);
@@ -102,6 +114,12 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
   // Null on a cycle with no scorer pool. The column default would otherwise
   // read as a target nobody set and mark every under-two row short.
   const coverageTarget = queueScope.pooled ? cycle.scoresPerApplication : null;
+  // The AI reviewer's advisory reads, for recruitment leads only. Committee
+  // scorers never see them, so their scores stay independent of the model's.
+  // aiReviewsForCycle re-checks the permission and drops the viewer's own
+  // application, so an empty map is the answer for everyone else.
+  const canSeeAi = scope.all;
+  const aiReviews = canSeeAi ? await aiReviewsForCycle(id, person.personId) : new Map<string, AiReviewView>();
   // Who is coming back after sitting terms out. Batched for the whole roster
   // (see serviceGapsForCycle) rather than per row: the Type column says
   // "Renewal" for a continuous returner and a lapsed one alike, and which of the
@@ -156,9 +174,26 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
   const byDecision = decisionFilter
     ? apps.filter((a) => rosterDecision({ acceptances: a.acceptances, applicationDecision: a.decision, interviews: a.interviews }).status === decisionFilter)
     : apps;
+  const aiFilter = canSeeAi ? parseAiRosterFilter(aiParam) : null;
+  // The AI read rides on each row, so the AI score and Gap columns sort through
+  // sortApplicants like every other column. Null for a row the run never scored.
+  const withAi = byDecision.map((a) => ({ ...a, aiReview: aiReviews.get(a.id) ?? null }));
+  const byAi = aiFilter
+    ? withAi.filter((a) =>
+        matchesAiRosterFilter(
+          {
+            aiReview: a.aiReview,
+            committeeAverage: scoreAverage(a.committeeScores.map((c) => c.score)).average,
+            routedDepartmentCode: a.routedDepartmentCode,
+            departmentChoices: a.departmentChoices,
+          },
+          aiFilter,
+        ),
+      )
+    : withAi;
   // Search last in the chain, on the same rows the count and the pager read, so
   // "3 applicants" is always the number of rows the search actually returned.
-  const filtered = filterApplicantsByQuery(filterApplicantsByDepartment(byDecision, departmentFilter), query);
+  const filtered = filterApplicantsByQuery(filterApplicantsByDepartment(byAi, departmentFilter), query);
   const sort = parseApplicantSort(sortParam, dirParam);
   // Sort after filtering and before slicing, so page boundaries stay correct.
   const sorted = sort ? sortApplicants(filtered, sort) : filtered;
@@ -171,6 +206,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
       query,
       decision: decisionFilter,
       department: departmentFilter,
+      ai: aiFilter,
       sort: key,
       dir: nextSortDirection(sort, key),
       page: null,
@@ -223,6 +259,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
           <NavForm className={FORM_ROW}>
             {decisionFilter && <input type="hidden" name="decision" value={decisionFilter} />}
             {departmentFilter && <input type="hidden" name="department" value={departmentFilter} />}
+            {aiFilter && <input type="hidden" name="ai" value={aiFilter} />}
             {sort && <input type="hidden" name="sort" value={sort.key} />}
             {sort && <input type="hidden" name="dir" value={sort.dir} />}
             {/* Labelled like every other filter row in the app. The two
@@ -245,9 +282,17 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
           </NavForm>
           <DecisionFilter />
           <DepartmentFilter options={departmentOptions} />
+          {canSeeAi && <AiFilter />}
         </FormRow>
         <ResultCount total={filtered.length} noun="applicant" />
       </div>
+      {canSeeAi && aiReviews.size > 0 && (
+        <p className="text-xs text-subtle-foreground">
+          AI score is an advisory rank band from an offline scoring run, shown to recruitment leads only and never
+          counted in committee averages or routing. Gap is the committee average minus the AI score: sort by it to
+          find where the committee and the AI disagree most.
+        </p>
+      )}
       <Table>
         <THead>
           <tr>
@@ -255,6 +300,8 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
             <SortableTH columnKey="email" active={sort} hrefFor={sortHref}>Email</SortableTH>
             <SortableTH columnKey="type" active={sort} hrefFor={sortHref}>Type</SortableTH>
             <SortableTH columnKey="score" active={sort} hrefFor={sortHref}>Committee avg</SortableTH>
+            {canSeeAi && <SortableTH columnKey="ai" active={sort} hrefFor={sortHref}>AI score</SortableTH>}
+            {canSeeAi && <SortableTH columnKey="gap" active={sort} hrefFor={sortHref}>Gap</SortableTH>}
             <SortableTH columnKey="stage" active={sort} hrefFor={sortHref}>Stage</SortableTH>
             <SortableTH columnKey="ranked" active={sort} hrefFor={sortHref}>Ranked</SortableTH>
             <SortableTH columnKey="decision" active={sort} hrefFor={sortHref}>Decision</SortableTH>
@@ -264,6 +311,14 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
           {pageApps.map((a) => {
             const d = rosterDecision({ acceptances: a.acceptances, applicationDecision: a.decision, interviews: a.interviews });
             const gap = a.applicant.applicantPersonId ? serviceGaps.get(a.applicant.applicantPersonId) : undefined;
+            const aiGap = aiScoreGap(scoreAverage(a.committeeScores.map((c) => c.score)).average, a.aiReview?.score);
+            const aiReroute = a.aiReview
+              ? aiRerouteSuggestion({
+                  bestFitDepartmentCode: a.aiReview.bestFitDepartmentCode,
+                  routedDepartmentCode: a.routedDepartmentCode,
+                  departmentChoices: a.departmentChoices,
+                })
+              : null;
             return (
               <TR key={a.id}>
                 <TD>
@@ -319,6 +374,35 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
                     ? "Hidden: your application"
                     : formatScoreSummary(scoreAverage(a.committeeScores.map((c) => c.score)), coverageTarget)}
                 </TD>
+                {canSeeAi && (
+                  <TD className="text-foreground-soft">
+                    {a.aiReview ? (
+                      <span className="inline-flex flex-wrap items-center gap-1.5">
+                        <span className="whitespace-nowrap">{a.aiReview.score}/5</span>
+                        {/* Where the AI would send them, while that is not where
+                            they are headed. Disappears once routed there. */}
+                        {aiReroute && (
+                          <Badge tone="warning" title={`AI reviewer's best fit is ${aiReroute.to}`}>
+                            Re-route: {aiReroute.to}
+                          </Badge>
+                        )}
+                      </span>
+                    ) : (
+                      <span className="text-subtle-foreground">-</span>
+                    )}
+                  </TD>
+                )}
+                {canSeeAi && (
+                  <TD className="whitespace-nowrap">
+                    {aiGap == null ? (
+                      <span className="text-subtle-foreground">-</span>
+                    ) : Math.abs(aiGap) >= AI_DISAGREEMENT_THRESHOLD ? (
+                      <Badge tone="warning">{formatAiGap(aiGap)}</Badge>
+                    ) : (
+                      <span className="text-foreground-soft">{formatAiGap(aiGap)}</span>
+                    )}
+                  </TD>
+                )}
                 <TD>
                   <span className="inline-flex flex-wrap items-center gap-1.5">
                     <Badge>{applicationStageLabel[stageOf(a)]}</Badge>
@@ -361,7 +445,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
           })}
           {filtered.length === 0 && (
             <TR>
-              <TD colSpan={7} className="py-10 text-center text-subtle-foreground">
+              <TD colSpan={canSeeAi ? 9 : 7} className="py-10 text-center text-subtle-foreground">
                 {/* The filtered case goes through ListEmpty so it says the same
                     thing every other filtered list in the app says. The two
                     non-filtered branches stay bespoke: they carry scope
@@ -387,6 +471,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
             query,
             decision: decisionFilter,
             department: departmentFilter,
+            ai: aiFilter,
             sort: sort?.key ?? null,
             dir: sort?.dir ?? null,
             page: p,

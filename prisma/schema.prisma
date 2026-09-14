@@ -2735,6 +2735,7 @@ model Application {
   languageAssessments    ApplicationLanguageAssessment[]
   committeeScores        CommitteeScore[]
   scoreAssignments       ScoreAssignment[]
+  aiReview               AiReview?
   assignedSubcommittee   Subcommittee?      @relation("applicationAssignedSubcommittee", fields: [assignedSubcommitteeId], references: [id], onDelete: SetNull)
   assignedSubcommitteeBy Person?            @relation("applicationSubcommitteeAssigner", fields: [assignedSubcommitteeById], references: [id], onDelete: SetNull)
   routedBy               Person?            @relation("applicationRoutedBy", fields: [routedById], references: [id], onDelete: SetNull)
@@ -2885,6 +2886,54 @@ model ScoreAssignment {
   /// person across a cycle's applications.
   @@index([scorerId])
   @@index([applicationId])
+}
+
+/// An AI reviewer's advisory read of one application, imported from an offline
+/// scoring run by scripts/import-ai-reviews.ts.
+///
+/// Deliberately its own table and NOT a CommitteeScore row. Everything that reads
+/// CommitteeScore averages all of its rows: the roster average, the speed-route
+/// percentiles, and the score-assignment allocator, which counts any recorded
+/// score toward scoresPerApplication. An AI score written there would silently
+/// stand in for a human read and move applicants between routing tiers. Kept
+/// apart, it sits beside the committee's view without changing it.
+///
+/// One row per application; re-importing a run replaces it. Shown to recruitment
+/// leads only (services/ai-review.ts). Committee scorers never see it, so their
+/// reads stay independent, which is also what makes the committee-versus-AI gap
+/// worth reading.
+model AiReview {
+  id                        String   @id @default(cuid())
+  applicationId             String   @unique
+  /// Names the scoring run, e.g. "FA26 advisory v2", so a row says where it came from.
+  runLabel                  String
+  /// 1-5, assigned by rank against how many the cycle can accept. A rank band,
+  /// not an absolute scale: a 3 means "just outside the top group".
+  score                     Int
+  /// Position in the run's ranking, 1 = strongest.
+  rank                      Int
+  /// The weighted total the rank was taken from.
+  merit                     Int
+  /// Rubric dimensions, each 0-5: safety-net engagement, skills for the best-fit
+  /// department, effort in the application, and availability.
+  engagement                Int
+  skills                    Int
+  effort                    Int
+  reliability               Int
+  /// The applicant's first choice when the run scored them, and how well the same
+  /// evidence fits it (0-5). The live first choice can change afterwards.
+  firstChoiceDepartmentCode String?
+  firstChoiceFit            Int?
+  /// The department the reviewer judged they would serve best.
+  bestFitDepartmentCode     String?
+  justification             String
+  flags                     String[]
+  /// Why the run set the score to 1 regardless of rank, when it did.
+  overrideNote              String?
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 }
 
 model OnboardingContract {

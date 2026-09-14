@@ -26,6 +26,7 @@ type DepartmentFormProps = {
     | "hoursPerShift"
     | "minInterpreterScore"
     | "assessLanguageBeforeAcceptance"
+    | "assessSpanishRegardlessOfClaim"
   >;
 };
 
@@ -157,10 +158,23 @@ export function DepartmentForm({ action, mode, department }: DepartmentFormProps
           />
           <p className="text-xs text-muted-foreground">
             For departments where speaking the language IS the job. Applicants to this department
-            appear in the interpreting department&rsquo;s language review queue as soon as they
-            apply, rather than after they are promoted, so the assessment is on the table when the
-            decision is made. Advisory only: it never blocks an acceptance. Anyone with an
-            assessment already on file is skipped.
+            appear in the interpreting department&rsquo;s language review queue for the languages
+            they listed as soon as they apply, rather than after they are promoted, so the
+            assessment is on the table when the decision is made. Advisory only: it never blocks an
+            acceptance. Anyone with an assessment already on file is skipped.
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <Checkbox
+            name="assessSpanishRegardlessOfClaim"
+            defaultChecked={department?.assessSpanishRegardlessOfClaim ?? false}
+            label="Also assess every applicant on Spanish, even if they did not list it"
+          />
+          <p className="text-xs text-muted-foreground">
+            Only applies when the setting above is on. For departments where speaking Spanish with
+            patients is the job. Leave it off where applicants may work in another language, as in
+            Interpreting: those applicants are assessed only on the languages they listed.
           </p>
         </div>
 

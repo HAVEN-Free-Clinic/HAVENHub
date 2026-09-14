@@ -12,7 +12,7 @@ import { reviewScope, listAcceptances, canViewApplication, recordApplicationView
 import { can } from "@/platform/rbac/engine";
 import { scheduleInterviewAction, committeeScoreAction, routeAction, decideRoutedAction, reopenDecisionAction, rescindAcceptanceAction, reopenWithdrawnAction, excuseApplicantAbsenceAction, clearApplicantExcuseAction, assessApplicantLanguageAction } from "../actions";
 import { getApplicantAbsenceExcuse } from "@/modules/recruitment/services/training";
-import { priorLanguageVerdicts } from "@/platform/languages";
+import { languagesToAssessBeforeAcceptance, priorLanguageVerdicts } from "@/platform/languages";
 import { nextDualFallback } from "@/platform/dual-roles/catalog";
 import { LanguageAssessmentCard } from "@/modules/recruitment/components/language-assessment-card";
 import { ExcuseAbsenceButton } from "@/modules/recruitment/components/excuse-absence-button";
@@ -106,7 +106,7 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
   // below to render LanguageAssessmentCard, never to gate anything on this page.
   const laneDepartments = await prisma.department.findMany({
     where: { assessLanguageBeforeAcceptance: true },
-    select: { code: true },
+    select: { code: true, assessSpanishRegardlessOfClaim: true },
   });
   const laneCodes = new Set(laneDepartments.map((d) => d.code));
   const applicationDepartments = [
@@ -130,11 +130,17 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
     ? await prisma.person.findMany({ where: { id: { in: assessorIds } }, select: { id: true, name: true } })
     : [];
   const assessorNames = new Map(assessors.map((a) => [a.id, a.name]));
-  // Every language the applicant claimed, plus every language that already has
-  // a verdict. Spanish is never added unclaimed, but a Spanish verdict already
-  // on file must still be shown to the deciding department.
+  // What this application is assessed on (the same rule as the review queue),
+  // plus every language that already has a verdict, so a verdict on file is
+  // still shown to the deciding department.
   const assessableLanguages = inLane
-    ? [...new Set([...app.languagesClaimed, ...languageVerdicts.keys()])]
+    ? [...new Set([
+        ...languagesToAssessBeforeAcceptance(
+          app,
+          laneDepartments.filter((d) => d.assessSpanishRegardlessOfClaim).map((d) => d.code),
+        ),
+        ...languageVerdicts.keys(),
+      ])]
     : [];
   const canAssessLanguages = await can(person.personId, "volunteers.verify_spanish");
 

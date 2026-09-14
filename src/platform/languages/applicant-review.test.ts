@@ -237,7 +237,10 @@ async function lane() {
   const lead = await prisma.person.create({ data: { name: "Lead" } });
   const [pats, educ] = await Promise.all([
     prisma.department.create({
-      data: { code: "PATS", name: "Patient Services", assessLanguageBeforeAcceptance: true },
+      data: {
+        code: "PATS", name: "Patient Services",
+        assessLanguageBeforeAcceptance: true, assessSpanishRegardlessOfClaim: true,
+      },
     }),
     prisma.department.create({ data: { code: "EDUC", name: "Education" } }),
   ]);
@@ -299,13 +302,13 @@ describe("listApplicantLanguageQueue", () => {
     expect(rows[0].departments).toEqual(["PATS"]);
   });
 
-  it("queues every language the applicant claimed, and only those", async () => {
+  it("queues Spanish and every other language a PATS applicant claimed", async () => {
     const ctx = await lane();
     await apply(ctx, "ada@yale.edu", { languagesClaimed: ["fr", "ht"] });
 
     const rows = await listApplicantLanguageQueue();
 
-    expect(rows.map((r) => r.language).sort()).toEqual(["fr", "ht"]);
+    expect(rows.map((r) => r.language).sort()).toEqual(["es", "fr", "ht"]);
   });
 
   it("ignores an applicant to an unflagged department", async () => {
@@ -330,12 +333,12 @@ describe("listApplicantLanguageQueue", () => {
     expect(rows[0].dualRoleDepartments).toEqual(["INTP"]);
   });
 
-  // Nobody is queued for Spanish they did not tick. The lane used to add Spanish
-  // to every applicant, and after #891 narrowed that for dual-role offers alone,
-  // 60 of the 127 Spanish rows in Fall 2026 were still people who never ticked
-  // it: INTP applicants who interpret in another language, and PATS applicants
-  // who rated their Spanish "none".
-  describe("Spanish without a tick", () => {
+  // PATS assesses every applicant's Spanish; INTP assesses only the languages an
+  // applicant ticked, because an INTP applicant may interpret another language.
+  // Department.assessSpanishRegardlessOfClaim is what tells the two apart. Adding
+  // Spanish for every lane applicant put 60 people who never ticked it in front
+  // of the interpreting department in Fall 2026.
+  describe("Spanish regardless of claim", () => {
     async function queuedFor(overrides: Record<string, unknown>) {
       const ctx = await lane();
       await prisma.department.create({
@@ -345,24 +348,42 @@ describe("listApplicantLanguageQueue", () => {
       return (await listApplicantLanguageQueue()).map((r) => r.language).sort();
     }
 
-    it("is not queued for a PATS applicant who claimed another language", async () => {
-      expect(await queuedFor({ languagesClaimed: ["zh"], answers: { spanish_proficiency: "none" } }))
-        .toEqual(["zh"]);
+    it("is queued for a PATS applicant who claimed nothing", async () => {
+      expect(await queuedFor({ languagesClaimed: [], answers: { spanish_proficiency: "none" } }))
+        .toEqual(["es"]);
+    });
+
+    it("is queued alongside another language a PATS applicant claimed", async () => {
+      expect(await queuedFor({ languagesClaimed: ["zh"] })).toEqual(["es", "zh"]);
+    });
+
+    it("is queued for an applicant routed to PATS from an unflagged choice", async () => {
+      expect(await queuedFor({
+        departmentChoices: ["EDUC"], routedDepartmentCode: "PATS", languagesClaimed: [],
+      })).toEqual(["es"]);
     });
 
     it("is not queued for an INTP applicant who interprets in another language", async () => {
       expect(await queuedFor({ departmentChoices: ["INTP"], languagesClaimed: ["ar"] })).toEqual(["ar"]);
     });
 
-    it("is not queued for a dual-role offer that claimed another language", async () => {
+    it("is not queued for an INTP dual-role offer that claimed another language", async () => {
       expect(await queuedFor({
         departmentChoices: ["EDUC"], dualRoleDepartments: ["INTP"], languagesClaimed: ["hi"],
       })).toEqual(["hi"]);
     });
 
-    it("is not queued from a self-rating alone, however fluent", async () => {
-      expect(await queuedFor({ languagesClaimed: [], answers: { spanish_proficiency: "fluent_native" } }))
-        .toEqual([]);
+    it("is not queued for an INTP applicant from a self-rating alone, however fluent", async () => {
+      expect(await queuedFor({
+        departmentChoices: ["INTP"], languagesClaimed: [], answers: { spanish_proficiency: "fluent_native" },
+      })).toEqual([]);
+    });
+
+    it("does nothing for a department carrying the flag outside the lane", async () => {
+      await prisma.department.create({
+        data: { code: "SOSE", name: "Social Services", assessSpanishRegardlessOfClaim: true },
+      });
+      expect(await queuedFor({ departmentChoices: ["SOSE"], languagesClaimed: [] })).toEqual([]);
     });
   });
 

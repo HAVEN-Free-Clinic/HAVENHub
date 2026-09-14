@@ -252,6 +252,40 @@ export async function priorLanguageVerdicts(
   return out;
 }
 
+/**
+ * The languages an IN-LANE application is assessed on before acceptance, before
+ * anything already on file is subtracted.
+ *
+ * Every language the applicant ticked, plus Spanish when the application touches
+ * a lane department that assesses Spanish regardless of claim
+ * (Department.assessSpanishRegardlessOfClaim, true for PATS). INTP does not: an
+ * interpreting applicant may work in another language, and adding Spanish for
+ * every lane applicant put 60 people who never ticked it in front of the
+ * interpreting department in Fall 2026. The Spanish self-rating plays no part
+ * here; onboarding turns it into a claim at promotion instead.
+ *
+ * `spanishRegardlessCodes` must already be limited to lane departments, so a
+ * department carrying the flag outside the lane adds nothing.
+ */
+export function languagesToAssessBeforeAcceptance(
+  app: {
+    departmentChoices: readonly string[];
+    dualRoleDepartments: readonly string[];
+    routedDepartmentCode: string | null;
+    renewalDepartment: string | null;
+    languagesClaimed: readonly string[];
+  },
+  spanishRegardlessCodes: readonly string[],
+): string[] {
+  const assessesSpanish = [
+    ...app.departmentChoices,
+    ...app.dualRoleDepartments,
+    ...(app.routedDepartmentCode ? [app.routedDepartmentCode] : []),
+    ...(app.renewalDepartment ? [app.renewalDepartment] : []),
+  ].some((code) => spanishRegardlessCodes.includes(code));
+  return [...new Set([...(assessesSpanish ? [SPANISH] : []), ...app.languagesClaimed])];
+}
+
 /** One (application, language) pair the interpreting department still owes a verdict on. */
 export type ApplicantQueueRow = {
   applicationId: string;
@@ -271,19 +305,21 @@ export type ApplicantQueueRow = {
  * Applications whose department has opted into pre-acceptance assessment, that
  * nobody has decided yet, crossed with the languages still owing a verdict.
  *
- * An application is queued for exactly the languages it claimed, and nothing
- * is added. Spanish used to be, for every applicant, and that put people who
- * interpret in another language, or rated their Spanish "none", in front of
- * the interpreting department. An applicant who claimed nothing is in the lane
- * but has nothing to queue.
+ * Which languages each one is queued for is languagesToAssessBeforeAcceptance's
+ * call: the languages it claimed, plus Spanish for a department like PATS that
+ * assesses it for every applicant. An INTP applicant who claimed nothing is in
+ * the lane but has nothing to queue.
  */
 export async function listApplicantLanguageQueue(): Promise<ApplicantQueueRow[]> {
   const laneDepartments = await prisma.department.findMany({
     where: { assessLanguageBeforeAcceptance: true },
-    select: { code: true },
+    select: { code: true, assessSpanishRegardlessOfClaim: true },
   });
   const laneCodes = laneDepartments.map((d) => d.code);
   if (laneCodes.length === 0) return [];
+  const spanishRegardlessCodes = laneDepartments
+    .filter((d) => d.assessSpanishRegardlessOfClaim)
+    .map((d) => d.code);
 
   const applications = await prisma.application.findMany({
     where: {
@@ -404,7 +440,7 @@ export async function listApplicantLanguageQueue(): Promise<ApplicantQueueRow[]>
       ),
     ];
 
-    for (const language of new Set(app.languagesClaimed)) {
+    for (const language of languagesToAssessBeforeAcceptance(app, spanishRegardlessCodes)) {
       if (assessedHere.has(language)) continue;
       if (assessedEver.has(language)) continue;
       rows.push({
@@ -527,8 +563,9 @@ export async function recordApplicationLanguageAssessment(
  *
  * Does NOT set selfReported: true. That flag means "this person claimed this
  * language", and an application can hold a verdict on a language it never
- * claimed: one assessed before 2026-09-14, when the lane added Spanish to every
- * applicant, or re-recorded from a verdict already on file. An applicant who
+ * claimed: Spanish for a department that assesses it regardless of claim
+ * (Department.assessSpanishRegardlessOfClaim, e.g. PATS), or one re-recorded
+ * from a verdict already on file. An applicant who
  * never claimed Spanish but was assessed on it must not come
  * out of promotion looking like they claimed it (person-fields.ts compiles the
  * "self-reported Spanish speaker" audience straight off this flag). The

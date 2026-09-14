@@ -357,3 +357,60 @@ describe("updateDepartment and the pre-acceptance flag", () => {
     expect(updated.assessLanguageBeforeAcceptance).toBe(true);
   });
 });
+
+describe("Spanish-regardless flag", () => {
+  // Within the pre-acceptance lane, PATS assesses every applicant's Spanish and
+  // INTP only the languages an applicant ticked. Seeding it on INTP would put
+  // applicants who interpret another language back in the Spanish queue.
+  it("is set on PATS in the catalog and on no other department", () => {
+    const flagged = DEPARTMENTS.filter((d) => d.assessSpanishRegardlessOfClaim).map((d) => d.code);
+    expect(flagged).toEqual(["PATS"]);
+  });
+
+  it("is only set on catalog departments that are also in the pre-acceptance lane", () => {
+    const outsideLane = DEPARTMENTS.filter(
+      (d) => d.assessSpanishRegardlessOfClaim && !d.assessLanguageBeforeAcceptance,
+    );
+    expect(outsideLane).toEqual([]);
+  });
+
+  it("defaults to false on a department created without it", async () => {
+    const dept = await prisma.department.create({
+      data: { code: "ZZSPAN", name: "Test Department" },
+    });
+    expect(dept.assessSpanishRegardlessOfClaim).toBe(false);
+  });
+});
+
+describe("updateDepartment and the Spanish-regardless flag", () => {
+  it("sets the flag when the form supplies it", async () => {
+    const dept = await prisma.department.create({ data: { code: "CCCC", name: "C" } });
+
+    const updated = await updateDepartment("a", dept.id, {
+      name: "C",
+      isActive: true,
+      idealHeadcount: null,
+      patientCapacityPerProvider: null,
+      assessSpanishRegardlessOfClaim: true,
+    });
+
+    expect(updated.assessSpanishRegardlessOfClaim).toBe(true);
+  });
+
+  // Same rule as the lane flag above: renaming PATS must not silently stop its
+  // applicants being assessed on Spanish.
+  it("preserves the flag on an update that does not mention it", async () => {
+    const dept = await prisma.department.create({
+      data: { code: "DDDD", name: "D", assessSpanishRegardlessOfClaim: true },
+    });
+
+    const updated = await updateDepartment("a", dept.id, {
+      name: "D renamed",
+      isActive: true,
+      idealHeadcount: null,
+      patientCapacityPerProvider: null,
+    });
+
+    expect(updated.assessSpanishRegardlessOfClaim).toBe(true);
+  });
+});

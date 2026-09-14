@@ -36,6 +36,12 @@ Confirmed with the requester before design:
    alone. INTP interprets in other languages too.
 4. An applicant who ticked the INTP dual-role option is in the lane as well,
    even though their primary department is elsewhere.
+   Amended 2026-09-14: decision 1's Spanish-regardless does NOT extend to an
+   applicant in the lane only through that option. The box is ticked by
+   speakers of any language, and in Fall 2026 it queued 115 non-Spanish
+   speakers for Spanish. Such an applicant owes Spanish only when they claimed
+   it or rated themselves Conversational or above, which is what the form's
+   own Spanish question promises. See `languagesToAssessBeforeAcceptance`.
 5. An assessment already on file is never redone. An applicant with a prior
    human verdict on a language does not appear in the queue for it. The verdict
    is still SHOWN to the deciding department; it is the reviewer's work that is

@@ -317,13 +317,84 @@ describe("listApplicantLanguageQueue", () => {
       data: { code: "INTP", name: "Interpreting", assessLanguageBeforeAcceptance: true },
     });
     await apply(ctx, "ada@yale.edu", {
-      departmentChoices: ["EDUC"], dualRoleDepartments: ["INTP"],
+      departmentChoices: ["EDUC"], dualRoleDepartments: ["INTP"], languagesClaimed: ["ht"],
     });
 
     const rows = await listApplicantLanguageQueue();
 
-    expect(rows).toHaveLength(1);
+    expect(rows.map((r) => r.language)).toEqual(["ht"]);
     expect(rows[0].dualRoleDepartments).toEqual(["INTP"]);
+  });
+
+  // The INTP dual box asks about "one of the languages you listed earlier", so
+  // a Mandarin speaker ticks it. Spanish-regardless is the PRIMARY lane's rule;
+  // applied to a dual-only offer it queued 115 non-Spanish speakers for Spanish
+  // in Fall 2026, 58 of whom rated their Spanish "none".
+  describe("Spanish for a dual-role-only offer", () => {
+    async function dualOnly(overrides: Record<string, unknown>) {
+      const ctx = await lane();
+      await prisma.department.create({
+        data: { code: "INTP", name: "Interpreting", assessLanguageBeforeAcceptance: true },
+      });
+      await apply(ctx, "ada@yale.edu", {
+        departmentChoices: ["EDUC"], dualRoleDepartments: ["INTP"], ...overrides,
+      });
+      return (await listApplicantLanguageQueue()).map((r) => r.language).sort();
+    }
+
+    it("is not queued when they claimed another language and rated Spanish below conversational", async () => {
+      expect(await dualOnly({ languagesClaimed: ["zh"], answers: { spanish_proficiency: "none" } }))
+        .toEqual(["zh"]);
+    });
+
+    it("is not queued from the rating alone when it is only some", async () => {
+      expect(await dualOnly({ languagesClaimed: ["zh"], answers: { spanish_proficiency: "some" } }))
+        .toEqual(["zh"]);
+    });
+
+    it("is queued when they rated themselves conversational or above, claimed or not", async () => {
+      expect(await dualOnly({ languagesClaimed: ["zh"], answers: { spanish_proficiency: "fluent_non_native" } }))
+        .toEqual(["es", "zh"]);
+    });
+
+    it("is queued when they claimed Spanish, whatever they rated", async () => {
+      expect(await dualOnly({ languagesClaimed: ["es"], answers: { spanish_proficiency: "some" } }))
+        .toEqual(["es"]);
+    });
+
+    it("leaves an offer with no claim and no Spanish out of the queue entirely", async () => {
+      expect(await dualOnly({ answers: { spanish_proficiency: "none" } })).toEqual([]);
+    });
+
+    it("falls back to the claims alone when the cycle has no proficiency question", async () => {
+      expect(await dualOnly({ languagesClaimed: ["fr"], answers: {} })).toEqual(["fr"]);
+    });
+  });
+
+  it("still queues Spanish for a flagged primary department whatever they claimed or rated", async () => {
+    const ctx = await lane();
+    await apply(ctx, "ada@yale.edu", {
+      languagesClaimed: ["zh"], answers: { spanish_proficiency: "none" },
+    });
+
+    const rows = await listApplicantLanguageQueue();
+
+    expect(rows.map((r) => r.language).sort()).toEqual(["es", "zh"]);
+  });
+
+  it("treats a routed lane department as primary even when a dual offer also names the lane", async () => {
+    const ctx = await lane();
+    await prisma.department.create({
+      data: { code: "INTP", name: "Interpreting", assessLanguageBeforeAcceptance: true },
+    });
+    await apply(ctx, "ada@yale.edu", {
+      departmentChoices: ["EDUC"], routedDepartmentCode: "PATS", dualRoleDepartments: ["INTP"],
+      answers: { spanish_proficiency: "none" },
+    });
+
+    const rows = await listApplicantLanguageQueue();
+
+    expect(rows.map((r) => r.language)).toEqual(["es"]);
   });
 
   it("ignores a withdrawn application", async () => {
@@ -456,6 +527,7 @@ describe("listApplicantLanguageQueue", () => {
     });
     const { application } = await apply(ctx, "ada@yale.edu", {
       departmentChoices: ["EDUC"], dualRoleDepartments: ["INTP"],
+      answers: { spanish_proficiency: "conversational" },
     });
     await prisma.interview.create({
       data: {

@@ -537,6 +537,12 @@ model Department {
   /// minInterpreterScore). Defaults false so no existing department is dragged
   /// into the lane by the migration.
   assessLanguageBeforeAcceptance Boolean @default(false)
+  /// Within that lane, assess this department's applicants on Spanish even when
+  /// they did not claim it. True for PATS, where speaking Spanish with patients
+  /// is the job. False for INTP: an interpreting applicant may work in another
+  /// language, so they are assessed only on the languages they ticked.
+  /// Meaningless without assessLanguageBeforeAcceptance.
+  assessSpanishRegardlessOfClaim Boolean @default(false)
   /// Whether members may raise a DROP request against this department's shifts.
   /// False makes the department swap-only: the drop form disappears from
   /// /schedule and createRequest refuses a drop, so a member who cannot find a

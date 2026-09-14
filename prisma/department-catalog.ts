@@ -21,6 +21,10 @@
 // assessLanguageBeforeAcceptance mirrors the Department column of the same
 // name. Create-path only, for the same reason as the Epic columns. Existing
 // databases get it from the 20260908120000 migration's backfill, NOT from here.
+//
+// assessSpanishRegardlessOfClaim mirrors the Department column of the same
+// name, and likewise reaches existing databases only through its migration
+// (20260914120000). PATS only: INTP applicants may interpret another language.
 type EpicRequirementLiteral = "ALL" | "NONE" | "SOME";
 
 export const DEPARTMENTS: {
@@ -31,6 +35,7 @@ export const DEPARTMENTS: {
   epicGuidance?: string;
   allowShiftDrop?: boolean;
   assessLanguageBeforeAcceptance?: boolean;
+  assessSpanishRegardlessOfClaim?: boolean;
 }[] = [
   { code: "BVHD", name: "Behavioral Health", requiresEpicDirector: "ALL", requiresEpicVolunteer: "ALL" },
   { code: "CCRH", name: "Care Coordination: Reproductive Health", requiresEpicDirector: "ALL", requiresEpicVolunteer: "ALL" },
@@ -57,7 +62,7 @@ export const DEPARTMENTS: {
   { code: "MDLP", name: "Medical Debt and Legal Partnership", requiresEpicDirector: "NONE", requiresEpicVolunteer: "NONE" },
   { code: "MEDS", name: "Medication Access", requiresEpicDirector: "ALL", requiresEpicVolunteer: "ALL" },
   { code: "ORHL", name: "Oral Health", requiresEpicDirector: "ALL", requiresEpicVolunteer: "ALL" },
-  { code: "PATS", name: "Patient Services", requiresEpicDirector: "ALL", requiresEpicVolunteer: "ALL", assessLanguageBeforeAcceptance: true },
+  { code: "PATS", name: "Patient Services", requiresEpicDirector: "ALL", requiresEpicVolunteer: "ALL", assessLanguageBeforeAcceptance: true, assessSpanishRegardlessOfClaim: true },
   { code: "PBRL", name: "Public Relations", requiresEpicDirector: "NONE", requiresEpicVolunteer: "NONE" },
   { code: "PCAR", name: "Primary Care Clinical Advisors", requiresEpicDirector: "ALL", requiresEpicVolunteer: "ALL" },
   { code: "PHLO", name: "Phlebotomy", requiresEpicDirector: "ALL", requiresEpicVolunteer: "ALL" },

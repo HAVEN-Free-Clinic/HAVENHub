@@ -106,7 +106,7 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
   // below to render LanguageAssessmentCard, never to gate anything on this page.
   const laneDepartments = await prisma.department.findMany({
     where: { assessLanguageBeforeAcceptance: true },
-    select: { code: true },
+    select: { code: true, assessSpanishRegardlessOfClaim: true },
   });
   const laneCodes = new Set(laneDepartments.map((d) => d.code));
   const applicationDepartments = [
@@ -130,12 +130,15 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
     ? await prisma.person.findMany({ where: { id: { in: assessorIds } }, select: { id: true, name: true } })
     : [];
   const assessorNames = new Map(assessors.map((a) => [a.id, a.name]));
-  // What this application owes a verdict on, plus every language that already
-  // has one. A dual-role-only applicant may not owe Spanish, but a Spanish
-  // verdict already on file must still be shown to the deciding department.
+  // What this application is assessed on (the same rule as the review queue),
+  // plus every language that already has a verdict, so a verdict on file is
+  // still shown to the deciding department.
   const assessableLanguages = inLane
     ? [...new Set([
-        ...languagesToAssessBeforeAcceptance(app, laneDepartments.map((d) => d.code)),
+        ...languagesToAssessBeforeAcceptance(
+          app,
+          laneDepartments.filter((d) => d.assessSpanishRegardlessOfClaim).map((d) => d.code),
+        ),
         ...languageVerdicts.keys(),
       ])]
     : [];

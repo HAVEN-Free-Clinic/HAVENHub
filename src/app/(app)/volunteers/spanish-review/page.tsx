@@ -315,7 +315,7 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
     <div className="space-y-6">
       <PageHeader
         title="Language review"
-        description="Members who reported speaking a language, and applicants to departments that confirm Spanish before accepting regardless of what they claimed, both awaiting an interpreting-department verdict. Verifying a member counts them as a provider for that language in scheduling."
+        description="Members and applicants awaiting an interpreting-department verdict on a language. Applicants to departments that assess before accepting come first, queued for the languages they listed, plus Spanish where their department assesses it for everyone. Verifying a member counts them as a provider for that language in scheduling."
       />
 
       {/* No inline Alert: FlashReader claims this param, toasts it, and strips it

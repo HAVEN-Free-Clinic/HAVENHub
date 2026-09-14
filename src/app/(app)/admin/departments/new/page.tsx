@@ -26,6 +26,7 @@ export default async function NewDepartmentPage() {
         requiresEpicVolunteer: epicRequirement(formData.get("requiresEpicVolunteer")),
         autoRouteApplicants: formData.get("autoRouteApplicants") === "on",
         assessLanguageBeforeAcceptance: formData.get("assessLanguageBeforeAcceptance") === "on",
+        assessSpanishRegardlessOfClaim: formData.get("assessSpanishRegardlessOfClaim") === "on",
         allowShiftDrop: formData.get("allowShiftDrop") === "on",
         hoursPerShift: optionalInt(formData.get("hoursPerShift")),
         minInterpreterScore: optionalInt(formData.get("minInterpreterScore")),

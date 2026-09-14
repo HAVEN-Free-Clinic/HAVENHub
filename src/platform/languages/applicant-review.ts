@@ -14,15 +14,7 @@
 
 import { prisma, type TransactionClient } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
-import {
-  LanguageValidationError,
-  SPANISH,
-  SPANISH_ASSESSMENT_INVITE_RATINGS,
-  SPANISH_PROFICIENCY_FIELD_KEY,
-  isLanguageCode,
-  isSpanishScore,
-  languageLabel,
-} from "./catalog";
+import { LanguageValidationError, SPANISH, isLanguageCode, isSpanishScore, languageLabel } from "./catalog";
 
 /** One human verdict on one language, whatever record it came from. */
 export type LanguageVerdict = {
@@ -261,24 +253,19 @@ export async function priorLanguageVerdicts(
 }
 
 /**
- * The languages an IN-LANE application owes a pre-acceptance verdict on, before
- * anything already on file is subtracted. Only meaningful for an application
- * that touches a flagged department; the caller establishes that.
+ * The languages an IN-LANE application is assessed on before acceptance, before
+ * anything already on file is subtracted.
  *
- * Spanish-regardless (decision 1) is the PRIMARY lane's rule. An applicant who
- * chose, was routed to, or is renewing into a flagged department is assessed on
- * Spanish whatever they claimed, because for that department Spanish is the job
- * and an under-report is exactly what the assessment exists to catch.
+ * Every language the applicant ticked, plus Spanish when the application touches
+ * a lane department that assesses Spanish regardless of claim
+ * (Department.assessSpanishRegardlessOfClaim, true for PATS). INTP does not: an
+ * interpreting applicant may work in another language, and adding Spanish for
+ * every lane applicant put 60 people who never ticked it in front of the
+ * interpreting department in Fall 2026. The Spanish self-rating plays no part
+ * here; onboarding turns it into a claim at promotion instead.
  *
- * An applicant in the lane ONLY through a dual-role offer is different. The
- * INTP dual box asks about "one of the languages you listed earlier", so
- * speakers of every language tick it, and forcing Spanish there queued 115
- * non-Spanish speakers for Spanish in Fall 2026, 58 of whom rated their Spanish
- * "none". Such an offer owes Spanish only when they claimed it or rated
- * themselves at a level the form promises an assessment to.
- *
- * Every claimed language rides along either way, because the interpreting
- * department interprets in more than one.
+ * `spanishRegardlessCodes` must already be limited to lane departments, so a
+ * department carrying the flag outside the lane adds nothing.
  */
 export function languagesToAssessBeforeAcceptance(
   app: {
@@ -287,25 +274,16 @@ export function languagesToAssessBeforeAcceptance(
     routedDepartmentCode: string | null;
     renewalDepartment: string | null;
     languagesClaimed: readonly string[];
-    answers: unknown;
   },
-  laneCodes: readonly string[],
+  spanishRegardlessCodes: readonly string[],
 ): string[] {
-  const inPrimaryLane = [
+  const assessesSpanish = [
     ...app.departmentChoices,
+    ...app.dualRoleDepartments,
     ...(app.routedDepartmentCode ? [app.routedDepartmentCode] : []),
     ...(app.renewalDepartment ? [app.renewalDepartment] : []),
-  ].some((code) => laneCodes.includes(code));
-  const owesSpanish =
-    inPrimaryLane || app.languagesClaimed.includes(SPANISH) || ratedSpanishForAssessment(app.answers);
-  return [...new Set([...(owesSpanish ? [SPANISH] : []), ...app.languagesClaimed])];
-}
-
-/** A missing or unrecognised rating is "not rated", never an invitation. */
-function ratedSpanishForAssessment(answers: unknown): boolean {
-  if (!answers || typeof answers !== "object") return false;
-  const rating = (answers as Record<string, unknown>)[SPANISH_PROFICIENCY_FIELD_KEY];
-  return typeof rating === "string" && SPANISH_ASSESSMENT_INVITE_RATINGS.includes(rating);
+  ].some((code) => spanishRegardlessCodes.includes(code));
+  return [...new Set([...(assessesSpanish ? [SPANISH] : []), ...app.languagesClaimed])];
 }
 
 /** One (application, language) pair the interpreting department still owes a verdict on. */
@@ -327,18 +305,21 @@ export type ApplicantQueueRow = {
  * Applications whose department has opted into pre-acceptance assessment, that
  * nobody has decided yet, crossed with the languages still owing a verdict.
  *
- * Which languages each one owes is languagesToAssessBeforeAcceptance's call:
- * Spanish whatever they claimed in the primary lane, Spanish only when claimed
- * or self-rated Conversational or above for a dual-role-only offer, and every
- * claimed language either way.
+ * Which languages each one is queued for is languagesToAssessBeforeAcceptance's
+ * call: the languages it claimed, plus Spanish for a department like PATS that
+ * assesses it for every applicant. An INTP applicant who claimed nothing is in
+ * the lane but has nothing to queue.
  */
 export async function listApplicantLanguageQueue(): Promise<ApplicantQueueRow[]> {
   const laneDepartments = await prisma.department.findMany({
     where: { assessLanguageBeforeAcceptance: true },
-    select: { code: true },
+    select: { code: true, assessSpanishRegardlessOfClaim: true },
   });
   const laneCodes = laneDepartments.map((d) => d.code);
   if (laneCodes.length === 0) return [];
+  const spanishRegardlessCodes = laneDepartments
+    .filter((d) => d.assessSpanishRegardlessOfClaim)
+    .map((d) => d.code);
 
   const applications = await prisma.application.findMany({
     where: {
@@ -387,7 +368,6 @@ export async function listApplicantLanguageQueue(): Promise<ApplicantQueueRow[]>
     select: {
       id: true,
       languagesClaimed: true,
-      answers: true,
       departmentChoices: true,
       dualRoleDepartments: true,
       routedDepartmentCode: true,
@@ -450,8 +430,6 @@ export async function listApplicantLanguageQueue(): Promise<ApplicantQueueRow[]>
     // language this very application already has a verdict on.
     const assessedHere = new Set(app.languageAssessments.map((a) => a.language));
     const assessedEver = onFile.get(app.applicant.id) ?? new Map<string, LanguageVerdict>();
-    const wanted = languagesToAssessBeforeAcceptance(app, laneCodes);
-
     const routedFirst = [
       ...(app.routedDepartmentCode ? [app.routedDepartmentCode] : []),
       ...(app.renewalDepartment && app.renewalDepartment !== app.routedDepartmentCode
@@ -462,7 +440,7 @@ export async function listApplicantLanguageQueue(): Promise<ApplicantQueueRow[]>
       ),
     ];
 
-    for (const language of new Set(wanted)) {
+    for (const language of languagesToAssessBeforeAcceptance(app, spanishRegardlessCodes)) {
       if (assessedHere.has(language)) continue;
       if (assessedEver.has(language)) continue;
       rows.push({
@@ -584,8 +562,11 @@ export async function recordApplicationLanguageAssessment(
  * would overwrite a newer-or-equal verdict's history row with an older one.
  *
  * Does NOT set selfReported: true. That flag means "this person claimed this
- * language", and Spanish is assessed here regardless of claim (decision 1) --
- * an applicant who never claimed Spanish but was assessed on it must not come
+ * language", and an application can hold a verdict on a language it never
+ * claimed: Spanish for a department that assesses it regardless of claim
+ * (Department.assessSpanishRegardlessOfClaim, e.g. PATS), or one re-recorded
+ * from a verdict already on file. An applicant who
+ * never claimed Spanish but was assessed on it must not come
  * out of promotion looking like they claimed it (person-fields.ts compiles the
  * "self-reported Spanish speaker" audience straight off this flag). The
  * caller's own claim loop, over languagesClaimed, is what sets it true, for

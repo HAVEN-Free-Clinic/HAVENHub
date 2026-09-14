@@ -1,11 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { identitySection, eligibilitySection, languagesSection, acknowledgementsSection, availabilitySection } from "./field-groups";
-import {
-  LANGUAGES_FIELD_KEY,
-  SPANISH_ASSESSMENT_INVITE_RATINGS,
-  SPANISH_PROFICIENCY_FIELD_KEY,
-  languageCodeFromAnswer,
-} from "@/platform/languages";
+import { LANGUAGES_FIELD_KEY, languageCodeFromAnswer } from "@/platform/languages";
 import { isFieldVisible } from "../engine/field-visibility";
 
 describe("field-group builders", () => {
@@ -32,15 +27,6 @@ describe("field-group builders", () => {
     const sp = s.fields.find((f) => f.key === "spanish_proficiency")!;
     expect(sp.type).toBe("SINGLE_SELECT");
     expect(sp.options!.map((o) => o.value)).toEqual(["none", "some", "conversational", "fluent_native", "fluent_non_native"]);
-  });
-
-  // The platform copy of "Conversational or above" cannot import these options,
-  // so it is pinned here: a renamed or added level must fail, not silently stop
-  // inviting a dual-role applicant to their Spanish assessment.
-  it("the Spanish ratings language review invites to are the options from Conversational up", () => {
-    const sp = languagesSection().fields.find((f) => f.key === SPANISH_PROFICIENCY_FIELD_KEY)!;
-    const values = sp.options!.map((o) => o.value);
-    expect(values.slice(values.indexOf("conversational"))).toEqual([...SPANISH_ASSESSMENT_INVITE_RATINGS]);
   });
 
   it("acknowledgementsSection(VOLUNTEER) carries the three signed policies with non-empty bodies", () => {

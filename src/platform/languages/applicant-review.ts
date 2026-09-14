@@ -14,7 +14,15 @@
 
 import { prisma, type TransactionClient } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
-import { LanguageValidationError, SPANISH, isLanguageCode, isSpanishScore, languageLabel } from "./catalog";
+import {
+  LanguageValidationError,
+  SPANISH,
+  SPANISH_ASSESSMENT_INVITE_RATINGS,
+  SPANISH_PROFICIENCY_FIELD_KEY,
+  isLanguageCode,
+  isSpanishScore,
+  languageLabel,
+} from "./catalog";
 
 /** One human verdict on one language, whatever record it came from. */
 export type LanguageVerdict = {
@@ -252,6 +260,54 @@ export async function priorLanguageVerdicts(
   return out;
 }
 
+/**
+ * The languages an IN-LANE application owes a pre-acceptance verdict on, before
+ * anything already on file is subtracted. Only meaningful for an application
+ * that touches a flagged department; the caller establishes that.
+ *
+ * Spanish-regardless (decision 1) is the PRIMARY lane's rule. An applicant who
+ * chose, was routed to, or is renewing into a flagged department is assessed on
+ * Spanish whatever they claimed, because for that department Spanish is the job
+ * and an under-report is exactly what the assessment exists to catch.
+ *
+ * An applicant in the lane ONLY through a dual-role offer is different. The
+ * INTP dual box asks about "one of the languages you listed earlier", so
+ * speakers of every language tick it, and forcing Spanish there queued 115
+ * non-Spanish speakers for Spanish in Fall 2026, 58 of whom rated their Spanish
+ * "none". Such an offer owes Spanish only when they claimed it or rated
+ * themselves at a level the form promises an assessment to.
+ *
+ * Every claimed language rides along either way, because the interpreting
+ * department interprets in more than one.
+ */
+export function languagesToAssessBeforeAcceptance(
+  app: {
+    departmentChoices: readonly string[];
+    dualRoleDepartments: readonly string[];
+    routedDepartmentCode: string | null;
+    renewalDepartment: string | null;
+    languagesClaimed: readonly string[];
+    answers: unknown;
+  },
+  laneCodes: readonly string[],
+): string[] {
+  const inPrimaryLane = [
+    ...app.departmentChoices,
+    ...(app.routedDepartmentCode ? [app.routedDepartmentCode] : []),
+    ...(app.renewalDepartment ? [app.renewalDepartment] : []),
+  ].some((code) => laneCodes.includes(code));
+  const owesSpanish =
+    inPrimaryLane || app.languagesClaimed.includes(SPANISH) || ratedSpanishForAssessment(app.answers);
+  return [...new Set([...(owesSpanish ? [SPANISH] : []), ...app.languagesClaimed])];
+}
+
+/** A missing or unrecognised rating is "not rated", never an invitation. */
+function ratedSpanishForAssessment(answers: unknown): boolean {
+  if (!answers || typeof answers !== "object") return false;
+  const rating = (answers as Record<string, unknown>)[SPANISH_PROFICIENCY_FIELD_KEY];
+  return typeof rating === "string" && SPANISH_ASSESSMENT_INVITE_RATINGS.includes(rating);
+}
+
 /** One (application, language) pair the interpreting department still owes a verdict on. */
 export type ApplicantQueueRow = {
   applicationId: string;
@@ -271,11 +327,10 @@ export type ApplicantQueueRow = {
  * Applications whose department has opted into pre-acceptance assessment, that
  * nobody has decided yet, crossed with the languages still owing a verdict.
  *
- * Spanish is always in the set, claim or no claim: the point of the lane is to
- * confirm Spanish before the department commits, and an applicant who
- * under-reported is exactly the case the assessment exists to catch. Every
- * other language they claimed rides along, because the interpreting department
- * interprets in more than one.
+ * Which languages each one owes is languagesToAssessBeforeAcceptance's call:
+ * Spanish whatever they claimed in the primary lane, Spanish only when claimed
+ * or self-rated Conversational or above for a dual-role-only offer, and every
+ * claimed language either way.
  */
 export async function listApplicantLanguageQueue(): Promise<ApplicantQueueRow[]> {
   const laneDepartments = await prisma.department.findMany({
@@ -332,6 +387,7 @@ export async function listApplicantLanguageQueue(): Promise<ApplicantQueueRow[]>
     select: {
       id: true,
       languagesClaimed: true,
+      answers: true,
       departmentChoices: true,
       dualRoleDepartments: true,
       routedDepartmentCode: true,
@@ -394,7 +450,7 @@ export async function listApplicantLanguageQueue(): Promise<ApplicantQueueRow[]>
     // language this very application already has a verdict on.
     const assessedHere = new Set(app.languageAssessments.map((a) => a.language));
     const assessedEver = onFile.get(app.applicant.id) ?? new Map<string, LanguageVerdict>();
-    const wanted = [SPANISH, ...app.languagesClaimed];
+    const wanted = languagesToAssessBeforeAcceptance(app, laneCodes);
 
     const routedFirst = [
       ...(app.routedDepartmentCode ? [app.routedDepartmentCode] : []),

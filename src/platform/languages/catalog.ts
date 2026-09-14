@@ -229,6 +229,28 @@ export const LANGUAGE_QUESTION = {
  */
 export const LEGACY_LANGUAGE_FIELD_KEYS = ["other_languages", "other_languages_detail"];
 
+/**
+ * The application's Spanish self-rating question. A template field, NOT locked
+ * the way LANGUAGES_FIELD_KEY is: a cycle can delete it, so a reader must treat
+ * a missing answer as "no rating given", never as an error.
+ */
+export const SPANISH_PROFICIENCY_FIELD_KEY = "spanish_proficiency";
+
+/**
+ * The self-ratings the application form promises an assessment to. Its help
+ * text reads "Everyone selecting Conversational or above will be invited to
+ * this assessment."
+ *
+ * These are option VALUES of SPANISH_PROFICIENCY in the recruitment templates,
+ * which this client-safe platform file cannot import. field-groups.test.ts pins
+ * the two together, so a renamed or added level fails there first.
+ */
+export const SPANISH_ASSESSMENT_INVITE_RATINGS: readonly string[] = [
+  "conversational",
+  "fluent_native",
+  "fluent_non_native",
+];
+
 const CODE_BY_LABEL = new Map<string, string>(
   LANGUAGES.map((l) => [l.label.toLowerCase(), l.code]),
 );

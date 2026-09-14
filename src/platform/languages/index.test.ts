@@ -567,7 +567,7 @@ describe("listLanguageReviewQueue with both sources", () => {
     await prisma.application.create({
       data: {
         cycleId: cycle.id, applicantId: applicant.id, answers: {},
-        applicantType: "NEW", departmentChoices: ["EDUC"],
+        applicantType: "NEW", departmentChoices: ["EDUC"], languagesClaimed: ["es"],
         dualRoleDepartments: ["INTP"], status: "SUBMITTED", submittedAt: new Date(),
       },
     });

@@ -24,11 +24,6 @@ export type SpeedRouteRow = {
   decision: "PENDING" | "ACCEPT" | "REJECT" | "WAITLIST";
   stage: ApplicationStage;
   acceptanceEmailed: boolean;
-  /** The AI reviewer's band and best-fit department, when the cycle has an AI
-   *  run. The board is recruitment.review_all only, which is exactly who may read
-   *  AI reviews (services/ai-review.ts), and the lead's own row is dropped below.
-   *  Display only: tiers are still cut on the committee average alone. */
-  ai?: { score: number; bestFitDepartmentCode: string | null } | null;
 };
 
 export type SpeedRouteBoard = {
@@ -81,7 +76,6 @@ export async function loadSpeedRouteBoard(cycleId: string, viewerId: string): Pr
       committeeScores: { select: { score: true } },
       acceptances: { select: { emailedAt: true } },
       interviews: { select: { decision: true } },
-      aiReview: { select: { score: true, bestFitDepartmentCode: true } },
     },
   });
 
@@ -116,7 +110,6 @@ export async function loadSpeedRouteBoard(cycleId: string, viewerId: string): Pr
         interviews: a.interviews,
       }),
       acceptanceEmailed: a.acceptances.some((x) => x.emailedAt != null),
-      ai: a.aiReview,
     };
     byId.set(a.id, row);
     return { applicationId: a.id, average };

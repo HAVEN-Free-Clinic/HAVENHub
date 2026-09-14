@@ -1,7 +1,6 @@
 import { nextDirection, parseSort, type Sort, type SortDirection } from "@/platform/lists/sort";
 import { APPLICATION_STAGE_ORDER, applicationStage } from "./application-stage";
 import { ROSTER_DECISION_ORDER, rosterDecision, type Decision } from "./decision-summary";
-import { aiScoreGap } from "./ai-review";
 import { scoreAverage } from "./scoring";
 import { applicantTypeLabel, type ApplicantType } from "./visibility";
 
@@ -10,8 +9,6 @@ export const APPLICANT_SORT_KEYS = [
   "email",
   "type",
   "score",
-  "ai",
-  "gap",
   "stage",
   "ranked",
   "decision",
@@ -28,10 +25,6 @@ export type SortableApplicant = {
   applicant: { firstName: string; lastName: string; email: string };
   applicantType: ApplicantType;
   committeeScores: { score: number }[];
-  /** The AI reviewer's band and rank. Present only for a viewer allowed to read
-   *  AI reviews (services/ai-review.ts); for anyone else the AI columns sort as
-   *  empty, so a hand-edited ?sort=gap reveals nothing. */
-  aiReview?: { score: number; rank: number } | null;
   routedDepartmentCode: string | null;
   returnedToRoutingAt?: Date | null;
   decision: Decision;
@@ -47,10 +40,6 @@ export const DEFAULT_SORT_DIRECTION: Record<ApplicantSortKey, SortDirection> = {
   email: "asc",
   type: "asc",
   score: "desc",
-  // Strongest first, and the biggest disagreement first: both are asked to find
-  // the top of the list.
-  ai: "desc",
-  gap: "desc",
   stage: "asc",
   ranked: "asc",
   decision: "asc",
@@ -113,27 +102,14 @@ function averageFor(a: SortableApplicant): number | null {
   return scoreAverage(a.committeeScores.map((c) => c.score)).average;
 }
 
-/** One number that orders AI reviews: the band, then the run's rank within it
- *  (rank 1 strongest). Ranks never reach a million, so the band always wins. */
-function aiStrengthFor(a: SortableApplicant): number | null {
-  return a.aiReview ? a.aiReview.score * 1_000_000 - a.aiReview.rank : null;
-}
-
-/** How far the committee and the AI are apart, in either direction. */
-function gapSizeFor(a: SortableApplicant): number | null {
-  const gap = aiScoreGap(averageFor(a), a.aiReview?.score);
-  return gap == null ? null : Math.abs(gap);
-}
-
 /** Sorts a copy of the roster. Array.prototype.sort is stable, so ties keep the
  *  order they arrived in, which is submittedAt desc from listApplicantsForReview. */
 export function sortApplicants<T extends SortableApplicant>(apps: T[], sort: ApplicantSort): T[] {
   const sign = sort.dir === "asc" ? 1 : -1;
   return [...apps].sort((a, b) => {
-    if (sort.key === "score" || sort.key === "ai" || sort.key === "gap") {
-      const valueFor = sort.key === "score" ? averageFor : sort.key === "ai" ? aiStrengthFor : gapSizeFor;
-      const av = valueFor(a);
-      const bv = valueFor(b);
+    if (sort.key === "score") {
+      const av = averageFor(a);
+      const bv = averageFor(b);
       // Unscored rows sink in both directions, so the column always answers the
       // question the reviewer clicked it to ask.
       if (av == null && bv == null) return 0;

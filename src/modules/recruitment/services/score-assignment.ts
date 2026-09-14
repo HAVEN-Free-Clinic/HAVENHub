@@ -5,6 +5,8 @@ import { recordAudit } from "@/platform/audit";
 import { RecruitmentAuthError } from "./review";
 import { allocateAssignments, type AssignmentPair } from "../engine/score-assignment";
 import { applicationStage, isHandledStage } from "../engine/application-stage";
+import { applicationOwnerAmong } from "../engine/own-application";
+import { reviewerIdentities } from "./own-application";
 
 export class ScoreAssignmentError extends Error {
   constructor(message: string) { super(message); this.name = "ScoreAssignmentError"; }
@@ -30,7 +32,7 @@ async function eligibleApplications(cycleId: string) {
       routedDepartmentCode: true,
       returnedToRoutingAt: true,
       decision: true,
-      applicant: { select: { applicantPersonId: true } },
+      applicant: { select: { applicantPersonId: true, emailLower: true, netId: true } },
       committeeScores: { select: { scorerId: true } },
       interviews: { select: { decision: true } },
     },
@@ -51,7 +53,7 @@ async function eligibleApplications(cycleId: string) {
     )
     .map((a) => ({
       id: a.id,
-      applicantPersonId: a.applicant.applicantPersonId,
+      applicant: a.applicant,
       scorerIds: a.committeeScores.map((c) => c.scorerId),
     }));
 }
@@ -159,7 +161,10 @@ export async function setCycleScoring(
     }
   }
 
-  const applications = await eligibleApplications(cycleId);
+  const [applications, poolIdentities] = await Promise.all([
+    eligibleApplications(cycleId),
+    reviewerIdentities(scorerIds),
+  ]);
   const eligibleIds = applications.map((a) => a.id);
   const existing = await prisma.scoreAssignment.findMany({
     where: { applicationId: { in: eligibleIds } },
@@ -170,7 +175,7 @@ export async function setCycleScoring(
   );
 
   const { add, remove } = allocateAssignments({
-    applications: applications.map((a) => ({ id: a.id, applicantPersonId: a.applicantPersonId })),
+    applications: applications.map((a) => ({ id: a.id, applicantPersonId: applicationOwnerAmong(a.applicant, poolIdentities) })),
     scorerIds,
     target: input.target,
     existing,
@@ -245,7 +250,10 @@ export async function assignReturnedApplication(cycleId: string, applicationId: 
   ]);
   if (!cycle || pool.length === 0) return 0;
 
-  const applications = await eligibleApplications(cycleId);
+  const [applications, poolIdentities] = await Promise.all([
+    eligibleApplications(cycleId),
+    reviewerIdentities(pool.map((p) => p.personId)),
+  ]);
   const returned = applications.find((a) => a.id === applicationId);
   if (!returned) return 0;
   const ordered = [returned, ...applications.filter((a) => a.id !== applicationId)];
@@ -255,7 +263,7 @@ export async function assignReturnedApplication(cycleId: string, applicationId: 
   });
 
   const { add } = allocateAssignments({
-    applications: ordered.map((a) => ({ id: a.id, applicantPersonId: a.applicantPersonId })),
+    applications: ordered.map((a) => ({ id: a.id, applicantPersonId: applicationOwnerAmong(a.applicant, poolIdentities) })),
     scorerIds: pool.map((p) => p.personId),
     target: cycle.scoresPerApplication,
     existing,

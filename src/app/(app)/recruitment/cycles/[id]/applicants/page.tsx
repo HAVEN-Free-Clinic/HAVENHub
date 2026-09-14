@@ -122,7 +122,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
     });
   const speedItems: SpeedScoreItem[] = canScore
     ? apps
-        .filter((a) => a.applicant.applicantPersonId !== person.personId) // never queue your own application
+        .filter((a) => !a.isOwnApplication) // never queue your own application, linked to your account or not
         // Already with a department, in interviews, or decided: a committee score
         // changes nothing for them. Renewals and first-choice auto-route
         // departments are routed AT SUBMISSION and documented as skipping
@@ -311,8 +311,13 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
                       doubling the table's height for a short label.
                       The target turns "3.7 avg" into "3.7 avg · 2 of 3
                       reviewers" while a row is short, because speed routing
-                      ranks an average over two reads against one over three. */}
-                  {formatScoreSummary(scoreAverage(a.committeeScores.map((c) => c.score)), coverageTarget)}
+                      ranks an average over two reads against one over three.
+                      The viewer's own application arrives with no scores
+                      (listApplicantsForReview), and says so rather than
+                      reading as "Not yet scored". */}
+                  {a.isOwnApplication
+                    ? "Hidden: your application"
+                    : formatScoreSummary(scoreAverage(a.committeeScores.map((c) => c.score)), coverageTarget)}
                 </TD>
                 <TD>
                   <span className="inline-flex flex-wrap items-center gap-1.5">

@@ -2,6 +2,8 @@ import { cache } from "react";
 import type { Acceptance, Application, CycleStatus, Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { invitedEmailsFor } from "./invites";
+import { reviewerIdentity } from "./own-application";
+import { isOwnApplication } from "../engine/own-application";
 import { can } from "@/platform/rbac/engine";
 import { manageableDepartmentIds } from "@/platform/departments";
 import { recordAudit } from "@/platform/audit";
@@ -165,7 +167,14 @@ async function recordViewOnce(entry: {
 }
 
 export type ReviewApplication = Application & {
-  applicant: { firstName: string; lastName: string; email: string; applicantPersonId: string | null };
+  applicant: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    emailLower: string;
+    netId: string | null;
+    applicantPersonId: string | null;
+  };
   /**
    * True when this applicant accepted an invite link for the cycle, i.e. they
    * were recruited selectively rather than applying through the open form. It
@@ -173,6 +182,12 @@ export type ReviewApplication = Application & {
    * a reviewer reads it, and is otherwise invisible on this screen.
    */
   invited: boolean;
+  /**
+   * True when this is the viewer's own application (a reviewer who also
+   * applied). Its committeeScores come back EMPTY for them, so no score, count,
+   * sort position, or scored-or-not stage reaches them through the roster.
+   */
+  isOwnApplication: boolean;
   acceptances: Acceptance[];
   committeeScores: { score: number; scorerId: string }[];
   interviews: { decision: "PENDING" | "ACCEPT" | "REJECT" | "WAITLIST" }[];
@@ -182,10 +197,11 @@ export type ReviewApplication = Application & {
  *  managers, and committee scorers) see all; a director sees only applications
  *  intersecting their department codes. */
 export async function listApplicantsForReview(cycleId: string, viewerId: string): Promise<ReviewApplication[]> {
-  const [scope, managesCycles, canScore] = await Promise.all([
+  const [scope, managesCycles, canScore, me] = await Promise.all([
     reviewScope(viewerId),
     can(viewerId, "recruitment.manage_cycles"),
     can(viewerId, "recruitment.score"),
+    reviewerIdentity(viewerId),
   ]);
   const seeAll = scope.all || managesCycles || canScore;
   // One lookup for the whole cycle, not one per row: the marker is derived from
@@ -195,7 +211,7 @@ export async function listApplicantsForReview(cycleId: string, viewerId: string)
     prisma.application.findMany({
       where: { cycleId, status: "SUBMITTED" },
       include: {
-        applicant: { select: { firstName: true, lastName: true, email: true, applicantPersonId: true } },
+        applicant: { select: { firstName: true, lastName: true, email: true, emailLower: true, netId: true, applicantPersonId: true } },
         acceptances: true,
         committeeScores: { select: { score: true, scorerId: true } },
         interviews: { select: { decision: true } },
@@ -204,10 +220,17 @@ export async function listApplicantsForReview(cycleId: string, viewerId: string)
     }),
     invitedEmailsFor(cycleId),
   ]);
-  const apps: ReviewApplication[] = rawApps.map((a) => ({
-    ...a,
-    invited: invitedEmails.has(a.applicant.email.trim().toLowerCase()),
-  }));
+  const apps: ReviewApplication[] = rawApps.map((a) => {
+    // Stripped here rather than hidden in the page, so nothing downstream (the
+    // score column, sorting by score, the Stage column) can leak it by accident.
+    const own = isOwnApplication(a.applicant, me);
+    return {
+      ...a,
+      invited: invitedEmails.has(a.applicant.email.trim().toLowerCase()),
+      isOwnApplication: own,
+      committeeScores: own ? [] : a.committeeScores,
+    };
+  });
   if (seeAll) return apps;
   const mine = new Set(scope.departmentCodes);
   const cycle = await prisma.recruitmentCycle.findUnique({ where: { id: cycleId }, select: { track: true } });

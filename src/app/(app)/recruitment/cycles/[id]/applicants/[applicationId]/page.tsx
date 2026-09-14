@@ -22,6 +22,8 @@ import { DateTime } from "@/platform/dates/display";
 import { committeeScoreSummary } from "@/modules/recruitment/services/committee-scoring";
 import { formatScoreSummary } from "@/modules/recruitment/engine/scoring";
 import { scorerQueueScope } from "@/modules/recruitment/services/score-assignment";
+import { reviewerIdentity } from "@/modules/recruitment/services/own-application";
+import { isOwnApplication } from "@/modules/recruitment/engine/own-application";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
@@ -179,7 +181,12 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
   // The routed-decision director is told to "decide from the committee score", so
   // they must be able to see it even without recruitment.score (they get the
   // read-only average below; only scorers get the entry form).
-  const scoreSummary = canScore || canDecideRouted ? await committeeScoreSummary(applicationId) : null;
+  //
+  // A reviewer who also applied reads their own application like any other, but
+  // never its scores or who gave them, and is offered no score form
+  // (submitCommitteeScore refuses a self-score regardless).
+  const ownApplication = isOwnApplication(app.applicant, await reviewerIdentity(person.personId));
+  const scoreSummary = !ownApplication && (canScore || canDecideRouted) ? await committeeScoreSummary(applicationId) : null;
   const myScore = scoreSummary?.scores.find((s) => s.scorerId === person.personId) ?? null;
   // Every reviewer's score and comment, by name, for the people who act on them:
   // a lead (review_all) and the director deciding a routed application. A scorer
@@ -435,6 +442,15 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
           aria-label="Review"
           className="space-y-6 lg:sticky lg:top-24 lg:-m-1 lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto lg:p-1"
         >
+          {ownApplication && (canScore || canDecideRouted) && (
+            <Card>
+              <SectionHeader>Committee score</SectionHeader>
+              <p className="mt-1 text-sm text-foreground-soft">
+                This is your application, so its scores and who gave them are hidden from you, and you
+                can&apos;t score it.
+              </p>
+            </Card>
+          )}
           {scoreSummary && (canScore || canDecideRouted) && (
             <Card>
               <SectionHeader>Committee score</SectionHeader>

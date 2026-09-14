@@ -86,4 +86,17 @@ describe("loadSpeedRouteBoard", () => {
     const dir = await prisma.recruitmentCycle.create({ data: { track: "DIRECTOR", termId: term.id, title: "D", publicSlug: "dboard", departments: ["EDUC"], createdById: lead.id, status: "OPEN" } });
     await expect(loadSpeedRouteBoard(dir.id, lead.id)).rejects.toBeInstanceOf(RoutingError);
   });
+
+  it("leaves a lead's own application off their board, after tiering everyone", async () => {
+    const { lead, cycle, apps } = await seed();
+    // The lead applied too, signed out, as the top-scored applicant (a0, average 5).
+    await prisma.person.update({ where: { id: lead.id }, data: { contactEmail: "a0@y.edu" } });
+    const board = await loadSpeedRouteBoard(cycle.id, lead.id);
+    const ids = [...board.top, ...board.middle, ...board.bottom, ...board.unscored, ...board.returned].map((r) => r.applicationId);
+    expect(ids).not.toContain(apps[0]);
+    // The tiers are still cut over the whole cohort, so nobody moves up into the
+    // empty top slot: that would tell the lead where their own application sits.
+    expect(board.top).toHaveLength(0);
+    expect(board.middle.map((r) => r.average).sort()).toEqual([3, 4]);
+  });
 });

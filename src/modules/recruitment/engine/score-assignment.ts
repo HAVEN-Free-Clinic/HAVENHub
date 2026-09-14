@@ -5,7 +5,9 @@ export type AssignmentPair = { applicationId: string; scorerId: string };
 export type AllocateInput = {
   /** Applications still open to committee scoring, in roster order. The
    *  allocator touches NOTHING outside this list, so a routed or decided
-   *  application keeps whatever assignments it already had. */
+   *  application keeps whatever assignments it already had. `applicantPersonId`
+   *  is whoever the application belongs to, linked or matched (see
+   *  applicationOwnerAmong), so nobody is handed their own. */
   applications: { id: string; applicantPersonId: string | null }[];
   /** The cycle's scorer pool. */
   scorerIds: string[];
@@ -91,12 +93,17 @@ export function allocateAssignments(input: AllocateInput): AllocateResult {
     if (eligible.has(s.applicationId)) addTo(scoredBy, s.applicationId, s.scorerId);
   }
 
+  const ownerOf = new Map(input.applications.map((a) => [a.id, a.applicantPersonId]));
   const assignedBy = new Map<string, Set<string>>();
   const load = new Map<string, number>();
   const remove: AssignmentPair[] = [];
   for (const e of input.existing) {
     if (!eligible.has(e.applicationId)) continue;
-    if (!inPool.has(e.scorerId) && !scoredBy.get(e.applicationId)?.has(e.scorerId)) {
+    // Unscored work comes back from a scorer who left the pool, and from one
+    // handed their own application before it could be recognised as theirs.
+    const leftPool = !inPool.has(e.scorerId);
+    const ownApplication = ownerOf.get(e.applicationId) === e.scorerId;
+    if ((leftPool || ownApplication) && !scoredBy.get(e.applicationId)?.has(e.scorerId)) {
       remove.push(e);
       continue;
     }

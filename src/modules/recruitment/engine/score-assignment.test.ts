@@ -38,6 +38,20 @@ describe("allocateAssignments", () => {
     expect(keys(add)).toEqual(["a1:s2"]);
   });
 
+  it("takes back an unscored assignment that hands a scorer their own application", () => {
+    // Made before the application could be recognised as theirs (it had no
+    // account link). Left in place it counted as one of the application's reads.
+    const { add, remove } = allocateAssignments({
+      ...base,
+      applications: [app("a1", "s1")],
+      scorerIds: ["s1", "s2"],
+      target: 2,
+      existing: [pair("a1", "s1")],
+    });
+    expect(keys(remove)).toEqual(["a1:s1"]);
+    expect(keys(add)).toEqual(["a1:s2"]);
+  });
+
   it("clamps the target to the number of eligible scorers", () => {
     const { add } = allocateAssignments({
       ...base,

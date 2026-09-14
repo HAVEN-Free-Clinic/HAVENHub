@@ -46,6 +46,14 @@ describe("submitCommitteeScore", () => {
     await expect(submitCommitteeScore(application.id, scorer.id, 5, null)).rejects.toBeInstanceOf(RecruitmentAuthError);
   });
 
+  it("rejects scoring your own application when it is not linked to your account", async () => {
+    const { scorer, application } = await seed();
+    // Applied signed out under their contact address, so there is no account
+    // link and only the address says whose application this is.
+    await prisma.person.update({ where: { id: scorer.id }, data: { contactEmail: "a@y.edu" } });
+    await expect(submitCommitteeScore(application.id, scorer.id, 5, null)).rejects.toBeInstanceOf(RecruitmentAuthError);
+  });
+
   it("rejects self-scoring on a director-track cycle too (SoD applies on both tracks)", async () => {
     // The motivating case: a director renewing their own membership who is also
     // on the scoring committee must not score their own director-track application.

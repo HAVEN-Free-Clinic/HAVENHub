@@ -4,6 +4,8 @@ import { can } from "@/platform/rbac/engine";
 import { recordAudit } from "@/platform/audit";
 import { RecruitmentAuthError } from "./review";
 import { scoreAverage } from "../engine/scoring";
+import { isOwnApplication } from "../engine/own-application";
+import { reviewerIdentity } from "./own-application";
 
 export class CommitteeScoreError extends Error {
   constructor(message: string) { super(message); this.name = "CommitteeScoreError"; }
@@ -21,16 +23,17 @@ export async function submitCommitteeScore(
   }
   const app = await prisma.application.findUnique({
     where: { id: applicationId },
-    select: { status: true, applicant: { select: { applicantPersonId: true } } },
+    select: { status: true, applicant: { select: { applicantPersonId: true, emailLower: true, netId: true } } },
   });
   if (!app) throw new CommitteeScoreError("Application not found.");
   if (app.status !== "SUBMITTED") throw new CommitteeScoreError("This application hasn't been submitted yet.");
   // Committee scoring applies to BOTH tracks (score everyone); only routing is
   // volunteer-only, since director applicants pick their own department.
-  // Separation of duties: a signed-in applicant who is also on the committee
-  // (e.g. a returning member re-applying) must not score their own application.
-  // Mirrors acceptApplicant/decideInterview in review.ts / interview-decisions.ts.
-  if (app.applicant.applicantPersonId && app.applicant.applicantPersonId === scorerId) {
+  // Separation of duties: a committee member who also applied (e.g. a returning
+  // member re-applying) must not score their own application. Recognised by
+  // account link, NetID or address, not the link alone, which is only set for
+  // someone signed in when they submitted (see engine/own-application.ts).
+  if (isOwnApplication(app.applicant, await reviewerIdentity(scorerId))) {
     throw new RecruitmentAuthError("You can't score your own application.");
   }
   const authorized = (await can(scorerId, "recruitment.score")) || (await can(scorerId, "recruitment.review_all"));

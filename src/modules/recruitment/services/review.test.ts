@@ -107,6 +107,27 @@ describe("listApplicantsForReview", () => {
     expect(scored.committeeScores[0]).toMatchObject({ score: 4, scorerId: scorer.id });
     expect(scored.applicant).toHaveProperty("applicantPersonId");
   });
+  it("hides the scores on a reviewer's own application and marks it theirs, even when unlinked", async () => {
+    const { scorer, srr, cycle, appSrhd, appMdic } = await seed();
+    // The scorer applied signed out under s@yale.edu, so only the address says
+    // the application is theirs.
+    await prisma.person.update({ where: { id: scorer.id }, data: { contactEmail: "s@yale.edu" } });
+    const colleague = await prisma.person.create({ data: { name: "Colleague", status: "ACTIVE" } });
+    await prisma.committeeScore.create({ data: { applicationId: appSrhd.id, scorerId: colleague.id, score: 2 } });
+    await prisma.committeeScore.create({ data: { applicationId: appMdic.id, scorerId: colleague.id, score: 5 } });
+
+    const apps = await listApplicantsForReview(cycle.id, scorer.id);
+    const own = apps.find((a) => a.id === appSrhd.id)!;
+    expect(own.isOwnApplication).toBe(true);
+    expect(own.committeeScores).toEqual([]);
+    const theirs = apps.find((a) => a.id === appMdic.id)!;
+    expect(theirs.isOwnApplication).toBe(false);
+    expect(theirs.committeeScores).toHaveLength(1);
+
+    // Hidden from the applicant only: everyone else still sees the score.
+    const srrView = await listApplicantsForReview(cycle.id, srr.id);
+    expect(srrView.find((a) => a.id === appSrhd.id)!.committeeScores).toHaveLength(1);
+  });
 });
 
 describe("listReviewableCycles", () => {

@@ -137,6 +137,19 @@ describe("setCycleScoring", () => {
     expect(rows.filter((r) => r.applicationId === own.id)).toHaveLength(2);
   });
 
+  it("never hands a scorer their own application when it is not linked to their account", async () => {
+    const { cycle, lead, scorers } = await seed();
+    // Applied signed out, so there is no account link: only the address says it is Ann's.
+    await prisma.person.update({ where: { id: scorers[0].id }, data: { contactEmail: "own@yale.edu" } });
+    const own = await application(cycle.id, "own");
+
+    await setCycleScoring(cycle.id, { scorerIds: scorers.map((s) => s.id), target: 3 }, lead.id);
+
+    const rows = await assignmentsFor(cycle.id);
+    expect(rows.filter((r) => r.applicationId === own.id).map((r) => r.scorerId)).not.toContain(scorers[0].id);
+    expect(rows.filter((r) => r.applicationId === own.id)).toHaveLength(2);
+  });
+
   it("leaves applications that have left the committee alone", async () => {
     const { cycle, lead, scorers } = await seed();
     const open = await application(cycle.id, "open");

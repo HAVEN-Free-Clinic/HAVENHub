@@ -87,6 +87,39 @@ describe("loadReviewApplication", () => {
     expect(keys).not.toContain("cert_detail"); // has_cert = "no"
   });
 
+  it("carries the applicant's earlier applications, never the one being scored", async () => {
+    const { scorer, application } = await seed();
+    const first = await loadReviewApplication(application.id, scorer.id);
+    if (!("view" in first)) throw new Error("expected view");
+    expect(first.view.history).toEqual({ summary: "First application, no earlier record.", rows: [] });
+
+    // The same person in an earlier cycle, matched on email as the detail page's card is.
+    const lead = await prisma.person.findFirstOrThrow({ where: { name: "Lead" } });
+    const term = await prisma.term.create({ data: { code: "SP26", name: "Spring 2026", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
+    const past = await prisma.recruitmentCycle.create({
+      data: { track: "VOLUNTEER", termId: term.id, title: "Volunteer Spring 2026", publicSlug: "v-sp26", departments: ["SRHD"], createdById: lead.id, status: "OPEN" },
+    });
+    const pastApplicant = await prisma.applicant.create({ data: { cycleId: past.id, firstName: "Ann", lastName: "Lee", email: "ann@yale.edu", emailLower: "ann@yale.edu" } });
+    const pastApp = await prisma.application.create({
+      data: { cycleId: past.id, applicantId: pastApplicant.id, applicantType: "NEW", departmentChoices: ["SRHD"], answers: {}, decision: "REJECT" },
+    });
+
+    const res = await loadReviewApplication(application.id, scorer.id);
+    if (!("view" in res)) throw new Error("expected view");
+    expect(res.view.history).toEqual({
+      summary: "2nd application. Furthest: Applied (Volunteer Spring 2026).",
+      rows: [
+        {
+          key: expect.any(String),
+          title: "Volunteer Spring 2026",
+          href: `/recruitment/cycles/${past.id}/applicants/${pastApp.id}`,
+          meta: "Volunteer · SRHD",
+          badge: "Applied - Rejected",
+        },
+      ],
+    });
+  });
+
   it("shows the hoisted ranking once even when the form has several rank fields", async () => {
     const { scorer, application, section } = await seed();
     // submitApplication hoists the ranking out of the FIRST rank field into its

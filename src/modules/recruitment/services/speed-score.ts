@@ -6,6 +6,10 @@ import { visibleSections, applicantTypeLabel } from "../engine/visibility";
 import { isFieldVisible, mergeDepartmentAnswer, answersForConditions } from "../engine/field-visibility";
 import { formatAnswer } from "../engine/answer-display";
 import { isInlinePreviewable } from "./file-preview";
+import { getApplicantHistory } from "./history";
+import { MONTH_YEAR, historyRowViews, summaryLine, type HistoryRowView } from "../engine/history-display";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
+import { formatDateTime } from "@/platform/dates/format";
 
 export type ReviewFieldView = {
   key: string;
@@ -22,6 +26,9 @@ export type ReviewApplicationView = {
   typeLabel: string; // New | Renewal | Transfer
   departmentChoices: string[]; // codes; shown as header chips only
   sections: ReviewSectionView[];
+  /** The detail page's "Past applications" record, as plain text: the modal is a
+   *  client component and cannot format the card's dates itself. */
+  history: { summary: string; rows: HistoryRowView[] };
 };
 
 /** Build the condensed, reviewer-facing view of one application: option labels
@@ -140,6 +147,13 @@ export async function loadReviewApplication(
     if (fields.length > 0) sections.push({ title: section.title, fields });
   }
 
+  // Queried exactly as the detail page queries it: this application excluded, so
+  // the summary's "2nd application" counts the one being scored.
+  const [history, zone] = await Promise.all([
+    getApplicantHistory({ netId: app.applicant.netId, emails: [app.applicant.email], excludeApplicationId: app.id }),
+    getDisplayTimeZone(),
+  ]);
+
   return {
     view: {
       applicationId: app.id,
@@ -148,6 +162,10 @@ export async function loadReviewApplication(
       typeLabel: applicantTypeLabel(app.applicantType),
       departmentChoices: app.departmentChoices,
       sections,
+      history: {
+        summary: summaryLine(history, true),
+        rows: historyRowViews(history, (d) => formatDateTime(d, zone, MONTH_YEAR)),
+      },
     },
   };
 }

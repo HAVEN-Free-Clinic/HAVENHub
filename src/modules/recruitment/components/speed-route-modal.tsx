@@ -8,19 +8,21 @@ import { Alert } from "@/platform/ui/alert";
 import { Spinner } from "@/platform/ui/spinner";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { runAction } from "@/platform/ui/run-action";
+import { TextLink } from "@/platform/ui/text-link";
 import type { SpeedRouteRow } from "@/modules/recruitment/services/speed-route";
 import { formatScoreSummary } from "@/modules/recruitment/engine/scoring";
 
 type SpeedRouteModalProps = {
   open: boolean;
   onClose: () => void;
+  cycleId: string;
   rows: SpeedRouteRow[];
   departments: string[];
   onRoute: (applicationId: string, departmentCode: string) => Promise<{ error?: string }>;
   onReject: (applicationId: string) => Promise<{ error?: string }>;
 };
 
-export function SpeedRouteModal({ open, onClose, rows, departments, onRoute, onReject }: SpeedRouteModalProps) {
+export function SpeedRouteModal({ open, onClose, cycleId, rows, departments, onRoute, onReject }: SpeedRouteModalProps) {
   // Freeze the row set at open so live routing never reindexes the queue.
   const [snapshot] = useState(() => rows);
   const [includeDecided, setIncludeDecided] = useState(false);
@@ -177,6 +179,12 @@ export function SpeedRouteModal({ open, onClose, rows, departments, onRoute, onR
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <Badge>{formatScoreSummary({ average: current!.average, count: current!.scoreCount })}</Badge>
             <span className="text-muted-foreground">Ranked: {current!.departmentChoices.join(", ") || "(none)"}</span>
+            {/* A new tab, not a navigation: the queue position and its frozen
+                snapshot live only in this modal, so leaving the page would drop
+                the lead back at the start of the middle tier. */}
+            <TextLink href={`/recruitment/cycles/${cycleId}/applicants/${current!.applicationId}`} external>
+              Open full application
+            </TextLink>
             <span className="ml-auto text-muted-foreground">
               <Checkbox
                 size="xs"

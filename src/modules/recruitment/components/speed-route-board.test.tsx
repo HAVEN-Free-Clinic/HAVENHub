@@ -170,3 +170,15 @@ it("drops the unscored card entirely when every unscored applicant went straight
   mount(board({ top: [], middle: [], bottom: [], returned: [], unscored: [renewal] }));
   expect(document.body.textContent).not.toContain("Unscored");
 });
+
+it("links each applicant's name to their full application", () => {
+  mount(board());
+  const hrefs = Array.from(document.querySelectorAll("a"))
+    .filter((a) => a.textContent === "Ada Applicant")
+    .map((a) => a.getAttribute("href"));
+  // Once in the Returned card and once in their score tier.
+  expect(hrefs).toEqual([
+    "/recruitment/cycles/c1/applicants/app1",
+    "/recruitment/cycles/c1/applicants/app1",
+  ]);
+});

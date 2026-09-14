@@ -53,6 +53,7 @@ function mount({ onRoute, onReject, rows }: Handlers & { rows?: SpeedRouteRow[] 
       <SpeedRouteModal
         open
         onClose={() => {}}
+        cycleId="c1"
         rows={rows ?? [row(), row({ applicationId: "app2", name: "Bo Applicant" })]}
         departments={["ITCM", "SRHD"]}
         onRoute={onRoute ?? (async () => ({}))}
@@ -179,5 +180,26 @@ describe("SpeedRouteModal when the route action succeeds or fails cleanly", () =
 
     expect(alertText()).toContain("That department is full.");
     expect(alertText()).not.toContain(ACTION_REJECTED_MESSAGE);
+  });
+});
+
+describe("SpeedRouteModal link to the full application", () => {
+  const openLink = () =>
+    Array.from(document.querySelectorAll("a")).find((a) => a.textContent?.trim() === "Open full application");
+
+  it("points at the current applicant and follows the queue", async () => {
+    mount({});
+    expect(openLink()?.getAttribute("href")).toBe("/recruitment/cycles/c1/applicants/app1");
+
+    await act(async () => {
+      buttonNamed("1. ITCM")?.click();
+    });
+
+    expect(openLink()?.getAttribute("href")).toBe("/recruitment/cycles/c1/applicants/app2");
+  });
+
+  it("opens in a new tab, so the lead keeps their place in the queue", () => {
+    mount({});
+    expect(openLink()?.getAttribute("target")).toBe("_blank");
   });
 });

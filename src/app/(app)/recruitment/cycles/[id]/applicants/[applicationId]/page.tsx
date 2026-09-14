@@ -12,7 +12,7 @@ import { reviewScope, listAcceptances, canViewApplication, recordApplicationView
 import { can } from "@/platform/rbac/engine";
 import { scheduleInterviewAction, committeeScoreAction, routeAction, decideRoutedAction, reopenDecisionAction, rescindAcceptanceAction, reopenWithdrawnAction, excuseApplicantAbsenceAction, clearApplicantExcuseAction, assessApplicantLanguageAction } from "../actions";
 import { getApplicantAbsenceExcuse } from "@/modules/recruitment/services/training";
-import { languagesToAssessBeforeAcceptance, priorLanguageVerdicts } from "@/platform/languages";
+import { priorLanguageVerdicts } from "@/platform/languages";
 import { nextDualFallback } from "@/platform/dual-roles/catalog";
 import { LanguageAssessmentCard } from "@/modules/recruitment/components/language-assessment-card";
 import { ExcuseAbsenceButton } from "@/modules/recruitment/components/excuse-absence-button";
@@ -130,14 +130,11 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
     ? await prisma.person.findMany({ where: { id: { in: assessorIds } }, select: { id: true, name: true } })
     : [];
   const assessorNames = new Map(assessors.map((a) => [a.id, a.name]));
-  // What this application owes a verdict on, plus every language that already
-  // has one. A dual-role-only applicant may not owe Spanish, but a Spanish
-  // verdict already on file must still be shown to the deciding department.
+  // Every language the applicant claimed, plus every language that already has
+  // a verdict. Spanish is never added unclaimed, but a Spanish verdict already
+  // on file must still be shown to the deciding department.
   const assessableLanguages = inLane
-    ? [...new Set([
-        ...languagesToAssessBeforeAcceptance(app, laneDepartments.map((d) => d.code)),
-        ...languageVerdicts.keys(),
-      ])]
+    ? [...new Set([...app.languagesClaimed, ...languageVerdicts.keys()])]
     : [];
   const canAssessLanguages = await can(person.personId, "volunteers.verify_spanish");
 

@@ -232,9 +232,11 @@ export async function promoteContracts(
 
         // Every ACTUALLY CLAIMED language runs through claimLanguage, whether
         // or not INTP already assessed it pre-acceptance. A language carried
-        // above but never claimed (Spanish is assessed regardless of claim, per
-        // decision 1) must NOT run through here: claimLanguage always sets
-        // selfReported true, and this applicant never made that claim.
+        // above but never claimed (an application assessed before 2026-09-14,
+        // when the lane still added Spanish to every applicant, or a verdict
+        // re-recorded from one already on file) must NOT run through here:
+        // claimLanguage always sets selfReported true, and this applicant never
+        // made that claim.
         // claimLanguage's own upsert is safe to run on an already-assessed row:
         // its update branch only ever touches selfReported, leaving the verdict
         // carryForwardApplicationAssessments just wrote untouched. Its `created`

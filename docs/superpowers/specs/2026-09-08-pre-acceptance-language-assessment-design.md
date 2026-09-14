@@ -31,17 +31,19 @@ Confirmed with the requester before design:
 1. Every applicant to a flagged department enters the pre-acceptance queue,
    whether or not they claimed a language. The point of the lane is to confirm
    Spanish, so Spanish is assessed regardless of what they claimed.
+   REVERSED 2026-09-14: an applicant in the lane is queued for exactly the
+   languages they ticked, and nothing else. Spanish-regardless put people who
+   interpret in another language in front of the interpreting department. #891
+   first narrowed it to PATS and INTP applicants, which still left 60 of the
+   127 Spanish rows in Fall 2026 for people who never ticked Spanish, including
+   INTP applicants interpreting in another language and PATS applicants who
+   rated their Spanish "none". The Spanish self-rating question does not queue
+   anyone either.
 2. The assessment is ADVISORY. It never blocks an ACCEPT decision.
 3. Any language the applicant claimed is assessed pre-acceptance, not Spanish
    alone. INTP interprets in other languages too.
 4. An applicant who ticked the INTP dual-role option is in the lane as well,
    even though their primary department is elsewhere.
-   Amended 2026-09-14: decision 1's Spanish-regardless does NOT extend to an
-   applicant in the lane only through that option. The box is ticked by
-   speakers of any language, and in Fall 2026 it queued 115 non-Spanish
-   speakers for Spanish. Such an applicant owes Spanish only when they claimed
-   it or rated themselves Conversational or above, which is what the form's
-   own Spanish question promises. See `languagesToAssessBeforeAcceptance`.
 5. An assessment already on file is never redone. An applicant with a prior
    human verdict on a language does not appear in the queue for it. The verdict
    is still SHOWN to the deciding department; it is the reviewer's work that is

@@ -29,7 +29,7 @@ export function LanguageAssessmentCard({
   action,
 }: {
   applicationId: string;
-  /** What the application owes a verdict on (languagesToAssessBeforeAcceptance), plus any language with a verdict on file. */
+  /** Every language the applicant claimed, plus any language with a verdict on file. */
   languages: string[];
   /** language -> the verdict that stands for this applicant, from priorLanguageVerdicts. */
   verdicts: Map<string, LanguageVerdict>;

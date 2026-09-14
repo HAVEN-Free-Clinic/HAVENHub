@@ -19,6 +19,8 @@ import { ExcuseAbsenceButton } from "@/modules/recruitment/components/excuse-abs
 import { listApplicationInterviews } from "@/modules/recruitment/services/interviews";
 import { DateTime } from "@/platform/dates/display";
 import { committeeScoreSummary } from "@/modules/recruitment/services/committee-scoring";
+import { aiReviewForApplication } from "@/modules/recruitment/services/ai-review";
+import { AiReviewCard } from "@/modules/recruitment/components/ai-review-card";
 import { formatScoreSummary } from "@/modules/recruitment/engine/scoring";
 import { scorerQueueScope } from "@/modules/recruitment/services/score-assignment";
 import { reviewerIdentity } from "@/modules/recruitment/services/own-application";
@@ -215,6 +217,26 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
   const offMyPile = queueScope?.pooled === true && !queueScope.assignedIds.has(applicationId);
   const canRoute = scope.all && app.cycle.track === "VOLUNTEER"; // recruitment.review_all; routing is volunteer-only
   const routedOffChoice = app.routedDepartmentCode != null && !app.departmentChoices.includes(app.routedDepartmentCode);
+  // The AI reviewer's advisory read, for recruitment leads only and never on
+  // their own application: the same two rules as the committee score card above.
+  // aiReviewForApplication re-checks both, so this gate only saves the query.
+  const aiReview = scope.all && !ownApplication ? await aiReviewForApplication(applicationId, person.personId) : null;
+  const aiDepartmentNames: Record<string, string> = aiReview
+    ? Object.fromEntries(
+        (
+          await prisma.department.findMany({
+            where: {
+              code: {
+                in: [aiReview.bestFitDepartmentCode, app.routedDepartmentCode, ...app.departmentChoices].filter(
+                  (c): c is string => Boolean(c),
+                ),
+              },
+            },
+            select: { code: true, name: true },
+          })
+        ).map((d) => [d.code, d.name]),
+      )
+    : {};
   return (
     <PageBody width="full">
       <SetBreadcrumb
@@ -505,6 +527,16 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
             </Card>
           )}
 
+          {aiReview && (
+            <AiReviewCard
+              review={aiReview}
+              committeeAverage={scoreSummary?.average ?? null}
+              routedDepartmentCode={app.routedDepartmentCode}
+              departmentChoices={app.departmentChoices}
+              departmentNames={aiDepartmentNames}
+            />
+          )}
+
           {canRoute && (
             <Card>
               <SectionHeader>Routing</SectionHeader>
@@ -523,7 +555,7 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
                       <option value="" disabled>Select…</option>
                       {app.cycle.departments.map((d) => (
                         <option key={d} value={d}>
-                          {d}{app.departmentChoices.includes(d) ? " (ranked)" : ""}
+                          {d}{app.departmentChoices.includes(d) ? " (ranked)" : ""}{aiReview?.bestFitDepartmentCode === d ? " (AI best fit)" : ""}
                         </option>
                       ))}
                     </Select>

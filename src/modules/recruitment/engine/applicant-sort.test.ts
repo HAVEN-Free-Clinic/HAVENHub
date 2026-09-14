@@ -158,3 +158,27 @@ it("uses the column's default direction when a new column is clicked", () => {
   expect(nextSortDirection(null, "name")).toBe("asc");
   expect(DEFAULT_SORT_DIRECTION.score).toBe("desc");
 });
+
+it("sorts by AI score, strongest first, breaking a shared band on the run's rank", () => {
+  const apps = [
+    app({ applicant: { firstName: "A", lastName: "Three", email: "a@yale.edu" }, aiReview: { score: 3, rank: 250 } }),
+    app({ applicant: { firstName: "B", lastName: "None", email: "b@yale.edu" }, aiReview: null }),
+    app({ applicant: { firstName: "C", lastName: "FiveLow", email: "c@yale.edu" }, aiReview: { score: 5, rank: 40 } }),
+    app({ applicant: { firstName: "D", lastName: "FiveTop", email: "d@yale.edu" }, aiReview: { score: 5, rank: 2 } }),
+  ];
+  expect(lastNames(sortApplicants(apps, { key: "ai", dir: "desc" }))).toEqual(["FiveTop", "FiveLow", "Three", "None"]);
+  expect(lastNames(sortApplicants(apps, { key: "ai", dir: "asc" }))).toEqual(["Three", "FiveLow", "FiveTop", "None"]);
+});
+
+it("sorts by the size of the committee-AI gap in either direction, sinking rows missing either score", () => {
+  const scores = (...s: number[]) => s.map((score) => ({ score }));
+  const apps = [
+    app({ applicant: { firstName: "A", lastName: "Close", email: "a@yale.edu" }, committeeScores: scores(4), aiReview: { score: 4, rank: 100 } }),
+    app({ applicant: { firstName: "B", lastName: "AiHigher", email: "b@yale.edu" }, committeeScores: scores(2, 3), aiReview: { score: 5, rank: 3 } }),
+    app({ applicant: { firstName: "C", lastName: "Unscored", email: "c@yale.edu" }, committeeScores: [], aiReview: { score: 5, rank: 1 } }),
+    app({ applicant: { firstName: "D", lastName: "CommitteeHigher", email: "d@yale.edu" }, committeeScores: scores(5, 5), aiReview: { score: 2, rank: 500 } }),
+  ];
+  expect(lastNames(sortApplicants(apps, { key: "gap", dir: "desc" }))).toEqual(["CommitteeHigher", "AiHigher", "Close", "Unscored"]);
+  expect(DEFAULT_SORT_DIRECTION.gap).toBe("desc");
+  expect(parseApplicantSort("gap", "desc")).toEqual({ key: "gap", dir: "desc" });
+});

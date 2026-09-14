@@ -2,6 +2,7 @@
 
 import { useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Button } from "@/platform/ui/button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Select } from "@/platform/ui/select";
@@ -31,6 +32,7 @@ type Props = {
 // stay lint-clean (no component definitions nested inside the board component,
 // matching the module-level ApplicationBody pattern in speed-score-modal.tsx).
 type RowHandlers = {
+  cycleId: string;
   departments: string[];
   /** The cycle's scoresPerApplication, or null on a cycle with no scorer pool. */
   target: number | null;
@@ -46,12 +48,29 @@ function avgLabel(r: SpeedRouteRow, target: number | null) {
   return formatScoreSummary({ average: r.average, count: r.scoreCount }, target);
 }
 
+/**
+ * The applicant's name, linked to their full application. A row here is a score
+ * and a list of ranked departments, which is not enough to route someone the lead
+ * is unsure about; the detail page has every answer and each scorer's comment.
+ * Same link recipe as the waitlist and decisions tables.
+ */
+function ApplicantName({ r, cycleId }: { r: SpeedRouteRow; cycleId: string }) {
+  return (
+    <Link
+      className="font-medium text-foreground hover:text-brand-fg"
+      href={`/recruitment/cycles/${cycleId}/applicants/${r.applicationId}`}
+    >
+      {r.name}
+    </Link>
+  );
+}
+
 function RouteRow({ r, kind, h }: { r: SpeedRouteRow; kind: "top" | "middle" | "bottom" | "returned"; h: RowHandlers }) {
   const routable = r.decision === "PENDING" && r.routedDepartmentCode == null;
   const decided = r.decision !== "PENDING";
   return (
     <TR>
-      <TD className="font-medium text-foreground">{r.name}</TD>
+      <TD><ApplicantName r={r} cycleId={h.cycleId} /></TD>
       <TD className="whitespace-nowrap text-foreground-soft">{avgLabel(r, h.target)}</TD>
       <TD className="text-foreground-soft">{r.departmentChoices.join(", ") || "(none)"}</TD>
       <TD><Badge>{applicationStageLabel[r.stage]}</Badge></TD>
@@ -157,7 +176,7 @@ function ReturnedCard({ rows, h }: { rows: SpeedRouteRow[]; h: RowHandlers }) {
         <tbody>
           {rows.map((r) => (
             <TR key={r.applicationId}>
-              <TD className="font-medium text-foreground">{r.name}</TD>
+              <TD><ApplicantName r={r} cycleId={h.cycleId} /></TD>
               <TD className="whitespace-nowrap text-foreground-soft">{avgLabel(r, h.target)}</TD>
               <TD className="text-foreground-soft">{r.returnedFromDepartmentCode ?? "-"}</TD>
               <TD className="text-foreground-soft">{r.returnedReason || "(none given)"}</TD>
@@ -243,6 +262,7 @@ export function SpeedRouteBoard({ board, onRoute, onReject, onReopen, onApplyTop
   }
 
   const h: RowHandlers = {
+    cycleId: board.cycleId,
     departments: board.departments,
     target: board.scoresPerApplication,
     deptFor,
@@ -414,6 +434,7 @@ export function SpeedRouteBoard({ board, onRoute, onReject, onReopen, onApplyTop
         <SpeedRouteModal
           open={modalOpen}
           onClose={() => { setModalOpen(false); refresh(); }}
+          cycleId={board.cycleId}
           rows={board.middle}
           departments={board.departments}
           onRoute={onRoute}

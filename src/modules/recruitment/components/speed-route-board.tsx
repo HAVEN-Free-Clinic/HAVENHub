@@ -8,7 +8,6 @@ import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Select } from "@/platform/ui/select";
 import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
-import { aiRerouteSuggestion } from "@/modules/recruitment/engine/ai-review";
 import { Card } from "@/platform/ui/card";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { SectionHeader } from "@/platform/ui/section-header";
@@ -66,28 +65,6 @@ function ApplicantName({ r, cycleId }: { r: SpeedRouteRow; cycleId: string }) {
   );
 }
 
-/**
- * The AI reviewer's band beside the ranked choices, warning-toned when its best
- * fit is not where the applicant is headed. Advisory: routing still defaults to
- * the first choice, and the lead decides.
- */
-function AiHint({ r }: { r: SpeedRouteRow }) {
-  if (!r.ai) return null;
-  const reroute = aiRerouteSuggestion({
-    bestFitDepartmentCode: r.ai.bestFitDepartmentCode,
-    routedDepartmentCode: r.routedDepartmentCode,
-    departmentChoices: r.departmentChoices,
-  });
-  return (
-    <Badge
-      tone={reroute ? "warning" : "default"}
-      title={reroute ? `AI reviewer's best fit is ${reroute.to}` : "AI reviewer's advisory score"}
-    >
-      AI {r.ai.score}/5{reroute ? ` · best fit ${reroute.to}` : ""}
-    </Badge>
-  );
-}
-
 function RouteRow({ r, kind, h }: { r: SpeedRouteRow; kind: "top" | "middle" | "bottom" | "returned"; h: RowHandlers }) {
   const routable = r.decision === "PENDING" && r.routedDepartmentCode == null;
   const decided = r.decision !== "PENDING";
@@ -95,12 +72,7 @@ function RouteRow({ r, kind, h }: { r: SpeedRouteRow; kind: "top" | "middle" | "
     <TR>
       <TD><ApplicantName r={r} cycleId={h.cycleId} /></TD>
       <TD className="whitespace-nowrap text-foreground-soft">{avgLabel(r, h.target)}</TD>
-      <TD className="text-foreground-soft">
-        <span className="inline-flex flex-wrap items-center gap-1.5">
-          {r.departmentChoices.join(", ") || "(none)"}
-          <AiHint r={r} />
-        </span>
-      </TD>
+      <TD className="text-foreground-soft">{r.departmentChoices.join(", ") || "(none)"}</TD>
       <TD><Badge>{applicationStageLabel[r.stage]}</Badge></TD>
       <TD>
         {routable ? (
@@ -123,7 +95,7 @@ function RouteRow({ r, kind, h }: { r: SpeedRouteRow; kind: "top" | "middle" | "
                       // must not be offered here either (audit 14, REC-2).
                       .filter((d) => d !== r.returnedFromDepartmentCode)
                       .map((d) => (
-                        <option key={d} value={d}>{d}{r.departmentChoices.includes(d) ? " (ranked)" : ""}{r.ai?.bestFitDepartmentCode === d ? " (AI best fit)" : ""}</option>
+                        <option key={d} value={d}>{d}{r.departmentChoices.includes(d) ? " (ranked)" : ""}</option>
                       ))}
                   </Select>
                 </div>
@@ -223,7 +195,7 @@ function ReturnedCard({ rows, h }: { rows: SpeedRouteRow[]; h: RowHandlers }) {
                         // would land the applicant in the same queue they left.
                         .filter((d) => d !== r.returnedFromDepartmentCode)
                         .map((d) => (
-                          <option key={d} value={d}>{d}{r.departmentChoices.includes(d) ? " (ranked)" : ""}{r.ai?.bestFitDepartmentCode === d ? " (AI best fit)" : ""}</option>
+                          <option key={d} value={d}>{d}{r.departmentChoices.includes(d) ? " (ranked)" : ""}</option>
                         ))}
                     </Select>
                   </div>

@@ -315,3 +315,22 @@ describe("buildContractReview profile photo", () => {
     expect(buildContractReview(contract(), layout, ctx).responses).toEqual([{ label: "Profile photo", value: null }]);
   });
 });
+
+describe("buildContractReview records on file", () => {
+  it("says a certificate and photo on file stood in for uploads", () => {
+    const layout: ContractLayout = {
+      blocks: [
+        { kind: "system_field", systemKey: "hipaa" },
+        { kind: "system_field", systemKey: "photo" },
+      ],
+    };
+    const r = buildContractReview(contract(), layout, ctx, {
+      hipaa: { completionDate: "2026-08-01T12:00:00.000Z", pendingVerification: true },
+      photo: true,
+    });
+    expect(r.responses).toEqual([
+      { label: "HIPAA certificate", value: "On file from their profile (completed Aug 1, 2026, awaiting verification)" },
+      { label: "Profile photo", value: "On file from their profile" },
+    ]);
+  });
+});

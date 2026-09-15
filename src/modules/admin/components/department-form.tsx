@@ -33,7 +33,6 @@ type DepartmentFormProps = {
 /** Ordered least → most access; the value is the stored EpicRequirement enum. */
 const EPIC_OPTIONS: { value: EpicRequirement; label: string }[] = [
   { value: "NONE", label: "Not required" },
-  { value: "SOME", label: "Ask each applicant" },
   { value: "ALL", label: "Required for all" },
 ];
 
@@ -109,9 +108,9 @@ export function DepartmentForm({ action, mode, department }: DepartmentFormProps
           <div>
             <p className="text-sm font-medium text-foreground">Epic access requirement</p>
             <p className="text-xs text-muted-foreground">
-              Controls the Epic section of the onboarding contract for this department. Required for all provisions
-              Epic for everyone; Ask each applicant shows a per-person question; Not required hides the section
-              (an applicant who already has an Epic ID on file is always asked to confirm it).
+              Decides Epic for everyone accepted into this department; the onboarding contract never asks. Required
+              for all shows the Epic section and requests access for anyone without an Epic ID on file. Not required
+              hides the section and requests nothing.
             </p>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">

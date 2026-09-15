@@ -1,4 +1,6 @@
-import { getContractByToken, lookupStoredEpicId, lookupHasAccount } from "@/modules/recruitment/services/onboarding";
+import { getContractByToken, lookupStoredEpicId, lookupHasAccount, lookupOnFile } from "@/modules/recruitment/services/onboarding";
+import { resolvePhoto } from "@/platform/photos";
+import { formatCalendarDate } from "@/platform/dates/format";
 import { parseContractLayout } from "@/modules/recruitment/contract/layout";
 import { DEFAULT_CONTRACT_LAYOUT } from "@/modules/recruitment/contract/system-fields";
 import { epicRequirementFor } from "@/modules/recruitment/contract/epic-requirement";
@@ -114,6 +116,7 @@ export default async function OnboardPage({ params }: { params: Promise<{ token:
     netId: contract.netId ?? "",
     phone: contract.phone ?? "",
     pronouns: contract.pronouns ?? "",
+    staffTitle: contract.staffTitle ?? "",
     yaleAffiliation: contract.yaleAffiliation ?? "",
     gradYear: contract.gradYear ?? "",
   };
@@ -146,6 +149,26 @@ export default async function OnboardPage({ params }: { params: Promise<{ token:
   // confirms it instead of re-collecting. Same lookup on both sides keeps the
   // section's client/server visibility in agreement.
   const storedEpicId = await lookupStoredEpicId(contract.netId, contract.email);
+
+  // What a returning member already has on file: a HIPAA certificate that covers
+  // this term, and a profile photo. The form shows them instead of asking again,
+  // and submitContract runs the same lookup, so both agree on what is optional.
+  const onFile = await lookupOnFile(contract.netId, contract.email, cycle?.term?.endDate ?? null);
+  const hipaaOnFile = onFile.hipaa
+    ? {
+        completionDate: formatCalendarDate(onFile.hipaa.completionDate),
+        expiresAt: formatCalendarDate(onFile.hipaa.expiresAt),
+        pendingVerification: onFile.hipaa.pendingVerification,
+      }
+    : null;
+  // Stored photos only: an unauthenticated page must never trigger a Yale
+  // directory pull on someone's behalf.
+  const storedPhoto = onFile.photoPersonId
+    ? await resolvePhoto(onFile.photoPersonId, new Date(), { allowPull: false })
+    : null;
+  const photoOnFile = storedPhoto
+    ? `data:${storedPhoto.contentType};base64,${storedPhoto.bytes.toString("base64")}`
+    : null;
 
   // The director default's second_department_name question is a
   // DEPARTMENT_CHOICE custom question (contract/defaults/director.ts); its
@@ -188,7 +211,7 @@ export default async function OnboardPage({ params }: { params: Promise<{ token:
           firstName: contract.firstName, orgName, todayIso,
           trainingDate, trainingLocation,
           department: departmentCode, track, epicRequirement, storedEpicId,
-          applicationAvailability,
+          applicationAvailability, hipaaOnFile, photoOnFile,
         }}
         departments={departments}
         maxUploadMb={maxUploadMb}

@@ -45,10 +45,10 @@ export default async function SignedContractPage({ params }: { params: Promise<{
   if (!cycle) notFound();
   const found = await getContractForReview(contractId);
   if (!found || found.cycleId !== id) notFound();
-  const { contract, ctx } = found;
+  const { contract, ctx, onFile } = found;
 
   const layout = safeLayout(contract.templateSnapshot);
-  const review = buildContractReview(contract, layout, ctx);
+  const review = buildContractReview(contract, layout, ctx, onFile);
   const photoRow = review.responses.find((r) => r.photo);
   const photoSrc = photoRow?.photo
     ? await inlinePhoto(`onboarding/${contract.id}/${photoRow.photo.storedName}`)

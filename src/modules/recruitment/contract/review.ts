@@ -25,6 +25,13 @@ export type ReviewField = {
   photo?: { storedName: string };
 };
 
+/** What stood in for an upload at submit, as frozen in the contract's review
+ *  context: a HIPAA certificate or profile photo already on the person's record. */
+export type ReviewOnFile = {
+  hipaa: { completionDate: string; pendingVerification: boolean } | null;
+  photo: boolean;
+};
+
 /** One agreement's confirmation status for the at-a-glance checklist. */
 export type AgreementReview = {
   blockId: string;
@@ -106,7 +113,7 @@ function selectLabel(options: { value: string; label: string }[], value: string)
 
 /** Render the response line(s) for one visible system field. Most fields emit a
  *  single label/value row; `epic` and `hipaa` expand to several. */
-function systemFieldRows(block: SystemFieldBlock, c: ReviewContractFields): ReviewField[] {
+function systemFieldRows(block: SystemFieldBlock, c: ReviewContractFields, onFile: ReviewOnFile | null): ReviewField[] {
   const spec = SYSTEM_FIELDS[block.systemKey];
   const label = block.label ?? spec.defaultLabel;
 
@@ -145,9 +152,8 @@ function systemFieldRows(block: SystemFieldBlock, c: ReviewContractFields): Revi
     case "licensedRN":
       return [{ label, value: yesNo(c.licensedRN) }];
     case "photo":
-      return [c.photoStoredName
-        ? { label, value: "Uploaded", photo: { storedName: c.photoStoredName } }
-        : { label, value: null }];
+      if (c.photoStoredName) return [{ label, value: "Uploaded", photo: { storedName: c.photoStoredName } }];
+      return [{ label, value: onFile?.photo ? "On file from their profile" : null }];
     case "shiftsWanted":
       return [{ label, value: c.shiftsWanted ? selectLabel(systemFieldOptions("shiftsWanted", c.shiftsWanted), c.shiftsWanted) : null }];
     case "availabilityChange": {
@@ -170,6 +176,12 @@ function systemFieldRows(block: SystemFieldBlock, c: ReviewContractFields): Revi
       return rows;
     }
     case "hipaa": {
+      // Nothing uploaded because a certificate on file already covered the term.
+      if (!c.hipaaCompletedAt && !c.hipaaStoredName && onFile?.hipaa) {
+        const completed = formatCalendarDate(new Date(onFile.hipaa.completionDate));
+        const pending = onFile.hipaa.pendingVerification ? ", awaiting verification" : "";
+        return [{ label: "HIPAA certificate", value: `On file from their profile (completed ${completed}${pending})` }];
+      }
       const rows: ReviewField[] = [
         { label: "HIPAA completion date", value: c.hipaaCompletedAt ? formatCalendarDate(c.hipaaCompletedAt) : null },
       ];
@@ -223,6 +235,7 @@ export function buildContractReview(
   c: ReviewContractFields,
   layout: ContractLayout,
   ctx: ContractContext,
+  onFile: ReviewOnFile | null = null,
 ): ContractReview {
   const answers = buildContractAnswers(reconstructContractAnswers(c), ctx);
   const enabled = layout.blocks.filter(
@@ -255,7 +268,7 @@ export function buildContractReview(
       responses.push(customQuestionRow(b, custom[b.key] as string | string[] | undefined));
       continue;
     }
-    responses.push(...systemFieldRows(b, c));
+    responses.push(...systemFieldRows(b, c, onFile));
   }
 
   return { responses, agreements, signatureRows };

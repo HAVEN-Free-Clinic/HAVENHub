@@ -40,21 +40,21 @@ describe("DIRECTOR_LAYOUT", () => {
     }
   });
 
-  it("gates staffTitle, second_department_name, epic_needed_self, the Epic section and block correctly", () => {
+  it("gates staffTitle, second_department_name, the Epic section and block correctly", () => {
     const staffTitle = DIRECTOR_LAYOUT.blocks.find((b) => b.kind === "system_field" && b.systemKey === "staffTitle");
     expect(staffTitle?.visibleWhen).toMatchObject({ field: "yaleAffiliation", op: "is", value: "staff" });
 
     const secondDeptName = DIRECTOR_LAYOUT.blocks.find((b) => b.kind === "custom_question" && b.key === "second_department_name");
     expect(secondDeptName?.visibleWhen).toMatchObject({ field: "second_department", op: "is", value: "yes" });
 
-    const epicNeededSelf = DIRECTOR_LAYOUT.blocks.find((b) => b.kind === "custom_question" && b.key === "epic_needed_self");
-    expect(epicNeededSelf?.visibleWhen).toMatchObject({ field: "epicAsk", op: "is", value: "yes" });
+    // Epic follows the department: never a question to the director.
+    expect(DIRECTOR_LAYOUT.blocks.some((b) => b.kind === "custom_question" && b.key === "epic_needed_self")).toBe(false);
 
     const epicSection = DIRECTOR_LAYOUT.blocks.find((b) => b.kind === "section" && b.id === "sec_epic");
-    expect(epicSection?.visibleWhen).toMatchObject({ field: "epicSection", op: "is", value: "show" });
+    expect(epicSection?.visibleWhen).toEqual({ field: "epicRequirement", op: "is", value: "ALL" });
 
     const epicBlock = DIRECTOR_LAYOUT.blocks.find((b) => b.kind === "system_field" && b.systemKey === "epic");
-    expect(epicBlock?.visibleWhen).toMatchObject({ field: "epicSection", op: "is", value: "show" });
+    expect(epicBlock?.visibleWhen).toEqual({ field: "epicRequirement", op: "is", value: "ALL" });
 
     // epicIdExpiration is no longer collected on the onboarding form.
     expect(DIRECTOR_LAYOUT.blocks.some((b) => b.kind === "system_field" && b.systemKey === "epicIdExpiration")).toBe(false);
@@ -66,9 +66,10 @@ describe("DIRECTOR_LAYOUT", () => {
     expect(b && "body" in b && b.body).toContain("{{trainingLocation}}");
   });
 
-  it("Epic section body carries the decision guidance, not the generic preamble", () => {
+  it("Epic section body states the department's requirement instead of asking for a judgement", () => {
     const b = DIRECTOR_LAYOUT.blocks.find((x) => x.kind === "section" && x.id === "sec_epic");
-    expect(b && "body" in b && b.body).toContain("Answer Yes if you need Epic");
+    expect(b && "body" in b && b.body).toContain("Your department uses Epic");
+    expect(b && "body" in b && b.body).not.toContain("Answer Yes");
   });
 });
 

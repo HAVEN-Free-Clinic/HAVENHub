@@ -242,6 +242,43 @@ describe("ContractField profile photo", () => {
     expect(out).toMatch(/<input(?=[^>]*name="photo")(?=[^>]*required)[^>]*>/);
     expect(out).toContain("clear, recent photo of your face");
     expect(out).toContain("no group photos, sunglasses");
-    expect(out).toContain("this one replaces it");
+  });
+
+  it("shows a photo already on file and makes a new one optional", () => {
+    const out = renderToStaticMarkup(
+      <ContractField block={{ kind: "system_field", systemKey: "photo" }} prefill={prefill}
+        ctx={{ ...ctx, photoOnFile: "data:image/webp;base64,AAAA" }} err={noErr} onAnswer={noop} />,
+    );
+    expect(out).toContain('src="data:image/webp;base64,AAAA"');
+    expect(out).toContain("upload a new one to replace it");
+    expect(out).toMatch(/<input(?=[^>]*name="photo")[^>]*>/);
+    expect(out).not.toMatch(/<input(?=[^>]*name="photo")(?=[^>]*required)[^>]*>/);
+  });
+});
+
+describe("ContractField HIPAA certificate", () => {
+  const hipaa = (hipaaOnFile?: { completionDate: string; expiresAt: string; pendingVerification: boolean }) =>
+    renderToStaticMarkup(
+      <ContractField block={{ kind: "system_field", systemKey: "hipaa", helpText: "Go to the HIPAA site." }} prefill={prefill}
+        ctx={{ ...ctx, hipaaOnFile }} err={noErr} onAnswer={noop} />,
+    );
+
+  it("asks for a certificate when none on file covers the term", () => {
+    const out = hipaa();
+    expect(out).toContain("Go to the HIPAA site.");
+    expect(out).toMatch(/<input(?=[^>]*name="hipaaFile")(?=[^>]*required)[^>]*>/);
+  });
+
+  it("says a certificate on file covers it, and makes a newer upload optional", () => {
+    const out = hipaa({ completionDate: "Aug 1, 2026", expiresAt: "Aug 1, 2027", pendingVerification: false });
+    expect(out).toContain("is on file and valid through Aug 1, 2027");
+    expect(out).toContain("Upload a newer certificate instead");
+    expect(out).not.toMatch(/<input(?=[^>]*name="hipaaFile")(?=[^>]*required)[^>]*>/);
+    expect(out).not.toMatch(/<input(?=[^>]*name="hipaaCompletedAt")(?=[^>]*required)[^>]*>/);
+  });
+
+  it("tells them an upload still awaiting verification counts", () => {
+    expect(hipaa({ completionDate: "Sep 1, 2026", expiresAt: "Sep 1, 2027", pendingVerification: true }))
+      .toContain("It is waiting to be verified, so there is no need to upload it again.");
   });
 });

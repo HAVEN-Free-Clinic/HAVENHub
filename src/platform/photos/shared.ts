@@ -31,3 +31,13 @@ export class PhotoError extends Error {
 export function photoUrl(person: { id: string; photoVersion: number }): string {
   return `/api/people/${person.id}/photo?v=${person.photoVersion}`;
 }
+
+/**
+ * HEIC/HEIF, the iPhone camera format. Browsers report it inconsistently (some
+ * leave `type` empty for a .heic file), so the extension counts too. The server's
+ * image library cannot decode HEIC, so a photo in this format has to be converted
+ * in the browser before it is sent.
+ */
+export function isHeic(file: { type: string; name: string }): boolean {
+  return /^image\/hei[cf](-sequence)?$/i.test(file.type) || /\.hei[cf]$/i.test(file.name);
+}

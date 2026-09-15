@@ -534,7 +534,13 @@ describe("submitContract profile photo", () => {
   it("refuses a file type a profile photo cannot use", async () => {
     const { token } = await seedPhoto();
     const err = await submitContract(token, { ...answered, photoFile: photo(PNG, "image/gif") }).catch((e: unknown) => e);
-    expect((err as ContractValidationError).fieldErrors).toEqual({ photo: "Upload a PNG, JPEG, or WebP image." });
+    expect((err as ContractValidationError).fieldErrors).toEqual({ photo: "Upload a PNG, JPEG, WebP, or HEIC image." });
+  });
+
+  it("explains a HEIC photo the browser could not convert", async () => {
+    const { token } = await seedPhoto();
+    const err = await submitContract(token, { ...answered, photoFile: { fileName: "IMG_1.HEIC", mimeType: "image/heic", bytes: PNG } }).catch((e: unknown) => e);
+    expect((err as ContractValidationError).fieldErrors).toEqual({ photo: "We couldn't read this HEIC photo. Choose a JPEG or PNG instead." });
   });
 
   it("refuses bytes that are not an image, before storing anything", async () => {
@@ -562,6 +568,55 @@ describe("submitContract profile photo", () => {
     const res = await submitContract(token, { ...answered, photoFile: photo(PNG) });
     await withdrawContract(contractId, srrId);
     expect(await storage.getObject(`onboarding/${contractId}/${res.photoStoredName}`)).toBeNull();
+  });
+});
+
+describe("submitContract with records already on file", () => {
+  const DAY = 86_400_000;
+  /** layoutFor() plus the photo block, with a Person matching the applicant (netId
+   *  al99) who holds the given certificate and, optionally, a stored photo. */
+  async function seedOnFile(opts: { certCompletedDaysAgo?: number; photo?: boolean }) {
+    const seeded = await seedPending({ deptCode: "BVHD", requiresEpicVolunteer: "ALL" });
+    const layout = layoutFor();
+    layout.blocks.push({ kind: "system_field", systemKey: "photo" });
+    await prisma.onboardingContract.update({ where: { id: seeded.contractId }, data: { templateSnapshot: layout as object } });
+    const person = await prisma.person.create({
+      data: { name: "Ada Lovelace", netId: "al99", status: "ACTIVE", ...(opts.photo ? { photoKey: "people/ada", photoSource: "upload" } : {}) },
+    });
+    if (opts.certCompletedDaysAgo != null) {
+      await prisma.hipaaCertificate.create({
+        data: {
+          personId: person.id, fileName: "c.pdf", storedName: "c.pdf", size: 1, mimeType: "application/pdf",
+          completionDate: new Date(Date.now() - opts.certCompletedDaysAgo * DAY), verifiedAt: new Date(),
+        },
+      });
+    }
+    return seeded;
+  }
+  const { hipaaCompletedAt: _hipaaCompletedAt, hipaaFile: _hipaaFile, ...noHipaa } = base;
+  const photoFile = { fileName: "me.png", mimeType: "image/png", bytes: PHOTO_PNG };
+  const answered: ContractSubmission = { ...noHipaa, signatures: {}, customAnswers: {}, confirmations: { dept_bvhd: true } };
+
+  it("lets a certificate on file that covers the term stand in for a new upload", async () => {
+    const { token } = await seedOnFile({ certCompletedDaysAgo: 30 });
+    const res = await submitContract(token, { ...answered, photoFile });
+    expect(res.status).toBe("SUBMITTED");
+    expect(res.hipaaStoredName).toBeNull();
+    expect(res.reviewContext).toMatchObject({ onFile: { hipaa: { pendingVerification: false }, photo: false } });
+  });
+
+  it("still asks for a certificate that would run out during the term", async () => {
+    const { token } = await seedOnFile({ certCompletedDaysAgo: 340 });
+    const err = await submitContract(token, { ...answered, photoFile }).catch((e: unknown) => e);
+    expect((err as ContractValidationError).fieldErrors).toEqual({ hipaaCompletedAt: "required", hipaaFile: "required" });
+  });
+
+  it("makes a new photo optional when one is already on their profile", async () => {
+    const { token } = await seedOnFile({ certCompletedDaysAgo: 30, photo: true });
+    const res = await submitContract(token, answered);
+    expect(res.status).toBe("SUBMITTED");
+    expect(res.photoStoredName).toBeNull();
+    expect(res.reviewContext).toMatchObject({ onFile: { photo: true } });
   });
 });
 

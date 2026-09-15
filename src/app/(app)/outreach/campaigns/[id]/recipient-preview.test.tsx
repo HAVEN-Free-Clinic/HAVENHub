@@ -31,6 +31,7 @@ const EMPTY_PREVIEW: AudiencePreview = {
   sample: [],
   truncated: false,
   unresolved: [],
+  scoped: true,
 };
 
 type Opts = {
@@ -39,6 +40,8 @@ type Opts = {
   savedAt?: string;
   searchAction?: (query: string) => Promise<PersonSearchHit[]>;
   pastedEmailsAction?: (prev: FormProblems, formData: FormData) => Promise<FormProblems>;
+  applicantCycleIds?: string[];
+  cycleOptions?: { id: string; label: string }[];
 };
 
 function panel(preview: Partial<AudiencePreview> | null, opts: Opts = {}) {
@@ -54,6 +57,9 @@ function panel(preview: Partial<AudiencePreview> | null, opts: Opts = {}) {
       excludeAction={() => {}}
       clearExcludedAction={() => {}}
       pastedEmailsAction={opts.pastedEmailsAction ?? (async () => null)}
+      applicantCycleIds={opts.applicantCycleIds ?? []}
+      cycleOptions={opts.cycleOptions ?? []}
+      applicantCycleAction={() => {}}
     />
   );
 }
@@ -385,5 +391,56 @@ describe("RecipientPreview", () => {
     // the sender typed.
     const hidden = [...container.querySelectorAll<HTMLInputElement>('input[name="personId"]')];
     expect(hidden.map((h) => h.value)).toEqual(["p9"]);
+  });
+
+  // An unscoped campaign mails applicants and pasted addresses that have no
+  // HAVEN Hub record. Such a row has no person id, so it cannot carry an
+  // Exclude, and the wording must stop pointing at a scope that is not there.
+  it("on an unscoped campaign, offers applicant cycles and lists a bare address without an Exclude", () => {
+    render(
+      {
+        scoped: false,
+        count: 2,
+        sample: [
+          { personId: "p1", name: "Anna Matched", email: "a@example.com", reason: "matched" },
+          { personId: null, name: "Ada Lovelace", email: "ada@example.org", reason: "applicant" },
+        ],
+        unresolved: ["not-an-address"],
+      },
+      {
+        applicantCycleIds: ["c1"],
+        cycleOptions: [
+          { id: "c1", label: "Fall 2026 Volunteers" },
+          { id: "c2", label: "Fall 2026 Directors" },
+        ],
+      },
+    );
+
+    const rows = [...container.querySelectorAll("tbody tr")];
+    expect(rows.map((r) => r.querySelectorAll("td")[2].textContent)).toEqual([
+      "Condition match",
+      "Applicant",
+    ]);
+    expect(rows[0].querySelector("button")?.textContent).toContain("Exclude");
+    expect(rows[1].querySelector("button")).toBeNull();
+
+    // The chosen cycle is listed with a Remove, and only the other one is offered.
+    expect(text()).toContain("Fall 2026 Volunteers");
+    expect(button("Remove")).toBeTruthy();
+    const offered = [
+      ...container.querySelectorAll<HTMLOptionElement>('select[name="cycleId"] option'),
+    ]
+      .map((o) => o.value)
+      .filter((v) => v !== "");
+    expect(offered).toEqual(["c2"]);
+
+    expect(text()).not.toContain("audience scope does");
+    expect(text()).toContain("not a valid email address");
+  });
+
+  it("does not offer applicant cycles on a scoped campaign", () => {
+    render({}, { cycleOptions: [{ id: "c1", label: "Fall 2026 Volunteers" }] });
+    expect(button("Add applicants")).toBeFalsy();
+    expect(container.querySelector('select[name="cycleId"]')).toBeNull();
   });
 });

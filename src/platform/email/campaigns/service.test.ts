@@ -1324,13 +1324,16 @@ describe("recipient preview and the scoped person search", () => {
     await updateCampaign(null, c.id, { subject: "s", body: "b", audience: ALL_ACTIVE });
     await prisma.emailCampaign.update({
       where: { id: c.id },
-      data: { pastedEmails: ["  Typo@Example.com  ", "real@example.com"] },
+      // Malformed on purpose. This campaign is unscoped, and an unscoped
+      // campaign mails a well-formed address nobody has as a bare address, so
+      // the one left to report is an address that cannot be delivered at all.
+      data: { pastedEmails: ["  Typo@Example  ", "real@example.com"] },
     });
 
     const preview = await previewAudience(c.id);
     // Trimmed but not lower-cased: echoed back the way the sender typed it, so
     // they can find it in the box they pasted it into.
-    expect(preview.unresolved).toEqual(["Typo@Example.com"]);
+    expect(preview.unresolved).toEqual(["Typo@Example"]);
     expect(preview.sample.map((r) => r.personId)).toEqual([person.id]);
   });
 
@@ -1360,6 +1363,240 @@ describe("recipient preview and the scoped person search", () => {
     expect(await searchAudiencePeople(c.id, "Rivera")).toEqual([
       { personId: real.id, name: "Zzz Rivera", email: "sam@example.com" },
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bare-address recipients: applicants to a campaign's applicant cycles, and
+// pasted addresses nobody in HAVEN Hub has. Unscoped campaigns only, because a
+// scope is a Person predicate that an address with no Person cannot satisfy.
+// ---------------------------------------------------------------------------
+describe("applicant cycles and bare addresses", () => {
+  const MATCH_NOBODY_AUDIENCE = {
+    recordType: "PERSON" as const,
+    match: "ALL" as const,
+    conditions: [],
+  };
+
+  /** A term and two cycles in it: the one a campaign picks, and one it does not. */
+  async function twoCycles() {
+    const term = await prisma.term.create({
+      data: {
+        code: "FA26",
+        name: "Fall 2026",
+        startDate: new Date("2026-08-01T12:00:00.000Z"),
+        endDate: new Date("2026-12-15T12:00:00.000Z"),
+      },
+    });
+    // No address and not ACTIVE, so no condition in these tests can mail them.
+    const lead = await prisma.person.create({ data: { name: "Cycle Lead", status: "OFFBOARDED" } });
+    const make = (publicSlug: string, title: string) =>
+      prisma.recruitmentCycle.create({
+        data: { track: "VOLUNTEER", termId: term.id, title, publicSlug, departments: [], createdById: lead.id },
+      });
+    return {
+      fall: await make("fa26-vol", "Fall 2026 Volunteers"),
+      other: await make("fa26-dir", "Fall 2026 Directors"),
+    };
+  }
+
+  async function applicant(
+    cycleId: string,
+    data: {
+      firstName: string;
+      lastName: string;
+      email: string;
+      preferredFirstName?: string;
+      applicantPersonId?: string;
+    },
+    status: "DRAFT" | "SUBMITTED" | "WITHDRAWN" = "SUBMITTED",
+  ) {
+    const row = await prisma.applicant.create({
+      data: { cycleId, ...data, emailLower: data.email.toLowerCase() },
+    });
+    await prisma.application.create({
+      data: { cycleId, applicantId: row.id, answers: {}, departmentChoices: [], status },
+    });
+    return row;
+  }
+
+  it("emails every submitted applicant to a chosen cycle, account or not, on an unscoped campaign", async () => {
+    const { fall, other } = await twoCycles();
+    const renewal = await activePerson("Rene Wal", "rene.profile@example.com");
+
+    await applicant(fall.id, {
+      firstName: "Ada",
+      lastName: "Lovelace",
+      preferredFirstName: "Addie",
+      email: "Ada@Example.org",
+    });
+    // Linked to an account, and applying from an address other than the profile one.
+    await applicant(fall.id, {
+      firstName: "Rene",
+      lastName: "Wal",
+      email: "rene.applied@example.com",
+      applicantPersonId: renewal.id,
+    });
+    await applicant(fall.id, { firstName: "Wes", lastName: "Withdrew", email: "wes@example.org" }, "WITHDRAWN");
+    await applicant(fall.id, { firstName: "Dee", lastName: "Draft", email: "dee@example.org" }, "DRAFT");
+    await applicant(other.id, { firstName: "Olly", lastName: "Other", email: "olly@example.org" });
+
+    const { recipients, manualReasons } = await resolveCampaignAudience({
+      id: "n/a",
+      audienceJson: MATCH_NOBODY_AUDIENCE,
+      scopeId: null,
+      sendOncePerPerson: false,
+      applicantCycleIds: [fall.id],
+    });
+
+    // The draft never applied and the other cycle was not picked. The withdrawn
+    // applicant did apply. The linked one keeps their person id, so an exclude
+    // still reaches them.
+    expect(
+      recipients.map((r) => ({
+        email: r.email,
+        recordType: r.recordType,
+        recordId: r.recordId,
+        variables: r.variables,
+      })),
+    ).toEqual([
+      { email: "Ada@Example.org", recordType: "ADDRESS", recordId: null, variables: { firstName: "Addie", name: "Addie Lovelace" } },
+      { email: "rene.applied@example.com", recordType: "PERSON", recordId: renewal.id, variables: { firstName: "Rene", name: "Rene Wal" } },
+      { email: "wes@example.org", recordType: "ADDRESS", recordId: null, variables: { firstName: "Wes", name: "Wes Withdrew" } },
+    ]);
+    expect(manualReasons).toEqual({
+      "address:ada@example.org": "applicant",
+      [renewal.id]: "applicant",
+      "address:wes@example.org": "applicant",
+    });
+  });
+
+  it("does not email an applicant a second time when a Person route already has them", async () => {
+    const { fall } = await twoCycles();
+    await activePerson("Mia Member", "mia@example.com");
+    const linked = await activePerson("Lin Linked", "lin.profile@example.com");
+    // Unlinked, but at the address the conditions already matched, in another casing.
+    await applicant(fall.id, { firstName: "Mia", lastName: "Member", email: "MIA@example.com" });
+    // Linked, and applying from a different address than the profile one matched.
+    await applicant(fall.id, {
+      firstName: "Lin",
+      lastName: "Linked",
+      email: "lin.applied@example.com",
+      applicantPersonId: linked.id,
+    });
+
+    const { recipients, manualReasons } = await resolveCampaignAudience({
+      id: "n/a",
+      audienceJson: ALL_ACTIVE,
+      scopeId: null,
+      sendOncePerPerson: false,
+      applicantCycleIds: [fall.id],
+    });
+
+    expect(recipients.map((r) => r.email).sort()).toEqual(["lin.profile@example.com", "mia@example.com"]);
+    // Both stay labelled as the condition match that already had them.
+    expect(manualReasons).toEqual({});
+  });
+
+  it("a scoped campaign ignores applicant cycles and never mails an address nobody has", async () => {
+    const { fall } = await twoCycles();
+    await applicant(fall.id, { firstName: "Ada", lastName: "Lovelace", email: "ada@example.org" });
+    const scope = await createScope(null, {
+      name: "Everyone with a name",
+      audience: { recordType: "PERSON", match: "ALL", conditions: [{ field: "name", op: "isNotEmpty" }] },
+    });
+
+    const { recipients, unresolvedPasted } = await resolveCampaignAudience({
+      id: "n/a",
+      audienceJson: MATCH_NOBODY_AUDIENCE,
+      scopeId: scope.id,
+      sendOncePerPerson: false,
+      applicantCycleIds: [fall.id],
+      pastedEmails: ["nobody@example.org"],
+    });
+
+    expect(recipients).toEqual([]);
+    // Still reported exactly as an address belonging to an out-of-scope person would be.
+    expect(unresolvedPasted).toEqual(["nobody@example.org"]);
+  });
+
+  it("an unscoped campaign mails a pasted address nobody has, and still reports a malformed one", async () => {
+    const c = await createDraft(null, "Outside", { scopeId: null });
+    await updateCampaign(null, c.id, { subject: "s", body: "b", audience: MATCH_NOBODY_AUDIENCE });
+    await prisma.emailCampaign.update({
+      where: { id: c.id },
+      data: { pastedEmails: ["Outside@Example.org", "not-an-address"] },
+    });
+
+    const preview = await previewAudience(c.id);
+    expect(preview.sample).toEqual([
+      { personId: null, name: "", email: "Outside@Example.org", reason: "pasted" },
+    ]);
+    expect(preview.unresolved).toEqual(["not-an-address"]);
+    expect(preview.scoped).toBe(false);
+  });
+
+  it("enqueues a bare address with no person id, and send-once mails it only once", async () => {
+    const { fall } = await twoCycles();
+    await applicant(fall.id, { firstName: "Ada", lastName: "Lovelace", email: "ada@example.org" });
+    const c = await createDraft(null, "Applicant digest", { scopeId: null });
+    await updateCampaign(null, c.id, {
+      subject: "Hi {{ firstName }}",
+      body: "<p>Hi {{ firstName }}</p>",
+      audience: MATCH_NOBODY_AUDIENCE,
+    });
+    await prisma.emailCampaign.update({
+      where: { id: c.id },
+      data: {
+        status: "ACTIVE",
+        sendOncePerPerson: true,
+        applicantCycleIds: [fall.id],
+        pastedEmails: ["outside@example.org"],
+      },
+    });
+
+    for (let run = 0; run < 2; run++) {
+      await executeRun(c.id, { actorId: null, claimWhere: { status: "ACTIVE" }, statusUpdate: { lastRunAt: new Date() } });
+    }
+
+    const logs = await prisma.emailLog.findMany({
+      where: { campaignRun: { campaignId: c.id } },
+      orderBy: { toEmail: "asc" },
+    });
+    expect(logs.map((l) => ({ toEmail: l.toEmail, personId: l.personId }))).toEqual([
+      { toEmail: "ada@example.org", personId: null },
+      { toEmail: "outside@example.org", personId: null },
+    ]);
+    expect(logs[0].subject).toBe("Hi Ada");
+  });
+
+  it("adds and removes an applicant cycle, and refuses one on a scoped campaign", async () => {
+    const { fall } = await twoCycles();
+    const c = await createDraft(null, "Cycles", { scopeId: null });
+    const cycleIds = async (id: string) =>
+      (await prisma.emailCampaign.findUniqueOrThrow({ where: { id } })).applicantCycleIds;
+
+    await editManualLists(null, c.id, { op: "addApplicantCycle", cycleId: fall.id });
+    // Idempotent: a double click does not list the cycle twice.
+    await editManualLists(null, c.id, { op: "addApplicantCycle", cycleId: fall.id });
+    expect(await cycleIds(c.id)).toEqual([fall.id]);
+
+    await expect(
+      editManualLists(null, c.id, { op: "addApplicantCycle", cycleId: "no-such-cycle" }),
+    ).rejects.toBeInstanceOf(CampaignValidationError);
+
+    await editManualLists(null, c.id, { op: "removeApplicantCycle", cycleId: fall.id });
+    expect(await cycleIds(c.id)).toEqual([]);
+
+    const scope = await createScope(null, {
+      name: "Scoped",
+      audience: { recordType: "PERSON", match: "ALL", conditions: [{ field: "status", op: "eq", value: "ACTIVE" }] },
+    });
+    const scoped = await createDraft(null, "Scoped cycles", { scopeId: scope.id });
+    await expect(
+      editManualLists(null, scoped.id, { op: "addApplicantCycle", cycleId: fall.id }),
+    ).rejects.toBeInstanceOf(CampaignValidationError);
+    expect(await cycleIds(scoped.id)).toEqual([]);
   });
 });
 

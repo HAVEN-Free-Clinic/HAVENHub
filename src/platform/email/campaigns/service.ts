@@ -9,7 +9,8 @@ import {
   countAudienceNodes as countNodes,
   searchPeople,
 } from "@/platform/email/audience/resolve";
-import type { Recipient, PersonSearchHit } from "@/platform/email/audience/resolve";
+import type { Recipient, AddressRecipient, PersonSearchHit } from "@/platform/email/audience/resolve";
+import { EMAIL_RE } from "@/platform/email/address";
 import { renderInlineEmail, loadLayoutSource } from "@/platform/email/templates/renderEmail";
 import { getSetting } from "@/platform/settings/service";
 import { queueEmail, queueEmails } from "@/platform/email/send";
@@ -28,7 +29,7 @@ import {
 } from "@/platform/email/sender-identity";
 import type { SenderIdentityOption } from "@/platform/email/sender-identity";
 import { log } from "@/platform/logging";
-import { PERSON_NAME_ORDER } from "@/platform/person-name";
+import { PERSON_NAME_ORDER, applicantFirstName } from "@/platform/person-name";
 
 export const CAMPAIGN_CONFIRM_THRESHOLD = 25;
 
@@ -207,14 +208,27 @@ export async function assertMayActOnScope(
   return scope;
 }
 
-/** Why a recipient is in the roll. See ResolvedCampaignAudience.manualReasons. */
-export type RecipientReason = "matched" | "included" | "pasted";
+/**
+ * Why a recipient is in the roll. See ResolvedCampaignAudience.manualReasons.
+ * "applicant" comes from an unscoped campaign's applicant cycles; see
+ * resolveCampaignAudience.
+ */
+export type RecipientReason = "matched" | "included" | "pasted" | "applicant";
+
+/**
+ * The key a recipient is filed under in manualReasons: the person id, or for a
+ * recipient with no Person, the lowercased address. Prefixed, so an address can
+ * never collide with an id.
+ */
+export function recipientKey(r: Pick<Recipient, "recordId" | "email">): string {
+  return r.recordId ?? `address:${r.email.trim().toLowerCase()}`;
+}
 
 export type ResolvedCampaignAudience = {
   recipients: Recipient[];
   excludedNoEmail: number;
   /**
-   * Why each MANUALLY added recipient is in the roll, keyed by person id. A
+   * Why each MANUALLY added recipient is in the roll, keyed by recipientKey. A
    * recipient absent from this map is a condition match.
    *
    * Every label is a TRUE statement of the same kind: it names a route that
@@ -235,6 +249,11 @@ export type ResolvedCampaignAudience = {
    *
    * Applying 2 uniformly would label a condition-match-plus-pasted person
    * "pasted"; the code labels them "matched", and 1 is why.
+   *
+   * The bare-address routes of an unscoped campaign (applicant cycles, and a
+   * pasted address no Person has) only ever add someone no route above already
+   * put on the roll, so they never relabel anyone. Between the two, an applicant
+   * outranks a paste, because the applicant row carries a name to greet them by.
    */
   manualReasons: Record<string, Exclude<RecipientReason, "matched">>;
   /** See unresolvedPastedAddresses. */
@@ -274,6 +293,11 @@ export type ResolvedCampaignAudience = {
  * explicitly excluded, and an address a send-once campaign has already mailed,
  * are both listed here too. In each case the address genuinely will not receive
  * this campaign, which is exactly what the list claims.
+ *
+ * On an UNSCOPED campaign a pasted address nobody has is mailed as a bare
+ * address, so what is left here is narrower: an address that is not a valid
+ * one, or that belongs to someone excluded or already mailed. The subtraction
+ * is the same either way; only the wording the UI puts on it differs.
  */
 function unresolvedPastedAddresses(pasted: string[], recipients: Recipient[]): string[] {
   const delivered = new Set(recipients.map((r) => r.email.trim().toLowerCase()));
@@ -303,6 +327,10 @@ function unresolvedPastedAddresses(pasted: string[], recipients: Recipient[]): s
  *
  *   (matched union include union pasted) intersect scope minus exclude
  *
+ * An UNSCOPED campaign also unions in, before the exclude, its bare-address
+ * routes: applicants to its applicant cycles, and pasted addresses no Person
+ * has. See the comment at that block for why a scoped campaign never does.
+ *
  * Manual additions are resolved AFTER the condition match but must pass
  * through the SAME scope check the conditions went through before they are
  * allowed to count -- see the comment at that intersection below. Exclusion is
@@ -316,12 +344,14 @@ export async function resolveCampaignAudience(campaign: {
   includePersonIds?: string[];
   excludePersonIds?: string[];
   pastedEmails?: string[];
+  applicantCycleIds?: string[];
 }): Promise<ResolvedCampaignAudience> {
   const audience = campaign.audienceJson as Audience;
 
   const includePersonIds = campaign.includePersonIds ?? [];
   const excludePersonIds = campaign.excludePersonIds ?? [];
   const pastedEmails = campaign.pastedEmails ?? [];
+  const applicantCycleIds = campaign.applicantCycleIds ?? [];
 
   // Single exit point, so the pasted-address report is always computed from the
   // roll that is actually being returned -- after the scope, after the
@@ -468,12 +498,107 @@ export async function resolveCampaignAudience(campaign: {
     }
   }
 
+  // Bare addresses: applicants to the campaign's applicant cycles, and pasted
+  // addresses that matched no Person. UNSCOPED CAMPAIGNS ONLY, decided by the
+  // campaign row's own scopeId and never by anything a caller passes. Both
+  // reasons would have to go before this could widen:
+  //
+  // 1. A scope is a Person predicate. An address with no Person row cannot be
+  //    tested against it, so admitting one on a scoped campaign would be a way
+  //    around the boundary, not an addition within it.
+  // 2. On a scoped campaign, a pasted address belonging to nobody must read
+  //    exactly like one belonging to a person outside the scope (see
+  //    unresolvedPastedAddresses). Mailing the first would tell them apart. An
+  //    unscoped sender holds outreach.send_unrestricted and can already search
+  //    the whole directory, so there is nothing left here to leak.
+  //
+  // Added BEFORE the exclude, so excluding a linked applicant's Person still
+  // wins, and before send-once, so a bare address is not mailed twice either.
+  if (campaign.scopeId === null) {
+    const onRollAddresses = new Set(resolved.recipients.map((r) => r.email.trim().toLowerCase()));
+    const onRollIds = new Set(resolved.recipients.flatMap((r) => (r.recordId ? [r.recordId] : [])));
+    const additions: Recipient[] = [];
+
+    if (applicantCycleIds.length > 0) {
+      const applicants = await prisma.applicant.findMany({
+        where: {
+          cycleId: { in: applicantCycleIds },
+          // Anyone who submitted, including anyone who later withdrew: they did
+          // apply. A DRAFT is someone who opened the form and never sent it,
+          // the same line applicantType's bucket draws in audience/resolve.ts.
+          applications: { some: { status: { not: "DRAFT" } } },
+        },
+        select: {
+          email: true,
+          firstName: true,
+          lastName: true,
+          preferredFirstName: true,
+          applicantPersonId: true,
+        },
+        orderBy: [{ lastName: "asc" }, { firstName: "asc" }, { id: "asc" }],
+      });
+      for (const a of applicants) {
+        // The address they applied with, which is where recruitment's own
+        // decision emails go, rather than a linked Person's profile address.
+        const email = a.email.trim();
+        const key = email.toLowerCase();
+        if (!EMAIL_RE.test(email) || onRollAddresses.has(key)) continue;
+        // Someone applying to two chosen cycles with two addresses, or a linked
+        // applicant the conditions already matched under a profile address.
+        if (a.applicantPersonId && onRollIds.has(a.applicantPersonId)) continue;
+        onRollAddresses.add(key);
+        const firstName = applicantFirstName(a);
+        const displayName = [firstName, a.lastName.trim()].filter(Boolean).join(" ");
+        const variables = { firstName, name: displayName };
+        // A linked applicant keeps their Person id, so an exclude of that
+        // person, and send-once by person, both still reach them.
+        const recipient: Recipient = a.applicantPersonId
+          ? { email, displayName, recordType: "PERSON", recordId: a.applicantPersonId, variables }
+          : { email, displayName, recordType: "ADDRESS", recordId: null, variables };
+        if (a.applicantPersonId) onRollIds.add(a.applicantPersonId);
+        manualReasons[recipientKey(recipient)] = "applicant";
+        additions.push(recipient);
+      }
+    }
+
+    for (const raw of pastedEmails) {
+      const email = raw.trim();
+      const key = email.toLowerCase();
+      // Anything already on the roll arrived by a route that knows who it is.
+      // A malformed address stays out and is reported back as unresolved.
+      if (!EMAIL_RE.test(email) || onRollAddresses.has(key)) continue;
+      onRollAddresses.add(key);
+      // No name to greet them by. Empty rather than a placeholder: templates
+      // already write {{#if firstName}} with their own fallback, as the
+      // starters do.
+      const recipient: AddressRecipient = {
+        email,
+        displayName: "",
+        recordType: "ADDRESS",
+        recordId: null,
+        variables: { firstName: "", name: "" },
+      };
+      manualReasons[recipientKey(recipient)] = "pasted";
+      additions.push(recipient);
+    }
+
+    if (additions.length > 0) {
+      resolved = {
+        recipients: [...resolved.recipients, ...additions],
+        excludedNoEmail: resolved.excludedNoEmail,
+      };
+    }
+  }
+
   if (excludePersonIds.length > 0) {
     // Applied last, over the union of matched + include + pasted, so an
     // exclude always wins even over an explicit include of the same person.
+    // A bare address has no id to exclude and passes through.
     const excludeSet = new Set(excludePersonIds);
     resolved = {
-      recipients: resolved.recipients.filter((r) => !excludeSet.has(r.recordId)),
+      recipients: resolved.recipients.filter(
+        (r) => r.recordId === null || !excludeSet.has(r.recordId),
+      ),
       excludedNoEmail: resolved.excludedNoEmail,
     };
   }
@@ -481,8 +606,10 @@ export async function resolveCampaignAudience(campaign: {
   if (!campaign.sendOncePerPerson) return finish(resolved);
 
   // Everyone who already received any run of this campaign. Matched on
-  // personId, not email, so a person whose address changed between runs is
-  // still recognised as already-mailed.
+  // personId, so a person whose address changed between runs is still
+  // recognised as already-mailed, AND on address, which is the only thing a
+  // bare-address recipient has. The address half also catches an applicant
+  // mailed with no account who has since been given one.
   const priorRuns = await prisma.emailCampaignRun.findMany({
     where: { campaignId: campaign.id },
     select: { id: true },
@@ -490,13 +617,17 @@ export async function resolveCampaignAudience(campaign: {
   if (priorRuns.length === 0) return finish(resolved);
 
   const mailed = await prisma.emailLog.findMany({
-    where: { campaignRunId: { in: priorRuns.map((r) => r.id) }, personId: { not: null } },
-    select: { personId: true },
-    distinct: ["personId"],
+    where: { campaignRunId: { in: priorRuns.map((r) => r.id) } },
+    select: { personId: true, toEmail: true },
   });
-  const already = new Set(mailed.map((m) => m.personId!));
+  const alreadyIds = new Set(mailed.flatMap((m) => (m.personId ? [m.personId] : [])));
+  const alreadyAddresses = new Set(mailed.map((m) => m.toEmail.trim().toLowerCase()));
   return finish({
-    recipients: resolved.recipients.filter((r) => !already.has(r.recordId)),
+    recipients: resolved.recipients.filter(
+      (r) =>
+        !(r.recordId !== null && alreadyIds.has(r.recordId)) &&
+        !alreadyAddresses.has(r.email.trim().toLowerCase()),
+    ),
     excludedNoEmail: resolved.excludedNoEmail,
   });
 }
@@ -653,7 +784,8 @@ async function senderForRun(campaign: {
 export const PREVIEW_SAMPLE_LIMIT = 200;
 
 export type PreviewRecipient = {
-  personId: string;
+  /** Null for a bare address with no HAVEN Hub record, which cannot be excluded by id. */
+  personId: string | null;
   name: string;
   email: string;
   /** Why they are in the roll. See ResolvedCampaignAudience.manualReasons. */
@@ -674,6 +806,13 @@ export type AudiencePreview = {
    * apart would be an existence oracle over the whole directory.
    */
   unresolved: string[];
+  /**
+   * Whether the campaign is bound to a scope. Decides the wording that explains
+   * `unresolved`: only on a scoped campaign can an address be dropped for
+   * belonging to someone outside it, because an unscoped one mails an address
+   * nobody has.
+   */
+  scoped: boolean;
 };
 
 /**
@@ -745,10 +884,11 @@ export async function previewAudience(id: string): Promise<AudiencePreview> {
       name: r.displayName,
       email: r.email,
       // Absent from the map means the conditions matched them; see the type.
-      reason: manualReasons[r.recordId] ?? "matched",
+      reason: manualReasons[recipientKey(r)] ?? "matched",
     })),
     truncated: deduped.length > PREVIEW_SAMPLE_LIMIT,
     unresolved: unresolvedPasted,
+    scoped: campaign.scopeId !== null,
   };
 }
 
@@ -796,7 +936,9 @@ export type ManualListEdit =
   | { op: "include"; personId: string }
   | { op: "exclude"; personId: string }
   | { op: "clearExcluded" }
-  | { op: "paste"; emails: string[] };
+  | { op: "paste"; emails: string[] }
+  | { op: "addApplicantCycle"; cycleId: string }
+  | { op: "removeApplicantCycle"; cycleId: string };
 
 /**
  * Apply one edit to a campaign's manual lists.
@@ -846,6 +988,37 @@ export async function editManualLists(
 
   if (edit.op === "clearExcluded") {
     await prisma.emailCampaign.update({ where: { id }, data: { excludePersonIds: [] } });
+    return;
+  }
+
+  if (edit.op === "removeApplicantCycle") {
+    if (!existing.applicantCycleIds.includes(edit.cycleId)) return;
+    await prisma.emailCampaign.update({
+      where: { id },
+      data: { applicantCycleIds: existing.applicantCycleIds.filter((c) => c !== edit.cycleId) },
+    });
+    return;
+  }
+
+  if (edit.op === "addApplicantCycle") {
+    // Refused rather than stored and ignored. resolveCampaignAudience ignores
+    // the column on a scoped campaign regardless, which is the guarantee; this
+    // is so the sender is told, instead of watching nobody get added.
+    if (existing.scopeId !== null) {
+      throw new CampaignValidationError([
+        "Applicants can only be added to a campaign with no audience scope.",
+      ]);
+    }
+    if (existing.applicantCycleIds.includes(edit.cycleId)) return;
+    const cycle = await prisma.recruitmentCycle.findUnique({
+      where: { id: edit.cycleId },
+      select: { id: true },
+    });
+    if (!cycle) throw new CampaignValidationError(["That recruitment cycle no longer exists."]);
+    await prisma.emailCampaign.update({
+      where: { id },
+      data: { applicantCycleIds: [...existing.applicantCycleIds, edit.cycleId] },
+    });
     return;
   }
 

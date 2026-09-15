@@ -14,15 +14,27 @@ import { APPLICANT_TYPE_VALUES, COUNT_LOADERS } from "./person-fields";
 import { personNameSearchClauses } from "@/platform/person-name";
 import { PERSON_NAME_ORDER } from "@/platform/person-name";
 
-export type Recipient = {
+type RecipientBase = {
   email: string;
   displayName: string;
-  recordType: "PERSON";
-  recordId: string;
   variables: Record<string, string>;
 };
 
-export type ResolvedAudience = { recipients: Recipient[]; excludedNoEmail: number };
+/** Someone with a HAVEN Hub record. The only kind an audience's conditions can match. */
+export type PersonRecipient = RecipientBase & { recordType: "PERSON"; recordId: string };
+
+/**
+ * A bare address with no Person behind it: an applicant who never made an
+ * account, or an address pasted into an unscoped campaign. Only
+ * resolveCampaignAudience produces one, and only for a campaign with no scope,
+ * because a scope is a Person predicate that an address cannot be tested
+ * against.
+ */
+export type AddressRecipient = RecipientBase & { recordType: "ADDRESS"; recordId: null };
+
+export type Recipient = PersonRecipient | AddressRecipient;
+
+export type ResolvedAudience = { recipients: PersonRecipient[]; excludedNoEmail: number };
 
 /** Flatten the audience tree to its leaf conditions, for precompute detection. */
 function collectConditions(nodes: AudienceNode[]): AudienceCondition[] {
@@ -437,7 +449,7 @@ export async function resolveAudience(
     orderBy: PERSON_NAME_ORDER,
   });
 
-  const recipients: Recipient[] = [];
+  const recipients: PersonRecipient[] = [];
   let excludedNoEmail = 0;
   for (const p of people) {
     const email = p.contactEmail?.trim() ?? "";

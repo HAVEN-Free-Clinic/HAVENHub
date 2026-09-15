@@ -394,6 +394,44 @@ export async function pastedEmailsAction(
   redirect(`/outreach/campaigns/${id}?tab=audience`);
 }
 
+/**
+ * Add or remove one recruitment cycle's applicants.
+ *
+ * A separate form per direction, each carrying a hidden `intent`, rather than
+ * one form with two submit buttons, so the value never depends on which element
+ * submitted it. Neither form holds anything worth protecting from a redirect (a
+ * single picked cycle, or a Remove click), so this redirects like the include
+ * and exclude actions above rather than returning its problems.
+ *
+ * The refusal on a scoped campaign lives in editManualLists, not here, so it
+ * holds for every caller. This only re-checks that the sender may act on the
+ * campaign at all.
+ */
+export async function applicantCycleAction(
+  id: string,
+  scopeId: string | null,
+  formData: FormData,
+): Promise<void> {
+  const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
+  await assertScopeOrRedirect(actor.personId, scopeId, id);
+  const cycleId = ((formData.get("cycleId") as string | null) ?? "").trim();
+  if (cycleId !== "") {
+    const op = formData.get("intent") === "remove" ? "removeApplicantCycle" : "addApplicantCycle";
+    try {
+      await editManualLists(actor.personId, id, { op, cycleId });
+    } catch (err) {
+      if (err instanceof CampaignValidationError) {
+        redirect(
+          `/outreach/campaigns/${id}?tab=audience&error=${encodeURIComponent(err.problems.join("; "))}`,
+        );
+      }
+      throw err;
+    }
+  }
+  revalidatePath(`/outreach/campaigns/${id}`);
+  redirect(`/outreach/campaigns/${id}?tab=audience`);
+}
+
 export async function testAction(id: string, scopeId: string | null): Promise<void> {
   const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
   await assertScopeOrRedirect(actor.personId, scopeId, id);

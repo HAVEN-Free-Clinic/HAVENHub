@@ -45,6 +45,7 @@ import {
   excludePersonAction,
   clearExcludedAction,
   pastedEmailsAction,
+  applicantCycleAction,
   testAction,
   sendAction,
   scheduleLaterAction,
@@ -183,6 +184,7 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
   const boundExcludePersonAction = excludePersonAction.bind(null, id, scopeId);
   const boundClearExcludedAction = clearExcludedAction.bind(null, id, scopeId);
   const boundPastedEmailsAction = pastedEmailsAction.bind(null, id, scopeId);
+  const boundApplicantCycleAction = applicantCycleAction.bind(null, id, scopeId);
   const boundTestAction = testAction.bind(null, id, scopeId);
   const boundSendAction = sendAction.bind(null, id, scopeId);
   const boundScheduleLaterAction = scheduleLaterAction.bind(null, id, scopeId);
@@ -321,6 +323,9 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
             excludeAction={boundExcludePersonAction}
             clearExcludedAction={boundClearExcludedAction}
             pastedEmailsAction={boundPastedEmailsAction}
+            applicantCycleIds={campaign.applicantCycleIds}
+            cycleOptions={audienceCycles}
+            applicantCycleAction={boundApplicantCycleAction}
           />
         </div>
       )}

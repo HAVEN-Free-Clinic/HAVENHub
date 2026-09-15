@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import { RecruitmentAuthError } from "./review";
-import { RoutingError } from "./routing";
+import { RoutingError, rejectApplication, reopenDecision } from "./routing";
 import { loadSpeedRouteBoard } from "./speed-route";
 
 async function seed() {
@@ -73,6 +73,34 @@ describe("loadSpeedRouteBoard", () => {
     const row = [...board.top, ...board.middle, ...board.bottom].find((r) => r.applicationId === apps[0]);
     expect(row?.returnedFromDepartmentCode).toBe("EDUC");
     expect(row?.proposedDepartmentCode).toBeNull();
+  });
+
+  it("drops a returned applicant from the Returned card once the lead rejects them", async () => {
+    const { lead, cycle, apps } = await seed();
+    await prisma.application.update({
+      where: { id: apps[0] },
+      data: { returnedToRoutingAt: new Date(), returnedFromDepartmentCode: "EDUC" },
+    });
+    expect((await loadSpeedRouteBoard(cycle.id, lead.id)).returned.map((r) => r.applicationId)).toEqual([apps[0]]);
+
+    // Rejecting answers the return just as routing does, so the row must leave
+    // the card. It used to stay forever, still offering Route and Reject.
+    await rejectApplication(apps[0], lead.id, null);
+    const board = await loadSpeedRouteBoard(cycle.id, lead.id);
+    expect(board.returned).toEqual([]);
+  });
+
+  it("puts a reopened reject back in the Returned card, still barred from the decliner", async () => {
+    const { lead, cycle, apps } = await seed();
+    await prisma.application.update({
+      where: { id: apps[0] },
+      data: { returnedToRoutingAt: new Date(), returnedFromDepartmentCode: "EDUC" },
+    });
+    await rejectApplication(apps[0], lead.id, null);
+    await reopenDecision(apps[0], lead.id);
+    const board = await loadSpeedRouteBoard(cycle.id, lead.id);
+    expect(board.returned.map((r) => r.applicationId)).toEqual([apps[0]]);
+    expect(board.returned[0].proposedDepartmentCode).toBeNull();
   });
 
   it("rejects a viewer without review_all", async () => {

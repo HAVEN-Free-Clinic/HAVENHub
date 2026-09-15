@@ -670,3 +670,38 @@ describe("the onboarding photo", () => {
     expect(person.photoKey).toBeNull();
   });
 });
+
+describe("the roster welcome email", () => {
+  it("welcomes a new person to HAVEN Hub and tells them how to sign in", async () => {
+    const { contract, srr } = await seedSubmitted();
+
+    await promoteContracts([contract.id], srr.id);
+
+    const mail = await prisma.emailLog.findFirstOrThrow({ where: { template: "recruitment.roster_welcome" } });
+    expect(mail.toEmail).toBe("ada@yale.edu");
+    expect(mail.subject).toContain("Welcome to HAVEN Hub");
+    expect(mail.html).toContain("What is HAVEN Hub?");
+    expect(mail.html).toContain("Sign in with your Yale NetID.");
+  });
+
+  it("sends a returning member the short version", async () => {
+    await prisma.person.create({ data: { legalFirstName: "Ada", lastName: "Lovelace", netId: "al99", status: "ACTIVE" } });
+    const { contract, srr } = await seedSubmitted();
+
+    await promoteContracts([contract.id], srr.id);
+
+    const mail = await prisma.emailLog.findFirstOrThrow({ where: { template: "recruitment.roster_welcome" } });
+    expect(mail.subject).toContain("roster");
+    expect(mail.html).toContain("Welcome back");
+    expect(mail.html).not.toContain("What is HAVEN Hub?");
+  });
+
+  it("sends one per promotion, and nothing when the contract is promoted again", async () => {
+    const { contract, srr } = await seedSubmitted();
+
+    await promoteContracts([contract.id], srr.id);
+    await promoteContracts([contract.id], srr.id);
+
+    expect(await prisma.emailLog.count({ where: { template: "recruitment.roster_welcome" } })).toBe(1);
+  });
+});

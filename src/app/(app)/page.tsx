@@ -28,6 +28,7 @@ import { getCheckInState } from "@/modules/schedule/services/attendance";
 import { buildActionCards } from "./action-cards";
 import { listMyCertificates } from "@/modules/my-info/services/my-info";
 import { getOnboardingStatus, getMyOnboarding, type OnboardingTask } from "@/modules/onboarding/services/onboarding";
+import { getAccessTerm } from "@/platform/terms/access-term";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { getMyTraining } from "@/modules/recruitment/services/training";
 import { reviewScope } from "@/modules/recruitment/services/review";
@@ -169,10 +170,10 @@ export default async function HubPage() {
   // The dashboard is a live-term view only: next-term shifts/requests are not
   // shown here (they belong to the term-aware schedule page). See mySchedule.
   const liveEntry = schedule.terms.find((t) => t.isLive) ?? null;
-  // Membership-independent: mirrors getOnboardingStatus's own term resolution
-  // (getActiveTerm), so the compliance sub-text below always agrees with the
-  // clearance checkmark, even for a person with no active live-term membership.
-  const term = liveTerm;
+  // Mirrors getOnboardingStatus's own term resolution (getAccessTerm), so the
+  // compliance sub-text below always agrees with the clearance checkmark, including
+  // for a new member onboarding onto the next term.
+  const term = (await getAccessTerm(person.personId)) ?? liveTerm;
   const shifts = liveEntry?.shifts ?? [];
 
   // --- Module visibility ---

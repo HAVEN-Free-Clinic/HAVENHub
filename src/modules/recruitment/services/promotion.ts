@@ -6,6 +6,12 @@ import { SPANISH, carryForwardApplicationAssessments, claimLanguage, notifyRevie
 import { dualRolesToRecord } from "@/platform/dual-roles/catalog";
 import { notifyDirectorsOfDualRoleOffers } from "@/platform/dual-roles";
 import { log, errorAttrs } from "@/platform/logging";
+import { queueEmail } from "@/platform/email/send";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
+import { applicantFirstName } from "@/platform/person-name";
+import { resolveCycleEmail, renderResolvedEmail, type EmailSources } from "../email/render";
+import { buildOnboardingNextSteps } from "../onboarding-next-steps";
+import { formatTrainingDate, formatTrainingLocation } from "../training-date";
 import { getObject } from "@/platform/storage";
 import { getSetting } from "@/platform/settings/service";
 import { PHOTO_CONTENT_TYPE, setPhotoFromUpload } from "@/platform/photos";
@@ -55,10 +61,13 @@ export async function promoteContracts(
   // message per offer turns a cohort promotion into an inbox flood.
   const pendingDualRoles: Array<{ personId: string; departmentCode: string; primaryDepartmentCode: string }> = [];
 
+  // The roster welcome email's resolved template, once per cycle for the batch.
+  const welcomeSources = new Map<string, EmailSources>();
+
   for (const id of contractIds) {
     const contract = await prisma.onboardingContract.findUnique({
       where: { id },
-      include: { acceptance: { include: { application: { include: { cycle: { select: { termId: true, track: true, term: { select: { clinicDates: true } } } }, acceptances: { select: { departmentCode: true } } } } } } },
+      include: { acceptance: { include: { application: { include: { cycle: { select: { id: true, title: true, termId: true, track: true, inPersonTrainingDate: true, trainingLocation: true, term: { select: { clinicDates: true } } } }, acceptances: { select: { departmentCode: true } } } } } } },
     });
     if (!contract || contract.status !== "SUBMITTED") { skipped += 1; continue; }
     // A withdrawn applicant must never reach the roster. Withdrawal deliberately
@@ -454,6 +463,49 @@ export async function promoteContracts(
         } catch (err) {
           log.error("[promotion] copying the onboarding photo to the profile failed", errorAttrs(err, { contractId: id }));
         }
+      }
+      // Tell them they are on the roster and can sign in now. After the commit and
+      // best-effort, like the photo above: the email is not part of being on the
+      // roster, and a template or settings failure must not undo a promotion.
+      // Returners get the short version; a brand-new person or a reactivated alum
+      // gets the introduction to HAVEN Hub.
+      try {
+        let sources = welcomeSources.get(cycle.id);
+        if (!sources) {
+          sources = await resolveCycleEmail(cycle.id, "recruitment.roster_welcome");
+          welcomeSources.set(cycle.id, sources);
+        }
+        const [zone, baseUrl] = await Promise.all([getDisplayTimeZone(), getSetting<string>("app.baseUrl")]);
+        const isReturning = !result.isNew && !wasReactivated;
+        // Through the end of training day, so someone added that morning still reads it.
+        const trainingAhead =
+          cycle.inPersonTrainingDate != null && cycle.inPersonTrainingDate.getTime() > Date.now() - 24 * 60 * 60 * 1000;
+        const signIn = buildOnboardingNextSteps({
+          email: contract.email, trainingDate: null, trainingLocation: "", hasAccount: true,
+          epicNeeded: false, storedEpicId: null, hasEpic: false,
+        }).signIn;
+        const email = renderResolvedEmail(sources, {
+          firstName: applicantFirstName(contract) || "there",
+          cycleTitle: cycle.title,
+          departmentName: dept.name,
+          isNew: !isReturning,
+          isReturning,
+          signInText: signIn.text ?? signIn.emailText,
+          training: trainingAhead
+            ? `Attend in-person training on ${formatTrainingDate(cycle.inPersonTrainingDate, zone)}${formatTrainingLocation(cycle.trainingLocation ?? null)}.`
+            : "",
+          hubUrl: baseUrl,
+        });
+        await queueEmail(prisma, {
+          to: contract.email,
+          subject: email.subject,
+          html: email.html,
+          template: "recruitment.roster_welcome",
+          personId: result.personId,
+          triggeredById: actorId,
+        });
+      } catch (err) {
+        log.error("[promotion] failed to queue the roster welcome email", errorAttrs(err, { contractId: id }));
       }
       // Bringing a Person back to ACTIVE is auditable wherever it happens. The
       // recruitment.promote row above is against the contract, so without this a

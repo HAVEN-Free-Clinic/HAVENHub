@@ -3,6 +3,7 @@ import { requirePersonSession } from "@/platform/auth/session";
 import { getMyCourses } from "@/modules/learning/services/enrollment";
 import { AssignedCourseCard } from "@/modules/learning/components/assigned-course-card";
 import { getOnboardingStatus } from "@/modules/onboarding/services/onboarding";
+import { getAccessTerm } from "@/platform/terms/access-term";
 import { OnboardingStepShell } from "../onboarding-step-shell";
 
 export default async function OnboardingLearningPage() {
@@ -15,7 +16,9 @@ export default async function OnboardingLearningPage() {
   const task = status.tasks.find((t) => t.key === "learning");
   if (!task || task.state === "NOT_REQUIRED") redirect("/get-started");
 
-  const courses = await getMyCourses(person.personId);
+  // The same term the learning task above was computed for (getAccessTerm).
+  const term = await getAccessTerm(person.personId);
+  const courses = await getMyCourses(person.personId, term?.id);
 
   return (
     <OnboardingStepShell

@@ -128,9 +128,15 @@ export async function loadSpeedRouteBoard(cycleId: string, viewerId: string): Pr
   const rows = (ids: string[]) => ids.filter((id) => !own.has(id)).map((id) => byId.get(id)!);
   // Highest average first: when a department hands several applicants back at
   // once, the lead works the strongest candidates first.
+  //
+  // Read from the stage, not the returned marker alone. Rejecting a returned
+  // applicant answers the return but leaves the marker set (so a Reopen still
+  // knows which department declined them), and filtering on the marker kept
+  // every rejected row in this card for good.
   const returned = apps
-    .filter((a) => a.returnedToRoutingAt != null && !own.has(a.id))
+    .filter((a) => !own.has(a.id))
     .map((a) => byId.get(a.id)!)
+    .filter((r) => r.stage === "RETURNED")
     .sort((a, b) => (b.average ?? -1) - (a.average ?? -1));
   return {
     cycleId: cycle.id,

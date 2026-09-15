@@ -33,9 +33,16 @@ describe("VOLUNTEER_LAYOUT", () => {
     expect(VOLUNTEER_LAYOUT.blocks.some((b) => b.visibleWhen?.field === "department")).toBe(false);
   });
 
-  it("gates the Epic self report on a SOME department", () => {
-    const b = VOLUNTEER_LAYOUT.blocks.find((x) => x.kind === "custom_question" && x.key === "epic_needed_self");
-    expect(b?.visibleWhen).toMatchObject({ field: "epicAsk", op: "is", value: "yes" });
+  it("never asks the volunteer whether they need Epic", () => {
+    expect(ids).not.toContain("epic_needed_self");
+  });
+
+  it("shows the Epic section only when the department uses Epic", () => {
+    const epic = VOLUNTEER_LAYOUT.blocks.filter(
+      (b) => (b.kind === "section" && b.id === "sec_epic") || (b.kind === "system_field" && b.systemKey === "epic"),
+    );
+    expect(epic).toHaveLength(2);
+    for (const b of epic) expect(b.visibleWhen).toEqual({ field: "epicRequirement", op: "is", value: "ALL" });
   });
 
   it("asks the two scheduling questions in their own section, before the contract", () => {

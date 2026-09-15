@@ -3,7 +3,7 @@ import { GripVertical, Lock } from "lucide-react";
 import type { HTMLAttributes } from "react";
 import type { SystemFieldBlock } from "@/modules/recruitment/contract/layout";
 import type { BlockPatch } from "@/modules/recruitment/contract/block-ops";
-import { SYSTEM_FIELDS } from "@/modules/recruitment/contract/system-fields";
+import { SYSTEM_FIELDS, canToggleRequired, isSystemFieldRequired } from "@/modules/recruitment/contract/system-fields";
 import type { SortableHandleProps } from "../sortable-list";
 import { Field, Input } from "@/platform/ui/input";
 import { Checkbox } from "@/platform/ui/checkbox";
@@ -18,7 +18,9 @@ import { ConditionEditor } from "./condition-editor";
  * deletes the key. CORE fields (name/email/epic/hipaa) are structurally
  * required by `assertTwoTier`, so they render locked: no toggle, no delete,
  * and (deliberately, see below) no visibility condition either. Optional
- * fields expose an enable/disable checkbox and a full ConditionEditor.
+ * fields expose an enable/disable checkbox, a full ConditionEditor, and (where
+ * canToggleRequired allows) a Required checkbox. The form and submitContract
+ * both read that choice through isSystemFieldRequired.
  *
  * CORE fields also skip the ConditionEditor because a `visibleWhen` that
  * evaluates false at submit time would hide the field's only input on the
@@ -82,13 +84,23 @@ export function SystemFieldCard({
             />
           )}
         </div>
-        <div className="mt-5 flex items-center">
+        <div className="mt-5 flex flex-col items-start">
           {core ? (
             <Badge tone="default" title="Required field. It cannot be removed or disabled.">
               <Lock className="h-3 w-3" aria-hidden /> Locked
             </Badge>
           ) : (
-            <Checkbox checked={enabled} onChange={(e) => onToggle(e.target.checked)} label="Shown" />
+            <>
+              <Checkbox checked={enabled} onChange={(e) => onToggle(e.target.checked)} label="Shown" />
+              {canToggleRequired(block.systemKey) && (
+                <Checkbox
+                  checked={isSystemFieldRequired(block)}
+                  disabled={!enabled}
+                  onChange={(e) => onUpdate({ required: e.target.checked })}
+                  label="Required"
+                />
+              )}
+            </>
           )}
         </div>
       </div>

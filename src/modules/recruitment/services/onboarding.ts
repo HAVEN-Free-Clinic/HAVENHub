@@ -6,6 +6,7 @@ import { can } from "@/platform/rbac/engine";
 import { getSetting } from "@/platform/settings/service";
 import { putObject, deleteObject } from "@/platform/storage";
 import { ACCEPTED_UPLOAD_TYPES, normalizePhoto, PHOTO_CONTENT_TYPE, PhotoError } from "@/platform/photos";
+import { isHeic } from "@/platform/photos/shared";
 import { decodeSignaturePng, SignatureError } from "./signature";
 import { normalizeIdentityKey } from "./identity-keys";
 import { isStoredSignature, type SignatureInput, type StoredSignature } from "../contract/signatures";
@@ -16,8 +17,8 @@ import { RecruitmentAuthError } from "./review";
 import { findAcceptanceConflicts } from "../engine/conflicts";
 import { renderCycleEmail } from "../email/render";
 import { resolveContractLayout } from "../contract/resolve";
-import { parseContractLayout, type ContractLayout, type SystemFieldKey } from "../contract/layout";
-import { AVAILABILITY_CHANGE_OPTIONS, DEFAULT_CONTRACT_LAYOUT, SHIFTS_WANTED_OPTIONS } from "../contract/system-fields";
+import { parseContractLayout, type ContractLayout, type SystemFieldBlock, type SystemFieldKey } from "../contract/layout";
+import { AVAILABILITY_CHANGE_OPTIONS, DEFAULT_CONTRACT_LAYOUT, SHIFTS_WANTED_OPTIONS, isSystemFieldRequired } from "../contract/system-fields";
 import { buildContractAnswers, visibleContractBlocks, type ContractContext } from "../contract/visibility";
 import { epicRequirementFor, resolveEpicNeeded } from "../contract/epic-requirement";
 import { buildOnboardingNextSteps } from "../onboarding-next-steps";
@@ -26,6 +27,8 @@ import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { log, errorAttrs } from "@/platform/logging";
 import { deriveRowState, type OnboardingRow } from "../engine/onboarding-rows";
 import { resolveCustomAnswers } from "../contract/custom-answers";
+import { hipaaOnFileFor, type HipaaOnFile } from "../contract/hipaa-on-file";
+import type { ReviewOnFile } from "../contract/review";
 import { applicantFirstName } from "@/platform/person-name";
 
 /**
@@ -51,6 +54,22 @@ function safeParseLayout(value: unknown): ContractLayout {
 /** Parse the frozen review context stored at submit, or null when the row predates
  *  the column or the stored value is malformed (caller falls back to a live
  *  derivation in that case). Validates only the shape this module writes. */
+/** The on-file facts frozen at submit (see submitContract), or null for a
+ *  contract submitted before they were recorded. */
+function parseReviewOnFile(value: unknown): ReviewOnFile | null {
+  if (value == null || typeof value !== "object" || Array.isArray(value)) return null;
+  const onFile = (value as Record<string, unknown>).onFile;
+  if (onFile == null || typeof onFile !== "object" || Array.isArray(onFile)) return null;
+  const { hipaa, photo } = onFile as Record<string, unknown>;
+  const h = hipaa != null && typeof hipaa === "object" && !Array.isArray(hipaa) ? (hipaa as Record<string, unknown>) : null;
+  return {
+    hipaa: h && typeof h.completionDate === "string"
+      ? { completionDate: h.completionDate, pendingVerification: h.pendingVerification === true }
+      : null,
+    photo: photo === true,
+  };
+}
+
 function parseReviewContext(value: unknown): ContractContext | null {
   if (value == null || typeof value !== "object" || Array.isArray(value)) return null;
   const v = value as Record<string, unknown>;
@@ -182,6 +201,11 @@ export async function createOrResendContract(
         yaleAffiliation: typeof a.yale_affiliation === "string" ? a.yale_affiliation : undefined,
         gradYear: typeof a.grad_year === "string" ? a.grad_year : undefined,
         pronouns: typeof a.pronouns === "string" && a.pronouns.trim() ? a.pronouns.trim() : undefined,
+        // A staff applicant already wrote their title in the application's
+        // "school/title and department" box.
+        staffTitle: a.yale_affiliation === "staff" && typeof a.yale_affiliation_other === "string" && a.yale_affiliation_other.trim()
+          ? a.yale_affiliation_other.trim()
+          : undefined,
         spanishSelfReported: typeof a.spanish_proficiency === "string" && a.spanish_proficiency !== "none",
         templateSnapshot: layout as object,
       },
@@ -233,7 +257,7 @@ export async function getContractByToken(token: string) {
     // shows the dates the applicant chose on the application.
     include: {
       acceptance: {
-        include: { application: { include: { cycle: { include: { term: { select: { clinicDates: true } } } } } } },
+        include: { application: { include: { cycle: { include: { term: { select: { clinicDates: true, endDate: true } } } } } } },
       },
     },
   });
@@ -272,6 +296,51 @@ export async function lookupStoredEpicId(
     ? await prisma.person.findFirst({ where: { contactEmail: { equals: emailKey, mode: "insensitive" } }, select: { epicId: true } })
     : null);
   return matched?.epicId ?? null;
+}
+
+/** What the platform already holds for an applicant, so the contract can show it
+ *  instead of asking again. */
+export type OnFile = {
+  /** A HIPAA certificate that covers the contract's term (hipaaOnFileFor), or null. */
+  hipaa: HipaaOnFile | null;
+  /** The matched person's id when they have a stored profile photo, or null. */
+  photoPersonId: string | null;
+};
+
+/**
+ * What a returning applicant already has on file that the contract would
+ * otherwise ask for again: a HIPAA certificate that covers the term, and a stored
+ * profile photo. Matched exactly like lookupStoredEpicId (netId, else
+ * contactEmail). The onboarding page and submitContract both call this, so what
+ * the form presents as optional is exactly what the server accepts as optional.
+ */
+export async function lookupOnFile(
+  netId: string | null,
+  email: string | null,
+  termEnd: Date | null,
+  now: Date = new Date(),
+): Promise<OnFile> {
+  const key = normalizeIdentityKey(netId);
+  const emailKey = normalizeIdentityKey(email);
+  const select = {
+    id: true,
+    photoKey: true,
+    hipaaCertificates: {
+      orderBy: { uploadedAt: "desc" as const },
+      select: { completionDate: true, verifiedAt: true },
+    },
+  };
+  const byNetId = key
+    ? await prisma.person.findFirst({ where: { netId: { equals: key, mode: "insensitive" } }, select })
+    : null;
+  const person = byNetId ?? (emailKey
+    ? await prisma.person.findFirst({ where: { contactEmail: { equals: emailKey, mode: "insensitive" } }, select })
+    : null);
+  if (!person) return { hipaa: null, photoPersonId: null };
+  return {
+    hipaa: hipaaOnFileFor(person.hipaaCertificates, termEnd, now),
+    photoPersonId: person.photoKey ? person.id : null,
+  };
 }
 
 /**
@@ -382,7 +451,7 @@ export async function submitContract(
       application: {
         include: {
           cycle: {
-            select: { id: true, title: true, track: true, inPersonTrainingDate: true, trainingLocation: true },
+            select: { id: true, title: true, track: true, inPersonTrainingDate: true, trainingLocation: true, term: { select: { endDate: true } } },
           },
         },
       },
@@ -399,6 +468,9 @@ export async function submitContract(
     : null;
   const requirement = epicRequirementFor(dept, track);
   const storedEpicId = await lookupStoredEpicId(contract.netId, contract.email);
+  // The same on-file lookup the page ran, so a certificate or photo the form
+  // showed as already on file is not demanded here.
+  const onFile = await lookupOnFile(contract.netId, contract.email, cycle?.term?.endDate ?? null);
 
   const e: Record<string, string> = {};
   if (!input.firstName?.trim()) e.firstName = "required";
@@ -444,6 +516,27 @@ export async function submitContract(
   const asks = (key: SystemFieldKey) =>
     visible.some((b) => b.kind === "system_field" && b.systemKey === key && b.enabled !== false);
   const initialsEnabled = asks("initials");
+  // The shown, enabled block for a system field, or undefined.
+  const shownField = (key: SystemFieldKey) =>
+    visible.find((b): b is SystemFieldBlock => b.kind === "system_field" && b.systemKey === key && b.enabled !== false);
+  // Fields a director marked required (or required by default) must be answered
+  // when shown. The fields with their own value checks below (shift count,
+  // availability, photo) apply the same rule there.
+  const plainValues: Partial<Record<SystemFieldKey, { name: string; value: string | null | undefined }>> = {
+    netId: { name: "netId", value: contract.netId ?? input.netId },
+    phone: { name: "phone", value: input.phone },
+    dob: { name: "dateOfBirth", value: input.dateOfBirth },
+    dietary: { name: "dietaryRestrictions", value: input.dietaryRestrictions },
+    yaleAffiliation: { name: "yaleAffiliation", value: input.yaleAffiliation },
+    gradYear: { name: "gradYear", value: input.gradYear },
+    pronouns: { name: "pronouns", value: input.pronouns },
+    staffTitle: { name: "staffTitle", value: input.staffTitle },
+    epicIdExpiration: { name: "epicIdExpiration", value: input.epicIdExpiration },
+  };
+  for (const [key, field] of Object.entries(plainValues) as [SystemFieldKey, { name: string; value: string | null | undefined }][]) {
+    const block = shownField(key);
+    if (block && isSystemFieldRequired(block) && !field.value?.trim()) e[field.name] = "required";
+  }
   const signed = (id: string) => Boolean(input.signatures?.[id]?.dataUrl);
   if (initialsEnabled && !signed("initials")) e["sig__initials"] = "required";
   for (const b of visible) {
@@ -464,9 +557,12 @@ export async function submitContract(
   // Scheduling answers. A value outside the option list is refused rather than
   // stored, because the schedule builder renders it to directors verbatim.
   let shiftsWanted: string | null = null;
-  if (asks("shiftsWanted")) {
+  const shiftsBlock = shownField("shiftsWanted");
+  if (shiftsBlock) {
     const v = input.shiftsWanted?.trim() ?? "";
-    if (!v) e.shiftsWanted = "required";
+    if (!v) {
+      if (isSystemFieldRequired(shiftsBlock)) e.shiftsWanted = "required";
+    }
     else if (!SHIFTS_WANTED_OPTIONS.some((o) => o.value === v)) e.shiftsWanted = "Choose one of the listed options.";
     else shiftsWanted = v;
   }
@@ -474,9 +570,12 @@ export async function submitContract(
   // then abandoned by switching back to "no" is not a request.
   let availabilityChangeNeeded: boolean | null = null;
   let availabilityChangeRequest: string | null = null;
-  if (asks("availabilityChange")) {
+  const availabilityBlock = shownField("availabilityChange");
+  if (availabilityBlock) {
     const needed = input.availabilityChangeNeeded;
-    if (!needed) e.availabilityChangeNeeded = "required";
+    if (!needed) {
+      if (isSystemFieldRequired(availabilityBlock)) e.availabilityChangeNeeded = "required";
+    }
     else if (!AVAILABILITY_CHANGE_OPTIONS.some((o) => o.value === needed)) e.availabilityChangeNeeded = "Choose one of the listed options.";
     else if (needed === "yes") {
       availabilityChangeNeeded = true;
@@ -490,11 +589,18 @@ export async function submitContract(
   // back as a field error beside any others rather than after the certificate
   // and signatures have been written to storage.
   let photoBytes: Buffer | null = null;
-  if (asks("photo")) {
+  const photoBlock = shownField("photo");
+  if (photoBlock) {
     const photo = input.photoFile;
     const maxMb = await getSetting<number>("uploads.maxMb");
-    if (!photo) e.photo = "required";
-    else if (!ACCEPTED_UPLOAD_TYPES.has(photo.mimeType)) e.photo = "Upload a PNG, JPEG, or WebP image.";
+    if (!photo) {
+      // A photo already on their profile stands in for a new one.
+      if (isSystemFieldRequired(photoBlock) && !onFile.photoPersonId) e.photo = "required";
+    }
+    // The browser converts HEIC before sending when it can; one that arrives still
+    // in HEIC is a browser that could not, and the server cannot decode it either.
+    else if (isHeic({ type: photo.mimeType, name: photo.fileName })) e.photo = "We couldn't read this HEIC photo. Choose a JPEG or PNG instead.";
+    else if (!ACCEPTED_UPLOAD_TYPES.has(photo.mimeType)) e.photo = "Upload a PNG, JPEG, WebP, or HEIC image.";
     else if (photo.bytes.length > maxMb * 1024 * 1024) e.photo = `max ${maxMb} MB`;
     else {
       try {
@@ -505,8 +611,13 @@ export async function submitContract(
       }
     }
   }
-  if (!input.hipaaCompletedAt) e.hipaaCompletedAt = "required";
-  if (!input.hipaaFile && !contract.hipaaStoredName) e.hipaaFile = "required";
+  // A certificate on file that covers the term stands in for a new one. Sending a
+  // newer certificate anyway is allowed, and then both halves are needed.
+  const hipaaGiven = Boolean(input.hipaaCompletedAt || input.hipaaFile);
+  if (!onFile.hipaa || hipaaGiven) {
+    if (!input.hipaaCompletedAt) e.hipaaCompletedAt = "required";
+    if (!input.hipaaFile && !contract.hipaaStoredName) e.hipaaFile = "required";
+  }
   if (input.hasEpic && !input.existingEpicId?.trim()) {
     e.existingEpicId = "required when you already have Epic";
   }
@@ -712,7 +823,17 @@ export async function submitContract(
         // the department's Epic requirement changes or a matching Person later gets
         // an epicId (which promotion itself causes). getContractForReview reads this
         // and only re-derives live for pre-column rows (#107/#108/#109).
-        reviewContext: { department: departmentCode, track, epicRequirement: requirement, storedEpicId } as object,
+        reviewContext: {
+          department: departmentCode, track, epicRequirement: requirement, storedEpicId,
+          // What stood in for an upload, so the signed-contract review can say
+          // "on file" rather than "not provided".
+          onFile: {
+            hipaa: onFile.hipaa && !input.hipaaFile
+              ? { completionDate: onFile.hipaa.completionDate.toISOString(), pendingVerification: onFile.hipaa.pendingVerification }
+              : null,
+            photo: Boolean(onFile.photoPersonId) && !input.photoFile,
+          },
+        } as object,
         status: "SUBMITTED",
         submittedAt: new Date(),
       },
@@ -966,7 +1087,7 @@ export async function getContractForReview(contractId: string) {
       storedEpicId: await lookupStoredEpicId(contract.netId, contract.email),
     };
   }
-  return { contract, cycleId: contract.acceptance.application.cycleId, ctx };
+  return { contract, cycleId: contract.acceptance.application.cycleId, ctx, onFile: parseReviewOnFile(contract.reviewContext) };
 }
 
 /** Minimal certificate metadata for the reviewer-gated HIPAA download route:

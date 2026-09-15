@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { EpicRequirement, Track } from "@prisma/client";
 import { submitOnboarding, type SubmitResult } from "./actions";
 import { ContractField } from "./contract-field";
+import { DetailsReview, isReviewableBlock } from "./details-review";
 import { NextStepsScreen } from "./next-steps-screen";
 import { Alert } from "@/platform/ui/alert";
 import { SubmitButton } from "@/platform/ui/submit-button";
@@ -19,7 +20,7 @@ import type { ContractLayout } from "@/modules/recruitment/contract/layout";
  */
 const MAX_SUBMIT_FILE_BYTES = 4_300_000;
 
-type Prefill = { firstName: string; legalMiddleName?: string; lastName: string; preferredFirstName: string; email: string; netId: string; phone: string; pronouns?: string; yaleAffiliation: string; gradYear: string };
+type Prefill = { firstName: string; legalMiddleName?: string; lastName: string; preferredFirstName: string; email: string; netId: string; phone: string; pronouns?: string; yaleAffiliation: string; gradYear: string; staffTitle?: string };
 type Ctx = {
   firstName: string; orgName: string; todayIso: string;
   trainingDate: string; trainingLocation: string;
@@ -27,6 +28,10 @@ type Ctx = {
   storedEpicId: string | null;
   /** Labelled clinic dates from the application, for the availability check. */
   applicationAvailability?: string[];
+  /** A HIPAA certificate on file that covers the term; the upload becomes optional. */
+  hipaaOnFile?: { completionDate: string; expiresAt: string; pendingVerification: boolean } | null;
+  /** The stored profile photo as a data URI; a new photo becomes optional. */
+  photoOnFile?: string | null;
 };
 
 export function OnboardForm({
@@ -174,9 +179,23 @@ export function OnboardForm({
   // for, since a director can remove either block.
   const asked = (key: string) => shown.some((b) => b.kind === "system_field" && b.systemKey === key);
   const toHaveReady = [
-    asked("hipaa") ? "your HIPAA certificate PDF" : null,
-    asked("photo") ? "a clear photo of your face" : null,
+    asked("hipaa") && !ctx.hipaaOnFile ? "your HIPAA certificate PDF" : null,
+    asked("photo") && !ctx.photoOnFile ? "a clear photo of your face" : null,
   ].filter(Boolean).join(" and ");
+
+  // The details the application already collected render as one summary with an
+  // "Update" option, placed where the first of them sits, instead of as a page of
+  // inputs to re-read. Their inputs still render inside it (hidden), so the
+  // values post and visibility is computed exactly as before.
+  const reviewBlocks = shown.filter(isReviewableBlock);
+  const firstReviewIndex = shown.findIndex(isReviewableBlock);
+  const field = (b: (typeof shown)[number]) => (
+    <ContractField
+      key={"id" in b ? b.id : b.kind === "system_field" ? b.systemKey : b.key}
+      block={b} prefill={prefill} ctx={ctx} err={err} onAnswer={onAnswer} departments={departments}
+      maxUploadMb={maxUploadMb}
+    />
+  );
 
   return (
     <form onSubmit={onSubmit} onChange={markDirty} onInput={markDirty} className="mt-6">
@@ -211,13 +230,15 @@ export function OnboardForm({
           </div>
         )}
 
-        {shown.map((b) => (
-          <ContractField
-            key={"id" in b ? b.id : b.kind === "system_field" ? b.systemKey : b.key}
-            block={b} prefill={prefill} ctx={ctx} err={err} onAnswer={onAnswer} departments={departments}
-            maxUploadMb={maxUploadMb}
-          />
-        ))}
+        {shown.map((b, i) => {
+          if (!isReviewableBlock(b)) return field(b);
+          if (i !== firstReviewIndex) return null;
+          return (
+            <DetailsReview key="details-review" blocks={reviewBlocks} prefill={prefill} err={err}>
+              {reviewBlocks.map(field)}
+            </DetailsReview>
+          );
+        })}
 
         <FormActions>
           <SubmitButton disabled={submitting}>{submitting ? "Submitting…" : "Submit onboarding"}</SubmitButton>

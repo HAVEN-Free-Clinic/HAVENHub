@@ -19,11 +19,9 @@ export const EPIC_PREAMBLE = `{{orgName}} is given access to the Epic EMR since 
 
 Directions about Epic updates will follow in the days after you complete this form.`;
 
-export const EPIC_ACCESS_GUIDANCE = `Even if you currently have Epic access to {{orgName}}, this question asks whether you need Epic at all to complete your duties. Answer Yes if you need Epic to complete your tasks at {{orgName}}.
-
-**Departments requiring Epic access:** Behavioral Health, Clinical Advisor, Education, LCC (Patient Navigator or TOC), LTBI, Medical Debt and Insurance Counseling, Medication Access, Oral Health, Patient Services, Phlebotomy, Referrals, Reproductive Health, Social Services, Vaccine, and QA/QI (only if indicated by directors).
-
-**Departments that do not require Epic:** Faculty Relations, Finance and Development, Interpretation and Diversity, IT and Communications, Public Relations, Student Recruitment, Community Relations and Advocacy, MLP, and Food Pharmacy.`;
+// Shown only when the accepted department uses Epic for this track, so it states
+// the fact rather than asking the volunteer to judge whether they need access.
+export const EPIC_ACCESS_GUIDANCE = `Your department uses Epic, the Yale New Haven Health medical record system, so your role needs Epic access. If you do not have an Epic account yet, {{orgName}} will set one up for you.`;
 
 export const DATA_PRIVACY_STATEMENT = `**Introduction**
 

@@ -9,9 +9,13 @@
  * (platform/photos/normalize.ts), so sending a 1600 px JPEG instead loses
  * nothing anyone sees.
  *
- * Best-effort: a file the browser cannot decode or draw is sent as chosen, and
- * the size check and server validation still apply to it.
+ * It is also where an iPhone photo in HEIC becomes a JPEG: the server cannot
+ * decode HEIC, but Safari (iPhone, iPad, Mac) can. Best-effort: a file the browser
+ * cannot decode or draw is left as chosen, and the photo field says so for HEIC
+ * before the form is sent.
  */
+import { isHeic } from "@/platform/photos/shared";
+
 export const PHOTO_UPLOAD_MAX_EDGE = 1600;
 
 /** The largest size with the same aspect ratio whose long edge is at most `max`.
@@ -41,7 +45,8 @@ export async function downscalePhoto(file: File): Promise<File> {
     if (!context) return file;
     context.drawImage(bitmap, 0, 0, width, height);
     const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.88));
-    if (!blob || blob.size >= file.size) return file;
+    // A HEIC original is never kept, however small: the server cannot read it.
+    if (!blob || (!isHeic(file) && blob.size >= file.size)) return file;
     const base = file.name.replace(/\.[^.]*$/, "") || "photo";
     return new File([blob], `${base}.jpg`, { type: "image/jpeg" });
   } finally {

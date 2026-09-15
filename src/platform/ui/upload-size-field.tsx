@@ -51,6 +51,7 @@ export function UploadSizeField({
   multiple = false,
   prepare,
   onFilesChange,
+  validate,
 }: {
   name: string;
   /** Cap in megabytes, from the `uploads.maxMb` setting. */
@@ -68,6 +69,9 @@ export function UploadSizeField({
   prepare?: (file: File) => Promise<File>;
   /** Called with the files the input will post, after `prepare`. */
   onFilesChange?: (files: File[]) => void;
+  /** An extra check on the files that will post, after `prepare`: a message that
+   *  blocks the submit, or "" when they are fine. */
+  validate?: (files: File[]) => string;
 }) {
   const [error, setError] = useState<string | null>(null);
   // A second pick while the first is still being prepared must win.
@@ -91,7 +95,7 @@ export function UploadSizeField({
         files = Array.from(input.files ?? []);
       }
     }
-    const message = oversizeMessage(files, maxMb);
+    const message = oversizeMessage(files, maxMb) || validate?.(files) || "";
     setError(message || null);
     // Non-empty custom validity blocks the native submit, which is what keeps the
     // file from reaching the edge and failing opaquely.

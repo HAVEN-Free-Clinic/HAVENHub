@@ -7,7 +7,7 @@ import { Checkbox } from "@/platform/ui/checkbox";
 import { SignaturePad } from "@/platform/ui/signature-pad";
 import { FieldPreview } from "@/modules/recruitment/components/field-preview";
 import { Prose } from "@/modules/recruitment/contract/prose";
-import { AVAILABILITY_CHANGE_OPTIONS, SYSTEM_FIELDS, systemFieldOptions } from "@/modules/recruitment/contract/system-fields";
+import { AVAILABILITY_CHANGE_OPTIONS, SYSTEM_FIELDS, isSystemFieldRequired, systemFieldOptions } from "@/modules/recruitment/contract/system-fields";
 import type { ContractBlock } from "@/modules/recruitment/contract/layout";
 import { UploadSizeField } from "@/platform/ui/upload-size-field";
 import { ProfilePhotoField } from "./photo-field";
@@ -28,8 +28,13 @@ type Ctx = {
    *  hydrates identically. The live page always supplies it; a render without
    *  it (the builder preview of a global template) shows the empty state. */
   applicationAvailability?: string[];
+  /** A HIPAA certificate already on file that covers the term, dates formatted
+   *  on the server. When set, the upload becomes optional. */
+  hipaaOnFile?: { completionDate: string; expiresAt: string; pendingVerification: boolean } | null;
+  /** The person's stored profile photo as a data URI. When set, a new photo is optional. */
+  photoOnFile?: string | null;
 };
-type Prefill = { firstName: string; legalMiddleName?: string; lastName: string; preferredFirstName: string; email: string; netId: string; phone: string; pronouns?: string; yaleAffiliation: string; gradYear: string };
+type Prefill = { firstName: string; legalMiddleName?: string; lastName: string; preferredFirstName: string; email: string; netId: string; phone: string; pronouns?: string; yaleAffiliation: string; gradYear: string; staffTitle?: string };
 
 function renderVars(text: string, ctx: Ctx): string {
   // Escaped-text output only; substitutes {{firstName}} / {{orgName}} /
@@ -60,11 +65,13 @@ function renderVars(text: string, ctx: Ctx): string {
  * required server-side whenever the submitted answer is "yes".
  */
 function AvailabilityChangeField({
-  label, dates, err,
+  label, dates, err, required,
 }: {
   label: string;
   dates: string[];
   err: (k: string) => string | undefined;
+  /** Whether the yes/no must be answered. The explanation is required after a "yes" either way. */
+  required: boolean;
 }) {
   const [needed, setNeeded] = useState("");
   return (
@@ -97,7 +104,7 @@ function AvailabilityChangeField({
         f={{
           key: "availabilityChangeNeeded",
           label: "Do you need to make any last-minute changes to your availability?",
-          helpText: null, type: "SINGLE_SELECT", required: true,
+          helpText: null, type: "SINGLE_SELECT", required,
           options: AVAILABILITY_CHANGE_OPTIONS, validation: null,
         }}
         departments={[]}
@@ -279,38 +286,75 @@ export function ContractField({
       const maxHipaa = ctx.todayIso;
       const [ty, tm, td] = ctx.todayIso.split("-");
       const minHipaa = `${Number(ty) - 5}-${tm}-${td}`;
-      return (
-        <div className="space-y-2">
-          <p className="text-sm font-medium text-foreground">{label}</p>
-          {block.helpText && <Prose text={renderVars(block.helpText, ctx)} />}
-          <Field label="HIPAA completion date" required error={err("hipaaCompletedAt")}>
-            <Input name="hipaaCompletedAt" type="date" required min={minHipaa} max={maxHipaa} />
+      const instructions = block.helpText ? <Prose text={renderVars(block.helpText, ctx)} /> : null;
+      // Required only when no certificate on file covers the term; submitContract
+      // applies the same rule. UploadSizeField, not a raw input: over the
+      // platform's ~4.5 MB Server Action limit the edge answers the POST itself,
+      // so the file has to be refused in the browser.
+      const inputs = (required: boolean) => (
+        <>
+          <Field label="HIPAA completion date" required={required} error={err("hipaaCompletedAt")}>
+            <Input name="hipaaCompletedAt" type="date" required={required} min={minHipaa} max={maxHipaa} />
           </Field>
-          {/* UploadSizeField, not a raw input. The disable comment here used to
-              say "no file primitive exists"; it does, and this was the one
-              upload path still posting an oversized file at the edge.
-
-              Over the platform's ~4.5 MB Server Action limit the edge answers
-              the POST itself, so `submitContract` never runs and its own
-              "max N MB" field error never fires -- the applicant gets the
-              generic retry message and retrying re-sends the same file forever.
-              `accept="image/*"` invites exactly the phone photo that trips it,
-              at the end of a contract they have just filled in and signed. */}
-          <Field label="HIPAA certificate (PDF)" required error={err("hipaaFile")}>
+          <Field label="HIPAA certificate (PDF)" required={required} error={err("hipaaFile")}>
             <UploadSizeField
               name="hipaaFile"
               maxMb={maxUploadMb}
               accept="application/pdf,image/*"
-              required
+              required={required}
             />
           </Field>
+        </>
+      );
+      if (ctx.hipaaOnFile) {
+        const { completionDate, expiresAt, pendingVerification } = ctx.hipaaOnFile;
+        // Open when the server rejected a half-finished replacement, so the error shows.
+        const replacing = Boolean(err("hipaaCompletedAt") || err("hipaaFile"));
+        return (
+          <div className="space-y-2">
+            <p className="text-sm font-medium text-foreground">{label}</p>
+            <p className="text-sm text-foreground-soft">
+              {pendingVerification
+                ? `We already have the HIPAA certificate you completed on ${completionDate}. It is waiting to be verified, so there is no need to upload it again.`
+                : `Your HIPAA certificate, completed on ${completionDate}, is on file and valid through ${expiresAt}, so there is no need to upload it again.`}
+            </p>
+            <details open={replacing} className="rounded-lg border border-border px-3 py-2">
+              <summary className="cursor-pointer text-sm font-medium text-foreground">Upload a newer certificate instead</summary>
+              <div className="mt-3 space-y-2">
+                {instructions}
+                {inputs(false)}
+              </div>
+            </details>
+          </div>
+        );
+      }
+      return (
+        <div className="space-y-2">
+          <p className="text-sm font-medium text-foreground">{label}</p>
+          {instructions}
+          {inputs(true)}
         </div>
       );
     }
     case "photoBlock":
-      return <ProfilePhotoField label={label} error={err("photo")} maxUploadMb={maxUploadMb} />;
+      return (
+        <ProfilePhotoField
+          label={label}
+          error={err("photo")}
+          maxUploadMb={maxUploadMb}
+          currentPhoto={ctx.photoOnFile ?? null}
+          required={isSystemFieldRequired(block)}
+        />
+      );
     case "availabilityBlock":
-      return <AvailabilityChangeField label={label} dates={ctx.applicationAvailability ?? []} err={err} />;
+      return (
+        <AvailabilityChangeField
+          label={label}
+          dates={ctx.applicationAvailability ?? []}
+          err={err}
+          required={isSystemFieldRequired(block)}
+        />
+      );
     case "checkbox":
       // "spanish" is no longer emitted by either default layout (the Spanish
       // field was dropped from Prefill along with it), but the system key
@@ -336,9 +380,9 @@ export function ContractField({
         gradYear: prefill.gradYear,
       };
       const current = selectDefaults[block.systemKey] ?? "";
-      // shiftsWanted is a question the volunteer has to answer whenever it is
-      // shown; submitContract enforces the same rule.
-      const required = block.systemKey === "shiftsWanted";
+      // Required per the director's choice or the field's default; submitContract
+      // reads the same rule.
+      const required = isSystemFieldRequired(block);
       return (
         <Field
           label={label}
@@ -415,8 +459,9 @@ export function ContractField({
         netId: prefill.netId,
         phone: prefill.phone,
         pronouns: prefill.pronouns ?? "",
+        staffTitle: prefill.staffTitle ?? "",
       };
-      const required = block.systemKey === "email";
+      const required = isSystemFieldRequired(block);
       const inputName = nameByKey[block.systemKey];
       return (
         <Field label={label} required={required} error={err(inputName)}>

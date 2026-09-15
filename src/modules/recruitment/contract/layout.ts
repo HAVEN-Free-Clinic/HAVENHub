@@ -13,6 +13,9 @@ export type SystemFieldBlock = {
   label?: string;
   helpText?: string;
   enabled?: boolean; // optional fields only; core fields ignore this
+  /** A director's required/optional choice. Unset means the field's default;
+   *  read it through isSystemFieldRequired, never directly. */
+  required?: boolean;
   visibleWhen?: FieldCondition;
 };
 export type AgreementBlock = {
@@ -73,6 +76,7 @@ const blockSchema = z.discriminatedUnion("kind", [
     label: z.string().optional(),
     helpText: z.string().optional(),
     enabled: z.boolean().optional(),
+    required: z.boolean().optional(),
     visibleWhen: conditionSchema.optional(),
   }),
   z.object({

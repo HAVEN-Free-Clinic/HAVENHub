@@ -24,6 +24,7 @@ import {
   findIncomingAcceptance,
   findIncomingMember,
   listIncomingMembers,
+  onboardingNotesByMember,
   listIncomingShiftDrafts,
 } from "@/platform/recruitment/incoming-roster";
 import type { IncomingShiftDraft, IncomingStage } from "@/platform/recruitment/incoming-roster";
@@ -1248,13 +1249,16 @@ async function resolveSlotAssignments(
 // builderView types
 // ---------------------------------------------------------------------------
 
-/** Scheduling preferences a member gave during training intake (training quiz).
- *  Surfaced to directors in the builder; never auto-applied to capacity math. */
+/** Scheduling preferences a member gave on their onboarding contract and during
+ *  training intake (training quiz). Surfaced to directors in the builder; never
+ *  auto-applied to capacity math or to an availability tier. */
 export type BuilderMemberIntake = {
-  /** Minimum shifts the member wants this term (free text, e.g. "4"). */
-  minShiftsWanted: string | null;
-  /** Free-text availability beyond their checked dates. */
-  additionalShiftAvailability: string | null;
+  /** Shifts the member would like this term, from the onboarding contract
+   *  ("1".."7", "8+"). */
+  preferredShifts: string | null;
+  /** A change to their application availability the member requested on the
+   *  onboarding contract, in their own words. A director decides what to do. */
+  availabilityChangeRequest: string | null;
   /** Free-text note the member addressed to the directors. */
   feedback: string | null;
 };
@@ -1845,13 +1849,18 @@ export async function builderView(
         select: {
           personId: true,
           track: true,
-          minShiftsWanted: true,
-          additionalShiftAvailability: true,
           feedback: true,
         },
       })
     : [];
   const intakeByKey = new Map(trainingRows.map((t) => [`${t.personId}:${t.track}`, t]));
+  // The onboarding contract's scheduling answers for the same members, keyed the
+  // same way.
+  const onboardingNotes = await onboardingNotesByMember({
+    termId: term.id,
+    departmentCode: selectedDept.code,
+    personIds: memberPersonIds,
+  });
 
   // Build members list.
   const builderMembers: BuilderMember[] = members.map((m) => {
@@ -1864,6 +1873,7 @@ export async function builderView(
     });
 
     const intakeRow = intakeByKey.get(`${m.person.id}:${m.kind}`);
+    const notes = onboardingNotes.get(`${m.person.id}:${m.kind}`);
 
     return {
       membershipId: m.id,
@@ -1883,8 +1893,8 @@ export async function builderView(
         m.availabilityUpdatedAt !== null && m.availabilityAcknowledgedAt === null,
       legacyNote: m.selfUpdatedAvailability ?? null,
       intake: {
-        minShiftsWanted: intakeRow?.minShiftsWanted ?? null,
-        additionalShiftAvailability: intakeRow?.additionalShiftAvailability ?? null,
+        preferredShifts: notes?.preferredShifts ?? null,
+        availabilityChangeRequest: notes?.availabilityChangeRequest ?? null,
         feedback: intakeRow?.feedback ?? null,
       },
       provisional: null,
@@ -1899,8 +1909,9 @@ export async function builderView(
   // Their availability is the BASELINE tier and only that: the self-update and
   // director-override tiers both live on TermMembership, which is precisely what
   // they do not have yet, so the tier the availability view labels "Application"
-  // is the literal truth for them. Intake notes are empty for the same reason --
-  // the training quiz that fills them comes after roster build.
+  // is the literal truth for them. Training intake is empty for the same reason
+  // -- the training quiz comes after roster build -- but the onboarding
+  // contract's scheduling answers are already on the acceptance once submitted.
   const incomingMembers: BuilderMember[] = incoming.map((i) => ({
     membershipId: null,
     person: {
@@ -1926,7 +1937,7 @@ export async function builderView(
     overrideActive: false,
     acknowledgePending: false,
     legacyNote: null,
-    intake: { minShiftsWanted: null, additionalShiftAvailability: null, feedback: null },
+    intake: { ...i.onboardingNotes, feedback: null },
     provisional: {
       acceptanceId: i.acceptanceId,
       stage: i.stage,

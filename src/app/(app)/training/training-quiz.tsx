@@ -8,8 +8,7 @@ import { gradeQuizAction, type QuizActionResult } from "./actions";
 import type { MyTraining } from "@/modules/recruitment/services/training";
 import { Card } from "@/platform/ui/card";
 import { Alert } from "@/platform/ui/alert";
-import { Field, Input, Textarea } from "@/platform/ui/input";
-import { Select } from "@/platform/ui/select";
+import { Field, Textarea } from "@/platform/ui/input";
 import { Button } from "@/platform/ui/button";
 
 type Question = MyTraining["questions"][number];
@@ -123,8 +122,6 @@ export function TrainingQuiz({
     if (!allAnswered || pending || reviewing) return;
     const fd = new FormData(formRef.current!);
     const intakePayload = {
-      minShiftsWanted: (fd.get("minShiftsWanted") as string) || null,
-      additionalShiftAvailability: (fd.get("additionalShiftAvailability") as string) || null,
       feedback: (fd.get("feedback") as string) || null,
     };
     startTransition(async () => {
@@ -271,39 +268,21 @@ export function TrainingQuiz({
             <ClipboardList aria-hidden className="h-5 w-5" />
           </span>
           <div>
-            <p className="text-base font-bold text-foreground">A few quick questions</p>
-            <p className="mt-px text-xs text-muted-foreground">Helps us place you on shifts</p>
+            <p className="text-base font-bold text-foreground">Anything else?</p>
+            <p className="mt-px text-xs text-muted-foreground">Optional. Your directors see this in the schedule builder.</p>
           </div>
         </div>
-        <div className="grid grid-cols-1 gap-3.5 p-5 sm:grid-cols-2">
-          <Field label="Minimum shifts wanted this term">
-            <Select name="minShiftsWanted" defaultValue={intake.minShiftsWanted ?? "4"}>
-              {[2, 3, 4, 5, 6, 8].map((n) => (
-                <option key={n} value={String(n)}>
-                  {n} shifts
-                </option>
-              ))}
-            </Select>
+        {/* No availability here: availability comes from the application, and a
+            change is a request made on the onboarding contract or to a director. */}
+        <div className="p-5">
+          <Field label="Feedback or questions" hint="Optional">
+            <Textarea
+              name="feedback"
+              defaultValue={intake.feedback ?? ""}
+              placeholder="Anything you'd like the directors to know?"
+              className="min-h-[78px] resize-y"
+            />
           </Field>
-          <div className="sm:col-span-2">
-            <Field label="Additional shift availability" hint="Optional">
-              <Input
-                name="additionalShiftAvailability"
-                defaultValue={intake.additionalShiftAvailability ?? ""}
-                placeholder="e.g. Available most Saturday mornings, some weekday evenings"
-              />
-            </Field>
-          </div>
-          <div className="sm:col-span-2">
-            <Field label="Feedback or questions" hint="Optional">
-              <Textarea
-                name="feedback"
-                defaultValue={intake.feedback ?? ""}
-                placeholder="Anything you'd like the directors to know?"
-                className="min-h-[78px] resize-y"
-              />
-            </Field>
-          </div>
         </div>
       </Card>
     </form>

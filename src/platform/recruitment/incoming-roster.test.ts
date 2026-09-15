@@ -14,6 +14,7 @@ import {
   applicationAvailabilityDates,
   findIncomingMember,
   listIncomingMembers,
+  onboardingNotesByMember,
   parseAvailabilityDates,
 } from "./incoming-roster";
 
@@ -107,6 +108,8 @@ type ApplicantOpts = {
   availability?: string[];
   applicationStatus?: "SUBMITTED" | "WITHDRAWN";
   contractStatus?: "PENDING" | "SUBMITTED" | "PROMOTED";
+  contractNotes?: { shiftsWanted?: string; availabilityChangeNeeded?: boolean; availabilityChangeRequest?: string };
+  promotedPersonId?: string;
   accepted?: boolean;
 };
 
@@ -149,6 +152,8 @@ async function seedApplicant(opts: ApplicantOpts) {
         firstName,
         lastName: lastName ?? "",
         email,
+        promotedPersonId: opts.promotedPersonId ?? null,
+        ...opts.contractNotes,
       },
     });
   }
@@ -241,6 +246,28 @@ describe("listIncomingMembers", () => {
         ["No Contract", "ACCEPTED"],
         ["Open Contract", "ONBOARDING"],
         ["Done Contract", "SUBMITTED"],
+      ]),
+    );
+  });
+
+  it("carries a submitted contract's scheduling answers, and a request only beside a yes", async () => {
+    const { term, srr, cycle } = await seed();
+    await seedApplicant({
+      cycleId: cycle.id, approvedById: srr.id, name: "Wants Change", contractStatus: "SUBMITTED",
+      contractNotes: { shiftsWanted: "5", availabilityChangeNeeded: true, availabilityChangeRequest: "Drop Sep 12" },
+    });
+    await seedApplicant({
+      cycleId: cycle.id, approvedById: srr.id, name: "No Change", contractStatus: "SUBMITTED",
+      contractNotes: { shiftsWanted: "2", availabilityChangeNeeded: false, availabilityChangeRequest: "stray" },
+    });
+    await seedApplicant({ cycleId: cycle.id, approvedById: srr.id, name: "Not Sent" });
+
+    const rows = await listIncomingMembers({ termId: term.id, departmentCode: "SRHD", clinicDates: CLINIC_DATES });
+    expect(new Map(rows.map((r) => [r.name, r.onboardingNotes]))).toEqual(
+      new Map([
+        ["No Change", { preferredShifts: "2", availabilityChangeRequest: null }],
+        ["Not Sent", { preferredShifts: null, availabilityChangeRequest: null }],
+        ["Wants Change", { preferredShifts: "5", availabilityChangeRequest: "Drop Sep 12" }],
       ]),
     );
   });
@@ -371,5 +398,42 @@ describe("findIncomingMember", () => {
         await findIncomingMember({ personId: p.id, termId: term.id, departmentCode: "SRHD" }),
       ).toBeNull();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// onboardingNotesByMember
+// ---------------------------------------------------------------------------
+
+describe("onboardingNotesByMember", () => {
+  it("reads a promoted contract back by the person roster build made, keyed by kind", async () => {
+    const { term, srr, cycle } = await seed();
+    const person = await prisma.person.create({ data: { name: "Rory Member", status: "ACTIVE" } });
+    await seedApplicant({
+      cycleId: cycle.id, approvedById: srr.id, name: "Rory Member", contractStatus: "PROMOTED", promotedPersonId: person.id,
+      contractNotes: { shiftsWanted: "6", availabilityChangeNeeded: true, availabilityChangeRequest: "Add Sep 19" },
+    });
+
+    const notes = await onboardingNotesByMember({ termId: term.id, departmentCode: "SRHD", personIds: [person.id] });
+    expect(notes).toEqual(
+      new Map([[`${person.id}:VOLUNTEER`, { preferredShifts: "6", availabilityChangeRequest: "Add Sep 19" }]]),
+    );
+  });
+
+  it("ignores another department's contract and people it was not asked about", async () => {
+    const { term, srr, cycle } = await seed();
+    const elsewhere = await prisma.person.create({ data: { name: "Other Dept", status: "ACTIVE" } });
+    const notAsked = await prisma.person.create({ data: { name: "Not Asked", status: "ACTIVE" } });
+    await seedApplicant({
+      cycleId: cycle.id, approvedById: srr.id, name: "Other Dept", departmentCode: "PCAR",
+      contractStatus: "PROMOTED", promotedPersonId: elsewhere.id, contractNotes: { shiftsWanted: "4" },
+    });
+    await seedApplicant({
+      cycleId: cycle.id, approvedById: srr.id, name: "Not Asked",
+      contractStatus: "PROMOTED", promotedPersonId: notAsked.id, contractNotes: { shiftsWanted: "3" },
+    });
+
+    expect(await onboardingNotesByMember({ termId: term.id, departmentCode: "SRHD", personIds: [elsewhere.id] })).toEqual(new Map());
+    expect(await onboardingNotesByMember({ termId: term.id, departmentCode: "SRHD", personIds: [] })).toEqual(new Map());
   });
 });

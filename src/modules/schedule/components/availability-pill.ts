@@ -1,8 +1,9 @@
 /**
- * Shared styling for the clinic-date pills in the three "mark availability"
- * forms: the volunteer one on `/schedule`, the attending one inside
- * `attending-portal-section.tsx`, and the director override grid in
- * `builder-availability-view.tsx` on `/schedule/builder`.
+ * Shared styling for the clinic-date pills in the "mark availability" forms: the
+ * attending one inside `attending-portal-section.tsx`, and the director override
+ * grid in `builder-availability-view.tsx` on `/schedule/builder`. The volunteer
+ * form that used to sit on `/schedule` is gone, because members no longer edit
+ * their own availability; the history below is where the bug was first seen.
  *
  * Why this is a constant rather than a class string in each file: the forms had
  * drifted into near-identical copies, and the bug below was present in all of

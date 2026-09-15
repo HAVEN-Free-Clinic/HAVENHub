@@ -93,6 +93,7 @@ export async function submitOnboarding(token: string, formData: FormData): Promi
   const dob = str("dateOfBirth");
   const hipaaAt = str("hipaaCompletedAt");
   const file = formData.get("hipaaFile");
+  const photo = formData.get("photo");
   // Custom-question answers are dynamic (their names come from the frozen
   // layout), so harvest them by prefix. MULTI_SELECT and SUBCOMMITTEE_RANK submit
   // the same name repeatedly -> collect those to an array.
@@ -118,12 +119,16 @@ export async function submitOnboarding(token: string, formData: FormData): Promi
     [...formData.entries()].filter(([, v]) => typeof v === "string") as [string, string][],
   );
   const input: ContractSubmission = {
-    firstName: str("firstName"), lastName: str("lastName"), preferredFirstName: str("preferredFirstName") || undefined,
+    firstName: str("firstName"), legalMiddleName: str("legalMiddleName") || undefined, lastName: str("lastName"),
+    preferredFirstName: str("preferredFirstName") || undefined,
     email: str("email"), netId: str("netId") || undefined, phone: str("phone") || undefined,
     dateOfBirth: dob || undefined, dietaryRestrictions: str("dietaryRestrictions") || undefined,
     yaleAffiliation: str("yaleAffiliation") || undefined, gradYear: str("gradYear") || undefined,
     pronouns: str("pronouns") || undefined, staffTitle: str("staffTitle") || undefined,
     epicIdExpiration: str("epicIdExpiration") || undefined,
+    shiftsWanted: str("shiftsWanted") || undefined,
+    availabilityChangeNeeded: str("availabilityChangeNeeded") || undefined,
+    availabilityChangeRequest: str("availabilityChangeRequest") || undefined,
     signatures, customAnswers, confirmations,
     // Epic access type is no longer collected: IT decides the account
     // modification type, not the applicant.
@@ -132,6 +137,7 @@ export async function submitOnboarding(token: string, formData: FormData): Promi
     spanishSelfReported: bool("spanishSelfReported"), licensedRN: bool("licensedRN"),
     hipaaCompletedAt: hipaaAt || undefined,
     hipaaFile: file instanceof File && file.size > 0 ? { fileName: file.name, mimeType: file.type, bytes: Buffer.from(await file.arrayBuffer()) } : undefined,
+    photoFile: photo instanceof File && photo.size > 0 ? { fileName: photo.name, mimeType: photo.type, bytes: Buffer.from(await photo.arrayBuffer()) } : undefined,
   };
   try {
     const contract = await submitContract(token, input);

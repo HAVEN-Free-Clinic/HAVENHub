@@ -306,8 +306,7 @@ export async function myAttendingSchedule(personId: string): Promise<MyAttending
 /**
  * True once the term's first clinic date has arrived.
  *
- * Same rule and same reason as the volunteer side (isAvailabilityLocked): once
- * clinics are running the grid is live, and a change has to go through a request
+ * Once clinics are running the grid is live, and a change has to go through a request
  * Faculty Relations sees, not a silent edit to a form.
  */
 async function availabilityLocked(clinicDates: Date[]): Promise<boolean> {

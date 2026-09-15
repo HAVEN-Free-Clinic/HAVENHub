@@ -186,9 +186,13 @@ export async function completeTraining(
  * through recordEventCheckIn, and completeTraining above is the shared write both
  * that path and the quiz path still use. */
 
+/** The note a member leaves for their directors on the training quiz. The quiz
+ *  used to ask for a shift count and extra availability too; the shift count
+ *  moved to the onboarding contract (shiftsWanted), and availability is never
+ *  self-reported after the application. Training.minShiftsWanted and
+ *  Training.additionalShiftAvailability are no longer written; the columns keep
+ *  whatever earlier terms stored. */
 export type TrainingIntake = {
-  additionalShiftAvailability?: string | null;
-  minShiftsWanted?: string | null;
   feedback?: string | null;
 };
 
@@ -274,8 +278,6 @@ export async function getMyTrainingForTerm(personId: string, term: { id: string;
         questions,
         gradedQuestionCount,
         intake: {
-          additionalShiftAvailability: row?.additionalShiftAvailability ?? null,
-          minShiftsWanted: row?.minShiftsWanted ?? null,
           feedback: row?.feedback ?? null,
         },
       };
@@ -328,8 +330,6 @@ export async function submitQuiz(
     await tx.training.update({
       where: { id: row.id },
       data: {
-        additionalShiftAvailability: input.intake.additionalShiftAvailability ?? undefined,
-        minShiftsWanted: input.intake.minShiftsWanted ?? undefined,
         feedback: input.intake.feedback ?? undefined,
       },
     });

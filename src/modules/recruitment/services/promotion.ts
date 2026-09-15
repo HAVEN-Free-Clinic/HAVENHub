@@ -6,6 +6,9 @@ import { SPANISH, carryForwardApplicationAssessments, claimLanguage, notifyRevie
 import { dualRolesToRecord } from "@/platform/dual-roles/catalog";
 import { notifyDirectorsOfDualRoleOffers } from "@/platform/dual-roles";
 import { log, errorAttrs } from "@/platform/logging";
+import { getObject } from "@/platform/storage";
+import { getSetting } from "@/platform/settings/service";
+import { PHOTO_CONTENT_TYPE, setPhotoFromUpload } from "@/platform/photos";
 import { aliasPerson, flushEvents } from "@/platform/posthog/capture";
 import {
   AVAILABILITY_FIELD_KEY,
@@ -168,9 +171,30 @@ export async function promoteContracts(
             cancelledDeactivations = await cancelOpenDeactivationRequestsTx(tx, person.id);
             wasReactivated = true;
           }
+          // Name parts the contract adds to a returner's record. Like every
+          // column below, a value only ever FILLS a gap: the record may have been
+          // corrected by a human since they applied. The person-name write
+          // extension refuses a partial parts update (it cannot derive `name`
+          // without reading the row), so a fill sends the complete parts, and
+          // passes back the review flag and current name so a row awaiting
+          // review keeps both.
+          const middleFill = person.legalMiddleName == null ? contract.legalMiddleName?.trim() || null : null;
+          const preferredFill = person.preferredFirstName == null ? contract.preferredFirstName?.trim() || null : null;
+          const nameFill =
+            (middleFill || preferredFill) && person.legalFirstName.trim() !== ""
+              ? {
+                  name: person.name,
+                  legalFirstName: person.legalFirstName,
+                  legalMiddleName: person.legalMiddleName ?? middleFill,
+                  lastName: person.lastName,
+                  preferredFirstName: person.preferredFirstName ?? preferredFill,
+                  nameNeedsReview: person.nameNeedsReview,
+                }
+              : {};
           await tx.person.update({
             where: { id: person.id },
             data: {
+              ...nameFill,
               status: "ACTIVE",
               phone: person.phone ?? contract.phone,
               yaleAffiliation: person.yaleAffiliation ?? contract.yaleAffiliation,
@@ -198,6 +222,7 @@ export async function promoteContracts(
               // it, somebody who told us they go by Jack on day one lands on
               // the roster as Jonathan and has to correct it themselves.
               preferredFirstName: contract.preferredFirstName?.trim() || null,
+              legalMiddleName: contract.legalMiddleName?.trim() || null,
               netId: writableNetId, contactEmail: normEmail, phone: contract.phone,
               yaleAffiliation: contract.yaleAffiliation, gradYear: contract.gradYear,
               epicId: contract.existingEpicId, status: "ACTIVE",
@@ -409,6 +434,27 @@ export async function promoteContracts(
       pendingDualRoles.push(...result.newDualRoles);
       carriedSpanish.push(...result.carriedSpanish);
       await recordAudit({ actorPersonId: actorId, action: "recruitment.promote", entityType: "OnboardingContract", entityId: id });
+      // The contract's photo becomes the person's profile photo, replacing any
+      // they had. After the transaction and best-effort, like the attendance link
+      // below: this is object storage I/O plus a Person write on the outer client,
+      // and a failure must not undo a promotion that has already committed. The
+      // member chose this photo themselves, so it is recorded as their own upload
+      // (actor = the person), exactly as if they had uploaded it on My Info.
+      if (contract.photoStoredName) {
+        try {
+          const bytes = await getObject(`onboarding/${contract.id}/${contract.photoStoredName}`);
+          if (!bytes) throw new Error("the onboarding photo is missing from storage");
+          const maxMb = await getSetting<number>("uploads.maxMb");
+          await setPhotoFromUpload(
+            result.personId,
+            { type: PHOTO_CONTENT_TYPE, size: bytes.length, bytes },
+            maxMb,
+            result.personId,
+          );
+        } catch (err) {
+          log.error("[promotion] copying the onboarding photo to the profile failed", errorAttrs(err, { contractId: id }));
+        }
+      }
       // Bringing a Person back to ACTIVE is auditable wherever it happens. The
       // recruitment.promote row above is against the contract, so without this a
       // reactivation via re-onboarding left no trace on the Person, unlike the

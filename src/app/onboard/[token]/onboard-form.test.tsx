@@ -58,11 +58,11 @@ describe("OnboardForm", () => {
     expect(html).toContain("Nothing is saved until you submit this form.");
   });
 
-  it("tells the volunteer to have the HIPAA PDF ready when the layout asks for one", () => {
+  it("tells the volunteer to have the HIPAA PDF and a face photo ready when the layout asks for both", () => {
     const html = renderToStaticMarkup(
       <OnboardForm token="tok" prefill={basePrefill} layout={DIRECTOR_LAYOUT} ctx={ctx} />,
     );
-    expect(html).toContain("Have your HIPAA certificate PDF ready");
+    expect(html).toContain("Have your HIPAA certificate PDF and a clear photo of your face ready");
   });
 
   it("omits the certificate sentence when the layout has no HIPAA block", () => {

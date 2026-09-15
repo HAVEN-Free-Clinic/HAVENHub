@@ -5,11 +5,12 @@ import { affiliationOptionsWith } from "@/platform/affiliation";
 export const SYSTEM_FIELD_KEYS = [
   "name", "email", "netId", "phone", "dob", "dietary", "yaleAffiliation",
   "gradYear", "pronouns", "staffTitle", "epic", "epicIdExpiration", "spanish",
-  "licensedRN", "hipaa", "initials",
+  "licensedRN", "hipaa", "initials", "shiftsWanted", "availabilityChange", "photo",
 ] as const;
 
 export type SystemRenderKind =
-  | "text" | "email" | "tel" | "date" | "select" | "checkbox" | "epicBlock" | "hipaaBlock";
+  | "text" | "email" | "tel" | "date" | "select" | "checkbox" | "epicBlock" | "hipaaBlock"
+  | "availabilityBlock" | "photoBlock";
 
 export type SystemFieldSpec = {
   key: (typeof SYSTEM_FIELD_KEYS)[number];
@@ -27,8 +28,25 @@ export type SystemFieldSpec = {
 // not a parallel hand-written copy that would drift and blank out prefills.
 export const YALE_AFFILIATION_OPTIONS = YALE_AFFILIATION;
 
+/**
+ * Choices for the shiftsWanted question. The value is stored verbatim on
+ * OnboardingContract.shiftsWanted and the schedule builder renders it as
+ * "<value> shifts", so every value has to read correctly there too ("8+").
+ */
+export const SHIFTS_WANTED_OPTIONS: TemplateOption[] = [
+  { value: "1", label: "1 shift" },
+  ...["2", "3", "4", "5", "6", "7"].map((n) => ({ value: n, label: `${n} shifts` })),
+  { value: "8+", label: "8 or more shifts" },
+];
+
+/** The availability check's yes/no. submitContract accepts exactly these values. */
+export const AVAILABILITY_CHANGE_OPTIONS: TemplateOption[] = [
+  { value: "no", label: "No changes needed" },
+  { value: "yes", label: "Yes, I need to request a change" },
+];
+
 export const SYSTEM_FIELDS: Record<(typeof SYSTEM_FIELD_KEYS)[number], SystemFieldSpec> = {
-  name:             { key: "name", core: true, defaultLabel: "Your name", render: "text", columns: ["firstName", "lastName"] },
+  name:             { key: "name", core: true, defaultLabel: "Your name", render: "text", columns: ["firstName", "legalMiddleName", "lastName", "preferredFirstName"] },
   email:            { key: "email", core: true, defaultLabel: "Email", render: "email", columns: ["email"] },
   netId:            { key: "netId", core: false, defaultLabel: "NetID", render: "text", columns: ["netId"] },
   phone:            { key: "phone", core: false, defaultLabel: "Phone", render: "tel", columns: ["phone"] },
@@ -44,6 +62,9 @@ export const SYSTEM_FIELDS: Record<(typeof SYSTEM_FIELD_KEYS)[number], SystemFie
   licensedRN:       { key: "licensedRN", core: false, defaultLabel: "I am a licensed RN", render: "checkbox", columns: ["licensedRN"] },
   hipaa:            { key: "hipaa", core: true, defaultLabel: "HIPAA", render: "hipaaBlock", columns: ["hipaaCompletedAt", "hipaaFile"] },
   initials:         { key: "initials", core: false, defaultLabel: "Initials", render: "text", columns: ["initials"] },
+  shiftsWanted:     { key: "shiftsWanted", core: false, defaultLabel: "How many shifts would you like to work this term?", render: "select", columns: ["shiftsWanted"], options: SHIFTS_WANTED_OPTIONS },
+  availabilityChange: { key: "availabilityChange", core: false, defaultLabel: "Your availability", render: "availabilityBlock", columns: ["availabilityChangeNeeded", "availabilityChangeRequest"] },
+  photo:            { key: "photo", core: false, defaultLabel: "Profile photo", render: "photoBlock", columns: ["photoStoredName"] },
 };
 
 /**

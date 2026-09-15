@@ -1,11 +1,16 @@
+import path from "node:path";
+import { promises as fs } from "node:fs";
+import sharp from "sharp";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { config } from "@/platform/config";
+import { getObject, putObject } from "@/platform/storage";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import { RecruitmentAuthError } from "./review";
 import { promoteContracts } from "./promotion";
 import { languageReviewWhere } from "@/platform/languages";
 
-async function seedSubmitted(opts: { netId?: string; email?: string; epicNeeded?: boolean; existingEpicId?: string; applicantType?: "NEW" | "RENEWAL" | "TRANSFER"; transferFromDepartments?: string[]; availability?: string[]; preferredFirstName?: string } = {}) {
+async function seedSubmitted(opts: { netId?: string; email?: string; epicNeeded?: boolean; existingEpicId?: string; applicantType?: "NEW" | "RENEWAL" | "TRANSFER"; transferFromDepartments?: string[]; availability?: string[]; preferredFirstName?: string; legalMiddleName?: string } = {}) {
   const term = await prisma.term.create({ data: {
     code: "FA26", name: "Fall", startDate: new Date(), endDate: new Date(), status: "ACTIVE",
     // Keep the calendar consistent with the availability the test seeded, so
@@ -22,7 +27,7 @@ async function seedSubmitted(opts: { netId?: string; email?: string; epicNeeded?
   const acceptance = await prisma.acceptance.create({ data: { applicationId: application.id, departmentCode: "SRHD", approvedById: srr.id } });
   const contract = await prisma.onboardingContract.create({ data: {
     acceptanceId: acceptance.id, token: `t-${Math.random()}`, status: "SUBMITTED",
-    firstName: "Ada", lastName: "Lovelace", preferredFirstName: opts.preferredFirstName ?? null, email: opts.email ?? "ada@yale.edu", netId: opts.netId ?? "al99",
+    firstName: "Ada", lastName: "Lovelace", preferredFirstName: opts.preferredFirstName ?? null, legalMiddleName: opts.legalMiddleName ?? null, email: opts.email ?? "ada@yale.edu", netId: opts.netId ?? "al99",
     agreementSignature: "Ada", professionalismSignature: "Ada", trainingSignature: "Ada", initials: "AL",
     epicNeeded: opts.epicNeeded ?? false, hasEpic: !!opts.existingEpicId, existingEpicId: opts.existingEpicId,
     hipaaStoredName: "hipaa-x.pdf", hipaaFileName: "c.pdf", hipaaMimeType: "application/pdf", hipaaSize: 10, hipaaCompletedAt: new Date("2026-01-01"),
@@ -521,6 +526,58 @@ describe("the name a promoted member lands with", () => {
     expect(person.preferredFirstName).toBeNull();
     expect(person.name).toBe("Ada Lovelace");
   });
+
+  it("carries a legal middle name onto the new Person, behind the display name", async () => {
+    const { contract, srr } = await seedSubmitted({ legalMiddleName: "Augusta" });
+
+    await promoteContracts([contract.id], srr.id);
+
+    const person = await prisma.person.findFirstOrThrow({ where: { netId: "al99" } });
+    expect(person.legalMiddleName).toBe("Augusta");
+    expect(person.name).toBe("Ada Lovelace");
+  });
+
+  it("fills a returner's missing preferred and middle names", async () => {
+    const existing = await prisma.person.create({ data: { legalFirstName: "Ada", lastName: "Lovelace", netId: "al99", status: "ACTIVE" } });
+    const { contract, srr } = await seedSubmitted({ preferredFirstName: "Addy", legalMiddleName: "Augusta" });
+
+    await promoteContracts([contract.id], srr.id);
+
+    const person = await prisma.person.findUniqueOrThrow({ where: { id: existing.id } });
+    expect(person.preferredFirstName).toBe("Addy");
+    expect(person.legalMiddleName).toBe("Augusta");
+    expect(person.name).toBe("Addy Lovelace");
+  });
+
+  it("keeps the names a returner already has on file", async () => {
+    const existing = await prisma.person.create({
+      data: { legalFirstName: "Ada", legalMiddleName: "King", lastName: "Lovelace", preferredFirstName: "Lady", netId: "al99", status: "ACTIVE" },
+    });
+    const { contract, srr } = await seedSubmitted({ preferredFirstName: "Addy", legalMiddleName: "Augusta" });
+
+    await promoteContracts([contract.id], srr.id);
+
+    const person = await prisma.person.findUniqueOrThrow({ where: { id: existing.id } });
+    expect(person.preferredFirstName).toBe("Lady");
+    expect(person.legalMiddleName).toBe("King");
+    expect(person.name).toBe("Lady Lovelace");
+  });
+
+  // A flagged row's display name is the authority until a human confirms the
+  // split, so filling a part must not re-derive the name or clear the flag.
+  it("does not disturb a returner's name that is awaiting review", async () => {
+    const existing = await prisma.person.create({
+      data: { name: "Ada King-Lovelace", legalFirstName: "Ada", lastName: "King-Lovelace", nameNeedsReview: true, netId: "al99", status: "ACTIVE" },
+    });
+    const { contract, srr } = await seedSubmitted({ preferredFirstName: "Addy" });
+
+    await promoteContracts([contract.id], srr.id);
+
+    const person = await prisma.person.findUniqueOrThrow({ where: { id: existing.id } });
+    expect(person.preferredFirstName).toBe("Addy");
+    expect(person.nameNeedsReview).toBe(true);
+    expect(person.name).toBe("Ada King-Lovelace");
+  });
 });
 
 // A first-time applicant has no Person until promotion, so the schedule builder
@@ -576,5 +633,40 @@ describe("draft shifts placed before the person existed", () => {
     const shifts = await prisma.shiftAssignment.findMany({ where: { personId: existing.id } });
     expect(shifts.map((s) => s.role)).toEqual(["DIRECTOR"]);
     expect(await prisma.incomingShiftAssignment.count()).toBe(0);
+  });
+});
+
+describe("the onboarding photo", () => {
+  // Storage is a real directory under UPLOAD_DIR in tests, and other suites in
+  // the same worker assert parts of it are empty.
+  afterEach(async () => {
+    for (const dir of ["onboarding", "people"]) {
+      await fs.rm(path.join(config.UPLOAD_DIR, dir), { recursive: true, force: true });
+    }
+  });
+
+  it("becomes the promoted person's own uploaded profile photo", async () => {
+    const { contract, srr } = await seedSubmitted();
+    const webp = await sharp({ create: { width: 512, height: 512, channels: 3, background: "#336699" } }).webp().toBuffer();
+    await putObject(`onboarding/${contract.id}/photo-test.webp`, webp, "image/webp");
+    await prisma.onboardingContract.update({ where: { id: contract.id }, data: { photoStoredName: "photo-test.webp" } });
+
+    await promoteContracts([contract.id], srr.id);
+
+    const person = await prisma.person.findFirstOrThrow({ where: { netId: "al99" } });
+    expect(person.photoSource).toBe("upload");
+    expect(person.photoKey).not.toBeNull();
+    expect(await getObject(person.photoKey!)).not.toBeNull();
+  });
+
+  it("still promotes when the photo is missing from storage", async () => {
+    const { contract, srr } = await seedSubmitted();
+    await prisma.onboardingContract.update({ where: { id: contract.id }, data: { photoStoredName: "photo-gone.webp" } });
+
+    const result = await promoteContracts([contract.id], srr.id);
+
+    expect(result.created).toBe(1);
+    const person = await prisma.person.findFirstOrThrow({ where: { netId: "al99" } });
+    expect(person.photoKey).toBeNull();
   });
 });

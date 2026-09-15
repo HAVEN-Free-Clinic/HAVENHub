@@ -22,6 +22,7 @@ export default async function ContractBuilderPage({ params }: { params: Promise<
     inPersonTrainingDate: cycle.inPersonTrainingDate,
     trainingLocation: cycle.trainingLocation,
     title: cycle.title,
+    termId: cycle.termId,
   });
   return (
     <PageBody width="content">

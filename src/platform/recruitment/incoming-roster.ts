@@ -85,6 +85,41 @@ export function applicationAvailabilityDates(
   return parsed.filter((d) => clinicDateKeys.has(isoDateKey(d)));
 }
 
+/**
+ * The scheduling answers an onboarding contract collects, as the schedule
+ * builder shows them to directors. Both are preferences and requests for a
+ * human to act on; nothing applies either one to a schedule.
+ */
+export type OnboardingSchedulingNotes = {
+  /** How many shifts they would like this term ("1".."7", "8+"). */
+  preferredShifts: string | null;
+  /** What they asked to change about their application availability, and why. */
+  availabilityChangeRequest: string | null;
+};
+
+const SCHEDULING_NOTE_COLUMNS = {
+  shiftsWanted: true,
+  availabilityChangeNeeded: true,
+  availabilityChangeRequest: true,
+} as const;
+
+/** Blank for a contract not yet submitted, or no contract at all. A request is
+ *  kept only beside a "yes", so abandoned text never reads as one. */
+function schedulingNotesOf(
+  contract: {
+    shiftsWanted: string | null;
+    availabilityChangeNeeded: boolean | null;
+    availabilityChangeRequest: string | null;
+  } | null,
+): OnboardingSchedulingNotes {
+  return {
+    preferredShifts: contract?.shiftsWanted ?? null,
+    availabilityChangeRequest: contract?.availabilityChangeNeeded
+      ? contract.availabilityChangeRequest?.trim() || null
+      : null,
+  };
+}
+
 /** How far along the onboarding pipeline an incoming member is. */
 export type IncomingStage = "ACCEPTED" | "ONBOARDING" | "SUBMITTED";
 
@@ -115,6 +150,8 @@ export type IncomingMember = {
   stage: IncomingStage;
   /** Their application availability, narrowed to the term's clinic calendar. */
   availabilityDates: Date[];
+  /** Their onboarding contract's scheduling answers; blank until it is submitted. */
+  onboardingNotes: OnboardingSchedulingNotes;
 };
 
 /** ContractStatus -> the stage label the builder shows. */
@@ -188,7 +225,7 @@ export async function listIncomingMembers(opts: {
     },
     select: {
       id: true,
-      contract: { select: { status: true } },
+      contract: { select: { status: true, ...SCHEDULING_NOTE_COLUMNS } },
       application: {
         select: {
           id: true,
@@ -223,9 +260,54 @@ export async function listIncomingMembers(opts: {
         kind: kindFor(application.cycle.track),
         stage: stageFor(row.contract?.status),
         availabilityDates: applicationAvailabilityDates(application.answers, opts.clinicDates),
+        onboardingNotes: schedulingNotesOf(row.contract),
       };
     })
     .sort(comparePersonName);
+}
+
+/**
+ * The onboarding contract's scheduling answers for people already ON the roster
+ * of one (term, department), keyed `${personId}:${kind}` like the builder's
+ * training intake.
+ *
+ * The incoming list above stops returning someone the moment roster build marks
+ * their contract PROMOTED, so without this read their answers would vanish from
+ * the builder at exactly the point the schedule starts to count. Read back
+ * through `promotedPersonId`, the person that roster build resolved. A member
+ * whose membership came another way (the Airtable import, a manual add) has no
+ * contract and simply has no notes. If one person was somehow promoted twice
+ * into the same slot, the latest promotion wins.
+ */
+export async function onboardingNotesByMember(opts: {
+  termId: string;
+  departmentCode: string;
+  personIds: string[];
+}): Promise<Map<string, OnboardingSchedulingNotes>> {
+  if (opts.personIds.length === 0) return new Map();
+  const rows = await prisma.onboardingContract.findMany({
+    where: {
+      status: "PROMOTED",
+      promotedPersonId: { in: opts.personIds },
+      acceptance: {
+        departmentCode: opts.departmentCode,
+        application: { cycle: { termId: opts.termId } },
+      },
+    },
+    select: {
+      promotedPersonId: true,
+      ...SCHEDULING_NOTE_COLUMNS,
+      acceptance: { select: { application: { select: { cycle: { select: { track: true } } } } } },
+    },
+    orderBy: { promotedAt: "asc" },
+  });
+  const notes = new Map<string, OnboardingSchedulingNotes>();
+  for (const row of rows) {
+    if (!row.promotedPersonId) continue;
+    const kind = kindFor(row.acceptance.application.cycle.track);
+    notes.set(`${row.promotedPersonId}:${kind}`, schedulingNotesOf(row));
+  }
+  return notes;
 }
 
 /**

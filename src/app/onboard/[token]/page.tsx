@@ -13,6 +13,7 @@ import { OnboardForm } from "./onboard-form";
 import { NextStepsScreen } from "./next-steps-screen";
 import { CopyrightNotice } from "@/platform/ui/app-footer";
 import { formatTrainingDate, formatTrainingLocation } from "@/modules/recruitment/training-date";
+import { applicationAvailabilityLabels } from "@/modules/recruitment/contract/application-availability";
 
 export default async function OnboardPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
@@ -106,11 +107,13 @@ export default async function OnboardPage({ params }: { params: Promise<{ token:
 
   const prefill = {
     firstName: contract.firstName,
+    legalMiddleName: contract.legalMiddleName ?? "",
     lastName: contract.lastName,
     preferredFirstName: contract.preferredFirstName ?? "",
     email: contract.email,
     netId: contract.netId ?? "",
     phone: contract.phone ?? "",
+    pronouns: contract.pronouns ?? "",
     yaleAffiliation: contract.yaleAffiliation ?? "",
     gradYear: contract.gradYear ?? "",
   };
@@ -168,6 +171,12 @@ export default async function OnboardPage({ params }: { params: Promise<{ token:
   // identically on the client.
   const todayIso = new Date().toISOString().slice(0, 10);
 
+  // The dates they chose on the application, for the availability check.
+  const applicationAvailability = applicationAvailabilityLabels(
+    contract.acceptance?.application?.answers,
+    cycle?.term?.clinicDates ?? [],
+  );
+
   return (
     <main className="mx-auto max-w-2xl px-6 py-10">
       <h1 className="text-2xl font-bold tracking-tight">{orgName} onboarding</h1>
@@ -179,6 +188,7 @@ export default async function OnboardPage({ params }: { params: Promise<{ token:
           firstName: contract.firstName, orgName, todayIso,
           trainingDate, trainingLocation,
           department: departmentCode, track, epicRequirement, storedEpicId,
+          applicationAvailability,
         }}
         departments={departments}
         maxUploadMb={maxUploadMb}

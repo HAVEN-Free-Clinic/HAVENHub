@@ -2903,6 +2903,9 @@ model OnboardingContract {
   /// Seeded from the Applicant and editable on the contract form, like the legal
   /// name beside it. Becomes Person.preferredFirstName at promotion.
   preferredFirstName       String?
+  /// Name of record, like firstName and lastName. Optional, since most people
+  /// have none. Becomes Person.legalMiddleName at promotion.
+  legalMiddleName          String?
   email                    String
   netId                    String?
   phone                    String?
@@ -2913,6 +2916,17 @@ model OnboardingContract {
   staffTitle               String?
   epicIdExpiration         DateTime?
   gradYear                 String?
+  /// "1".."7" or "8+" (SHIFTS_WANTED_OPTIONS): how many shifts the volunteer
+  /// would like this term. A preference the schedule builder shows directors,
+  /// never capacity math.
+  shiftsWanted             String?
+  /// Whether the volunteer asked to change the availability they gave on their
+  /// application. Null when the contract never asked (no availabilityChange
+  /// block in its layout).
+  availabilityChangeNeeded Boolean?
+  /// Which dates change and why, in the volunteer's words. A REQUEST for the
+  /// department's directors; nothing applies it to TermMembership.
+  availabilityChangeRequest String?
   agreementSignature       String?
   professionalismSignature String?
   trainingSignature        String?
@@ -2929,6 +2943,10 @@ model OnboardingContract {
   hipaaMimeType            String?
   hipaaSize                Int?
   hipaaCompletedAt         DateTime?
+  /// The applicant's profile photo, already normalized to a square WebP, at
+  /// onboarding/<contractId>/<photoStoredName>. Copied onto Person as their own
+  /// upload at promotion.
+  photoStoredName          String?
   sentAt                   DateTime?
   /// When the onboarding link stops being usable. Set (and refreshed) on every
   /// send/resend. Null on contracts created before this field existed: those are

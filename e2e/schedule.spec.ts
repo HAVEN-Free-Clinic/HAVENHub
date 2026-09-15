@@ -116,23 +116,11 @@ test.afterEach(async () => {
 // ---------------------------------------------------------------------------
 
 /**
- * Availability closes on a term's FIRST clinic date, after which changes go
- * through swap/drop requests instead (isAvailabilityLocked, availability.ts).
- *
- * The seeded live term SU26 runs 2026-05-30 to 2026-09-26, so its clinics have
- * long since started and its availability is correctly read-only. That is what
- * this test asserts.
- *
- * The EDITABLE path is not reachable from the seed at all, because the seed
- * defines exactly one term and its first clinic date is in the past. Its
- * coverage lives in the integration suite instead
- * (src/modules/schedule/services/schedule.test.ts, describe("updateMyAvailability"),
- * which pins `now` before the first clinic date). To restore end-to-end coverage
- * of the editable form, the seed needs a PLANNING term with future clinic dates;
- * that is a shared-fixture change with its own blast radius, so it is deliberately
- * not done here.
+ * Members do not edit their own availability. The section shows the dates they
+ * are down for, read-only, and says a change goes by request; a director applies
+ * it from the schedule builder.
  */
-test("Jack opens /schedule and sees availability locked once the term's clinics have started", async ({
+test("Jack opens /schedule and sees his availability read-only, with changes by request", async ({
   page,
 }) => {
   await devLogin(page, "j.carney@yale.edu");
@@ -145,8 +133,8 @@ test("Jack opens /schedule and sees availability locked once the term's clinics 
   // "My availability" section heading (h2)
   await expect(page.locator("h2").filter({ hasText: "My availability" })).toBeVisible();
 
-  // Locked: the editor is withheld and the member is pointed at swap/drop.
-  await expect(page.getByText("Availability is locked now that clinics have started.")).toBeVisible();
+  // No editor at all, and the way to ask for a change is spelled out.
+  await expect(page.getByText("Availability can only be changed by request.").first()).toBeVisible();
   await expect(page.locator('input[type="checkbox"][name="dates"]')).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Save availability" })).toHaveCount(0);
 });
@@ -192,20 +180,12 @@ test("Jack opens /schedule/full and sees at least 10 date pills", async ({
 // ---------------------------------------------------------------------------
 
 /**
- * A rank-and-file volunteer sees the same lock a director does, and still sees
- * what they had submitted.
- *
- * This test previously did a full toggle-save-reload-restore round trip against
- * the editable form. That form no longer renders for the seeded live term (see
- * the note on the availability test above), so the round trip is not reachable
- * end-to-end from this fixture. The save path itself stays covered at the
- * integration level in src/modules/schedule/services/schedule.test.ts, which
- * exercises persistence, canonical noon-UTC storage, multi-membership mirroring,
- * dedup, and the lock rejection.
+ * A rank-and-file volunteer sees the same read-only view a director does: the
+ * section, how to ask for a change, and no editor.
  *
  * Residue: none. This test only reads.
  */
-test("dev.volunteer sees their submitted availability read-only once clinics have started", async ({
+test("dev.volunteer sees their availability read-only, with no editor", async ({
   page,
 }) => {
   await devLogin(page, "dev.volunteer@yale.edu");
@@ -213,16 +193,8 @@ test("dev.volunteer sees their submitted availability read-only once clinics hav
   await page.waitForURL((url) => url.pathname === "/schedule");
 
   await expect(page.locator("h2").filter({ hasText: "My availability" })).toBeVisible();
-
-  // Locked, and pointing at the flow that does notify a director.
-  await expect(page.getByText("Availability is locked now that clinics have started.")).toBeVisible();
+  await expect(page.getByText("Availability can only be changed by request.").first()).toBeVisible();
   await expect(page.getByRole("button", { name: "Save availability" })).toHaveCount(0);
-
-  // The lock must not hide what they submitted: a member still needs to see the
-  // dates they are on the hook for, which is the whole reason the read-only view
-  // renders the date list rather than just the message.
-  const lockedSection = page.locator("section").filter({ hasText: "My availability" });
-  await expect(lockedSection).toBeVisible();
 });
 
 // ---------------------------------------------------------------------------

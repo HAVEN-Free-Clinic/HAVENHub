@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 /**
  * File input that refuses an oversized file in the BROWSER, before the request
@@ -49,6 +49,8 @@ export function UploadSizeField({
   accept,
   required = false,
   multiple = false,
+  prepare,
+  onFilesChange,
 }: {
   name: string;
   /** Cap in megabytes, from the `uploads.maxMb` setting. */
@@ -56,16 +58,45 @@ export function UploadSizeField({
   accept?: string;
   required?: boolean;
   multiple?: boolean;
+  /**
+   * Optional transform applied to each chosen file before the size check, such
+   * as shrinking a photo in the browser. The input's files are replaced with the
+   * results, so the form posts exactly what was checked, and the submit is held
+   * (custom validity) while it runs so a quick submit cannot post the original.
+   * A transform that throws keeps that file as chosen.
+   */
+  prepare?: (file: File) => Promise<File>;
+  /** Called with the files the input will post, after `prepare`. */
+  onFilesChange?: (files: File[]) => void;
 }) {
   const [error, setError] = useState<string | null>(null);
+  // A second pick while the first is still being prepared must win.
+  const latestPick = useRef(0);
 
-  function onChange(e: React.ChangeEvent<HTMLInputElement>) {
+  async function onChange(e: React.ChangeEvent<HTMLInputElement>) {
     const input = e.currentTarget;
-    const message = oversizeMessage(Array.from(input.files ?? []), maxMb);
+    const pick = ++latestPick.current;
+    let files = Array.from(input.files ?? []);
+    if (prepare && files.length > 0) {
+      input.setCustomValidity("Still preparing your file. Try again in a moment.");
+      files = await Promise.all(files.map((f) => prepare(f).catch(() => f)));
+      if (pick !== latestPick.current) return;
+      try {
+        const transfer = new DataTransfer();
+        for (const f of files) transfer.items.add(f);
+        input.files = transfer.files;
+      } catch {
+        // No DataTransfer constructor: the input still holds the originals, so
+        // those are what get checked and posted.
+        files = Array.from(input.files ?? []);
+      }
+    }
+    const message = oversizeMessage(files, maxMb);
     setError(message || null);
     // Non-empty custom validity blocks the native submit, which is what keeps the
     // file from reaching the edge and failing opaquely.
     input.setCustomValidity(message);
+    onFilesChange?.(files);
   }
 
   return (

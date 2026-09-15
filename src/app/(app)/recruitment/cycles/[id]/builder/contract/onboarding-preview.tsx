@@ -33,6 +33,9 @@ export type OnboardingPreviewContext = {
   title: string;
   /** The cycle's track locks the control; null (global master template) offers a toggle. */
   fixedTrack: Track | null;
+  /** A few of the cycle term's clinic dates, labelled, standing in for an
+   *  applicant's application availability. Empty for the global template. */
+  sampleAvailability?: string[];
 };
 
 const EMPTY_PREFILL = { firstName: "", lastName: "", preferredFirstName: "", email: "", netId: "", phone: "", yaleAffiliation: "", gradYear: "" };
@@ -63,6 +66,7 @@ export function OnboardingPreviewBody({
   todayIso,
   title,
   fixedTrack,
+  sampleAvailability = [],
 }: OnboardingPreviewContext & { layout: ContractLayout }) {
   const [track, setTrack] = useState<Track>(fixedTrack ?? "VOLUNTEER");
   const [departmentCode, setDepartmentCode] = useState<string>(departments[0]?.code ?? "");
@@ -74,7 +78,7 @@ export function OnboardingPreviewBody({
   // The preview simulates a fresh applicant with no Epic ID on file, so the Epic
   // section always renders its collect flow (never the "confirm your stored ID"
   // path). storedEpicId is null for both ContractField and visibleOnboardingBlocks.
-  const ctx = { firstName: "", orgName, todayIso, trainingDate, trainingLocation, department, track, epicRequirement, storedEpicId: null };
+  const ctx = { firstName: "", orgName, todayIso, trainingDate, trainingLocation, department, track, epicRequirement, storedEpicId: null, applicationAvailability: sampleAvailability };
 
   const shown = useMemo(
     () => visibleOnboardingBlocks(layout, answers, { department, track, epicRequirement, storedEpicId: null }),

@@ -139,3 +139,36 @@ describe("a rejected onboarding submit", () => {
     expect(summary(c)).toBeNull();
   });
 });
+
+describe("the availability check", () => {
+  it("asks for an explanation only once a change is requested", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const layout = { blocks: [{ kind: "system_field" as const, systemKey: "availabilityChange" as const }] };
+    act(() => {
+      root.render(
+        <OnboardForm token="tok" prefill={prefill} layout={layout} ctx={{ ...ctx, applicationAvailability: ["Sat, Oct 3"] }} />,
+      );
+    });
+    const textarea = () => container.querySelector('textarea[name="availabilityChangeRequest"]');
+    const choose = (value: string) => {
+      const select = container.querySelector<HTMLSelectElement>('select[name="availabilityChangeNeeded"]')!;
+      act(() => {
+        select.value = value;
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+    };
+    try {
+      expect(container.textContent).toContain("Sat, Oct 3");
+      expect(textarea()).toBeNull();
+      choose("yes");
+      expect(textarea()).not.toBeNull();
+      choose("no");
+      expect(textarea()).toBeNull();
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+    }
+  });
+});

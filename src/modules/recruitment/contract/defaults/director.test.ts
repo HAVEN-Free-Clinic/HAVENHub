@@ -71,3 +71,10 @@ describe("DIRECTOR_LAYOUT", () => {
     expect(b && "body" in b && b.body).toContain("Answer Yes if you need Epic");
   });
 });
+
+describe("DIRECTOR_LAYOUT profile photo", () => {
+  it("asks for a profile photo with the demographics", () => {
+    const keys = DIRECTOR_LAYOUT.blocks.flatMap((b) => (b.kind === "system_field" ? [b.systemKey] : []));
+    expect(keys).toContain("photo");
+  });
+});

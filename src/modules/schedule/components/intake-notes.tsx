@@ -1,13 +1,14 @@
 import type { BuilderMemberIntake } from "@/modules/schedule/services/builder";
 
 // ---------------------------------------------------------------------------
-// Training-intake notes
+// Intake notes
 // ---------------------------------------------------------------------------
 
 /**
- * Renders the scheduling preferences a member gave during training intake so
- * directors can use them while building. Returns null when the member left
- * everything blank.
+ * Renders the scheduling preferences a member gave so directors can use them
+ * while building: the onboarding contract's availability change request and
+ * shift count, then the note they left on the training quiz. Returns null when
+ * the member left everything blank.
  */
 export function IntakeNotes({
   intake,
@@ -16,8 +17,10 @@ export function IntakeNotes({
   intake: BuilderMemberIntake;
   className?: string;
 }) {
-  const { minShiftsWanted, additionalShiftAvailability, feedback } = intake;
-  if (!minShiftsWanted && !additionalShiftAvailability && !feedback) return null;
+  const { availabilityChangeRequest, preferredShifts, feedback } = intake;
+  if (!availabilityChangeRequest && !preferredShifts && !feedback) {
+    return null;
+  }
 
   const border = "border-border";
   const body = "text-muted-foreground";
@@ -25,14 +28,17 @@ export function IntakeNotes({
 
   return (
     <div className={`mt-2 space-y-0.5 border-t ${border} pt-2 text-xs ${body} ${className}`}>
-      {minShiftsWanted && (
-        <p>
-          <span className={`font-semibold ${label}`}>Wants</span> {minShiftsWanted}+ shifts this term
+      {availabilityChangeRequest && (
+        // pre-line: this is a paragraph the member wrote, often a list of
+        // dates, and collapsing its line breaks runs the dates together.
+        <p className="whitespace-pre-line break-words [overflow-wrap:anywhere]">
+          <span className={`font-semibold ${label}`}>Availability change request:</span> {availabilityChangeRequest}
         </p>
       )}
-      {additionalShiftAvailability && (
+      {preferredShifts && (
         <p>
-          <span className={`font-semibold ${label}`}>Availability:</span> {additionalShiftAvailability}
+          <span className={`font-semibold ${label}`}>Prefers</span> {preferredShifts}{" "}
+          {preferredShifts === "1" ? "shift" : "shifts"} this term
         </p>
       )}
       {feedback && (

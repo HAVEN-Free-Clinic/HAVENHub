@@ -25,6 +25,9 @@ Please complete this form to confirm your participation in the {{orgName}} Board
     { kind: "system_field", systemKey: "staffTitle",
       visibleWhen: { field: "yaleAffiliation", op: "is", value: "staff" } },
     { kind: "system_field", systemKey: "dietary" },
+    // Required whenever shown (submitContract), and becomes the person's
+    // profile photo at roster build.
+    { kind: "system_field", systemKey: "photo" },
 
     { kind: "section", id: "sec_contracts", title: "Director Contracts", body: "" },
     { kind: "agreement", id: "board_responsibilities", title: "Board Responsibilities",

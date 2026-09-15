@@ -191,3 +191,57 @@ describe("ContractField", () => {
     expect(out).toContain("required");
   });
 });
+
+describe("ContractField scheduling blocks and name parts", () => {
+  const availability = (dates?: string[]) =>
+    renderToStaticMarkup(
+      <ContractField
+        block={{ kind: "system_field", systemKey: "availabilityChange" }}
+        prefill={prefill}
+        ctx={{ ...ctx, applicationAvailability: dates }}
+        err={noErr}
+        onAnswer={noop}
+      />,
+    );
+
+  it("shows the clinic dates from the application and says changes are by request", () => {
+    const out = availability(["Sat, Oct 3", "Sat, Oct 17"]);
+    expect(out).toContain("Sat, Oct 3");
+    expect(out).toContain("Sat, Oct 17");
+    expect(out).toContain("can only be made by request");
+    expect(out).toMatch(/<select[^>]*name="availabilityChangeNeeded"[^>]*required|<select[^>]*required[^>]*name="availabilityChangeNeeded"/);
+    // The explanation box waits for a "yes".
+    expect(out).not.toContain('name="availabilityChangeRequest"');
+  });
+
+  it("says so when the application has no clinic dates on file", () => {
+    expect(availability([])).toContain("We do not have any clinic dates from your application on file.");
+    expect(availability(undefined)).toContain("We do not have any clinic dates from your application on file.");
+  });
+
+  it("renders the shift count as a required choice with its help text", () => {
+    const out = html({ kind: "system_field", systemKey: "shiftsWanted", helpText: "Your department sets the minimum." });
+    expect(out).toMatch(/<select[^>]*name="shiftsWanted"[^>]*required|<select[^>]*required[^>]*name="shiftsWanted"/);
+    expect(out).toContain("8 or more shifts");
+    expect(out).toContain("Your department sets the minimum.");
+  });
+
+  it("asks for the legal name parts, an optional middle name, and the name they go by", () => {
+    const out = html({ kind: "system_field", systemKey: "name" });
+    expect(out).toContain("Legal first name");
+    expect(out).toContain('name="legalMiddleName"');
+    expect(out).toContain("Legal last name");
+    expect(out).toContain('name="preferredFirstName"');
+  });
+});
+
+describe("ContractField profile photo", () => {
+  it("asks for a required photo of their face, and says what a clear one looks like", () => {
+    const out = html({ kind: "system_field", systemKey: "photo" });
+    // Attribute order is React's business, so match name and required on the same tag in either order.
+    expect(out).toMatch(/<input(?=[^>]*name="photo")(?=[^>]*required)[^>]*>/);
+    expect(out).toContain("clear, recent photo of your face");
+    expect(out).toContain("no group photos, sunglasses");
+    expect(out).toContain("this one replaces it");
+  });
+});

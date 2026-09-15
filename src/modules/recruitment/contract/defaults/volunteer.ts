@@ -16,6 +16,9 @@ export const VOLUNTEER_LAYOUT: ContractLayout = {
     { kind: "system_field", systemKey: "staffTitle",
       visibleWhen: { field: "yaleAffiliation", op: "is", value: "staff" } },
     { kind: "system_field", systemKey: "dietary" },
+    // Required whenever shown (submitContract), and becomes the person's
+    // profile photo at roster build.
+    { kind: "system_field", systemKey: "photo" },
 
     { kind: "section", id: "sec_hipaa", title: "HIPAA Compliance", body: HIPAA_INSTRUCTIONS },
     { kind: "system_field", systemKey: "hipaa" },
@@ -33,6 +36,17 @@ export const VOLUNTEER_LAYOUT: ContractLayout = {
     // the section when Epic is not needed and none is on file.
     { kind: "system_field", systemKey: "epic",
       visibleWhen: { field: "epicSection", op: "is", value: "show" } },
+
+    // Scheduling. Both answers are stored on the contract and shown to the
+    // department's directors in the schedule builder's intake notes. Neither
+    // changes a schedule or an availability tier by itself: an availability
+    // change is a request a director reads, which is what the block tells the
+    // volunteer before they write one.
+    { kind: "section", id: "sec_scheduling", title: "Scheduling",
+      body: "Your directors build the schedule from the clinic dates on your application. These questions help them place you." },
+    { kind: "system_field", systemKey: "shiftsWanted",
+      helpText: "Your department sets the minimum number of shifts. This is your preference, and directors use it when they build the schedule." },
+    { kind: "system_field", systemKey: "availabilityChange" },
 
     { kind: "section", id: "sec_contract", title: "Volunteer Contract", body: "" },
     { kind: "agreement", id: "agreement", title: "Volunteer Agreement", confirmKind: "initials",

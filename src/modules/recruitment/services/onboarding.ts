@@ -5,6 +5,7 @@ import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { getSetting } from "@/platform/settings/service";
 import { putObject, deleteObject } from "@/platform/storage";
+import { ACCEPTED_UPLOAD_TYPES, normalizePhoto, PHOTO_CONTENT_TYPE, PhotoError } from "@/platform/photos";
 import { decodeSignaturePng, SignatureError } from "./signature";
 import { normalizeIdentityKey } from "./identity-keys";
 import { isStoredSignature, type SignatureInput, type StoredSignature } from "../contract/signatures";
@@ -15,8 +16,8 @@ import { RecruitmentAuthError } from "./review";
 import { findAcceptanceConflicts } from "../engine/conflicts";
 import { renderCycleEmail } from "../email/render";
 import { resolveContractLayout } from "../contract/resolve";
-import { parseContractLayout, type ContractLayout } from "../contract/layout";
-import { DEFAULT_CONTRACT_LAYOUT } from "../contract/system-fields";
+import { parseContractLayout, type ContractLayout, type SystemFieldKey } from "../contract/layout";
+import { AVAILABILITY_CHANGE_OPTIONS, DEFAULT_CONTRACT_LAYOUT, SHIFTS_WANTED_OPTIONS } from "../contract/system-fields";
 import { buildContractAnswers, visibleContractBlocks, type ContractContext } from "../contract/visibility";
 import { epicRequirementFor, resolveEpicNeeded } from "../contract/epic-requirement";
 import { buildOnboardingNextSteps } from "../onboarding-next-steps";
@@ -164,7 +165,7 @@ export async function createOrResendContract(
     ? await resolveContractLayout(cycle.id)
     : null;
   if (!contract) {
-    // Prefill affiliation/grad-year/Spanish from the application answers so the
+    // Prefill affiliation/grad-year/pronouns/Spanish from the application answers so the
     // applicant does not re-answer them during onboarding; only on create, so a
     // resend never clobbers a contract a director has already started editing.
     const a = (acceptance.application.answers ?? {}) as Record<string, unknown>;
@@ -180,6 +181,7 @@ export async function createOrResendContract(
         phone: applicant.phone,
         yaleAffiliation: typeof a.yale_affiliation === "string" ? a.yale_affiliation : undefined,
         gradYear: typeof a.grad_year === "string" ? a.grad_year : undefined,
+        pronouns: typeof a.pronouns === "string" && a.pronouns.trim() ? a.pronouns.trim() : undefined,
         spanishSelfReported: typeof a.spanish_proficiency === "string" && a.spanish_proficiency !== "none",
         templateSnapshot: layout as object,
       },
@@ -227,7 +229,13 @@ export async function getContractByToken(token: string) {
   // the Epic requirement) without a second round trip.
   const contract = await prisma.onboardingContract.findUnique({
     where: { token },
-    include: { acceptance: { include: { application: { include: { cycle: true } } } } },
+    // The term's clinic calendar rides along for the availability check, which
+    // shows the dates the applicant chose on the application.
+    include: {
+      acceptance: {
+        include: { application: { include: { cycle: { include: { term: { select: { clinicDates: true } } } } } } },
+      },
+    },
   });
   // An expired PENDING link is treated as invalid (the page shows the not-valid
   // state). An SRR can revive it by resending, which refreshes expiresAt on the
@@ -302,6 +310,8 @@ export type ContractSubmission = {
   lastName: string;
   /** What they go by, if not their first name. Reaches Person at promotion. */
   preferredFirstName?: string;
+  /** Name of record, optional. Reaches Person at promotion. */
+  legalMiddleName?: string;
   email: string;
   netId?: string;
   phone?: string;
@@ -312,6 +322,11 @@ export type ContractSubmission = {
   pronouns?: string;
   staffTitle?: string;
   epicIdExpiration?: string; // raw YYYY-MM-DD from the date input; validated in submitContract
+  // The two scheduling answers. Each is required only when its system field is
+  // shown, and validated against its option list in submitContract.
+  shiftsWanted?: string; // a SHIFTS_WANTED_OPTIONS value
+  availabilityChangeNeeded?: string; // "yes" | "no"
+  availabilityChangeRequest?: string; // required when availabilityChangeNeeded is "yes"
   // Drawn signatures keyed by block id: each agreement's id, plus "initials".
   // Which are required is driven by the frozen snapshot layout. The typed-name
   // fallback still produces a PNG, so every value is a SignatureInput.
@@ -333,6 +348,9 @@ export type ContractSubmission = {
   licensedRN?: boolean;
   hipaaCompletedAt?: string; // raw YYYY-MM-DD from the date input; validated in submitContract
   hipaaFile?: { fileName: string; mimeType: string; bytes: Buffer };
+  /** The applicant's photo of their face, as chosen. Required whenever the
+   *  photo system field is shown; normalized in submitContract. */
+  photoFile?: { fileName: string; mimeType: string; bytes: Buffer };
 };
 
 export async function submitContract(
@@ -415,14 +433,17 @@ export async function submitContract(
   if (input.pronouns) systemAnswers.pronouns = input.pronouns;
   if (input.staffTitle) systemAnswers.staffTitle = input.staffTitle;
   if (input.epicIdExpiration) systemAnswers.epicIdExpiration = input.epicIdExpiration;
+  if (input.shiftsWanted) systemAnswers.shiftsWanted = input.shiftsWanted;
   const answers = buildContractAnswers(
     { ...systemAnswers, ...(input.customAnswers ?? {}), hasEpic: input.hasEpic ? "on" : "" },
     { department: departmentCode, track, epicRequirement: requirement, storedEpicId },
   );
   const visible = visibleContractBlocks(layout.blocks, answers);
-  const initialsEnabled = visible.some(
-    (b) => b.kind === "system_field" && b.systemKey === "initials" && b.enabled !== false,
-  );
+  // An optional system field is asked only when its block is visible and not
+  // switched off, which is therefore the only time it can be required.
+  const asks = (key: SystemFieldKey) =>
+    visible.some((b) => b.kind === "system_field" && b.systemKey === key && b.enabled !== false);
+  const initialsEnabled = asks("initials");
   const signed = (id: string) => Boolean(input.signatures?.[id]?.dataUrl);
   if (initialsEnabled && !signed("initials")) e["sig__initials"] = "required";
   for (const b of visible) {
@@ -438,6 +459,50 @@ export async function submitContract(
       const v = input.customAnswers?.[b.key];
       const empty = v == null || (Array.isArray(v) ? v.length === 0 : String(v).trim() === "");
       if (empty) e[`custom__${b.key}`] = "required";
+    }
+  }
+  // Scheduling answers. A value outside the option list is refused rather than
+  // stored, because the schedule builder renders it to directors verbatim.
+  let shiftsWanted: string | null = null;
+  if (asks("shiftsWanted")) {
+    const v = input.shiftsWanted?.trim() ?? "";
+    if (!v) e.shiftsWanted = "required";
+    else if (!SHIFTS_WANTED_OPTIONS.some((o) => o.value === v)) e.shiftsWanted = "Choose one of the listed options.";
+    else shiftsWanted = v;
+  }
+  // The change request is kept only alongside a "yes": a paragraph typed and
+  // then abandoned by switching back to "no" is not a request.
+  let availabilityChangeNeeded: boolean | null = null;
+  let availabilityChangeRequest: string | null = null;
+  if (asks("availabilityChange")) {
+    const needed = input.availabilityChangeNeeded;
+    if (!needed) e.availabilityChangeNeeded = "required";
+    else if (!AVAILABILITY_CHANGE_OPTIONS.some((o) => o.value === needed)) e.availabilityChangeNeeded = "Choose one of the listed options.";
+    else if (needed === "yes") {
+      availabilityChangeNeeded = true;
+      availabilityChangeRequest = input.availabilityChangeRequest?.trim() || null;
+      if (!availabilityChangeRequest) e.availabilityChangeRequest = "required";
+    } else {
+      availabilityChangeNeeded = false;
+    }
+  }
+  // Profile photo. Decoded here, during validation, so an unreadable image comes
+  // back as a field error beside any others rather than after the certificate
+  // and signatures have been written to storage.
+  let photoBytes: Buffer | null = null;
+  if (asks("photo")) {
+    const photo = input.photoFile;
+    const maxMb = await getSetting<number>("uploads.maxMb");
+    if (!photo) e.photo = "required";
+    else if (!ACCEPTED_UPLOAD_TYPES.has(photo.mimeType)) e.photo = "Upload a PNG, JPEG, or WebP image.";
+    else if (photo.bytes.length > maxMb * 1024 * 1024) e.photo = `max ${maxMb} MB`;
+    else {
+      try {
+        photoBytes = await normalizePhoto(photo.bytes);
+      } catch (err) {
+        if (!(err instanceof PhotoError)) throw err;
+        e.photo = err.message;
+      }
     }
   }
   if (!input.hipaaCompletedAt) e.hipaaCompletedAt = "required";
@@ -506,6 +571,23 @@ export async function submitContract(
     };
   }
 
+  // The photo was normalized during validation, so this only stores it. It is
+  // rolled back with the certificate wherever the submit fails below.
+  let photoKey: string | null = null;
+  let photoStoredName: string | null = null;
+  if (photoBytes) {
+    const storedName = `photo-${randomUUID()}.webp`;
+    const key = `onboarding/${contract.id}/${storedName}`;
+    try {
+      await putObject(key, photoBytes, PHOTO_CONTENT_TYPE);
+    } catch (err) {
+      if (writtenKey) await deleteObject(writtenKey);
+      throw err;
+    }
+    photoKey = key;
+    photoStoredName = storedName;
+  }
+
   // Persist each drawn signature as a private PNG blob and build the structured
   // record stored in the signatures JSON. Every enabled agreement (+ initials) was
   // validated as signed above, so decode failures here are treated as validation
@@ -544,6 +626,7 @@ export async function submitContract(
       // putObject throw escaped and leaked them.)
       await cleanupSignatures();
       if (writtenKey) await deleteObject(writtenKey);
+      if (photoKey) await deleteObject(photoKey);
       // Same contract as the apply wizard: the field error is rendered verbatim
       // under the field, so it carries the sentence and the banner stays generic.
       if (err instanceof SignatureError) throw new ContractValidationError("Please fix the highlighted fields.", { [`sig__${id}`]: "Please provide a valid signature." });
@@ -576,6 +659,7 @@ export async function submitContract(
         firstName: input.firstName.trim(),
         lastName: input.lastName.trim(),
         preferredFirstName: input.preferredFirstName?.trim() || null,
+        legalMiddleName: input.legalMiddleName?.trim() || null,
         // Pin the identity keys to the values the SRR-created contract was seeded
         // with (from the accepted Applicant record); ignore a freely-typed
         // netId/email in the submission (#49). Otherwise an applicant could type
@@ -593,6 +677,9 @@ export async function submitContract(
         pronouns: input.pronouns?.trim() || null,
         staffTitle: input.staffTitle?.trim() || null,
         epicIdExpiration: epicIdExpiration ?? null,
+        shiftsWanted,
+        availabilityChangeNeeded,
+        availabilityChangeRequest,
         initials: initialsName,
         signatures: signatureJson as object,
         // Confirmations (checkbox agreements) have no drawn signature, so this
@@ -618,6 +705,7 @@ export async function submitContract(
         licensedRN: input.licensedRN ?? false,
         hipaaCompletedAt: hipaaCompletedAt ?? null,
         ...fileRef,
+        photoStoredName,
         // Freeze the visibility context used to decide what the applicant saw --
         // department/track/Epic-requirement and the storedEpicId resolved at submit
         // -- so the signed-contract review renders exactly those blocks even after
@@ -632,6 +720,7 @@ export async function submitContract(
   } catch (err) {
     await cleanupSignatures();
     if (writtenKey) await deleteObject(writtenKey);
+    if (photoKey) await deleteObject(photoKey);
     throw err;
   }
   if (claimed.count === 0) {
@@ -639,6 +728,7 @@ export async function submitContract(
     // we just wrote so they aren't orphaned, and don't write a second audit row.
     await cleanupSignatures();
     if (writtenKey) await deleteObject(writtenKey);
+    if (photoKey) await deleteObject(photoKey);
     throw new ContractError("This onboarding form has already been submitted.");
   }
   await recordAudit({
@@ -736,7 +826,7 @@ export async function withdrawContract(contractId: string, actorId: string): Pro
   }
   const contract = await prisma.onboardingContract.findUnique({
     where: { id: contractId },
-    select: { id: true, status: true, hipaaStoredName: true, signatures: true },
+    select: { id: true, status: true, hipaaStoredName: true, photoStoredName: true, signatures: true },
   });
   if (!contract) throw new ContractError("Onboarding contract not found.");
   if (contract.status === "PROMOTED") {
@@ -753,6 +843,7 @@ export async function withdrawContract(contractId: string, actorId: string): Pro
     }
   }
   if (contract.hipaaStoredName) blobKeys.push(`onboarding/${contract.id}/${contract.hipaaStoredName}`);
+  if (contract.photoStoredName) blobKeys.push(`onboarding/${contract.id}/${contract.photoStoredName}`);
 
   // Delete the row first (the authoritative action). Blob cleanup is best-effort:
   // a leaked blob is a minor storage cost, whereas deleting blobs before a failed

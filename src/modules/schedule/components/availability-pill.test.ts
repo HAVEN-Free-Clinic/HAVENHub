@@ -27,11 +27,11 @@ const readSource = (relative: string) => readFileSync(join(repoRoot, relative), 
  * Every file rendering a clinic-date pill with a checkbox in it.
  *
  * The builder was missing from this list, which is exactly how it kept the bug
- * for the two weeks after the other two were fixed. Adding a fourth form means
- * adding it here.
+ * for the two weeks after the other two were fixed. The volunteer form on
+ * /schedule is gone (members no longer edit their own availability); adding any
+ * new form means adding it here.
  */
 const FORMS = [
-  "src/app/(app)/schedule/page.tsx",
   "src/modules/schedule/components/attending-portal-section.tsx",
   "src/modules/schedule/components/builder-availability-view.tsx",
 ];

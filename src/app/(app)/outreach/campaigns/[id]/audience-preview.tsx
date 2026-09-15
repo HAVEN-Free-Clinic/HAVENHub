@@ -27,7 +27,7 @@ export function AudiencePreviewPanel({ preview }: { preview: AudiencePreview }) 
         {/* Still shown on an empty roll: a campaign whose ONLY intended
             recipients were pasted, all of them mistyped, is exactly the case
             where this list is the whole explanation. */}
-        <UnresolvedPastedAddresses addresses={preview.unresolved} />
+        <UnresolvedPastedAddresses addresses={preview.unresolved} scoped={preview.scoped} />
       </div>
     );
   }
@@ -57,7 +57,9 @@ export function AudiencePreviewPanel({ preview }: { preview: AudiencePreview }) 
           <tbody>
             {preview.sample.map((r) => (
               <TR key={r.email}>
-                <TD className="text-foreground-soft">{r.name}</TD>
+                <TD className="text-foreground-soft">
+                  {r.name || <span className="text-subtle-foreground">No name on file</span>}
+                </TD>
                 <TD className="text-foreground-soft">{r.email}</TD>
               </TR>
             ))}
@@ -76,7 +78,7 @@ export function AudiencePreviewPanel({ preview }: { preview: AudiencePreview }) 
       {/* The same component the Audience tab renders, so the one wording that
           keeps an out-of-scope address indistinguishable from a nonexistent one
           cannot drift between the two surfaces. */}
-      <UnresolvedPastedAddresses addresses={preview.unresolved} />
+      <UnresolvedPastedAddresses addresses={preview.unresolved} scoped={preview.scoped} />
     </Card>
   );
 }

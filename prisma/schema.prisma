@@ -1381,7 +1381,15 @@ model EmailCampaign {
   excludePersonIds  String[]            @default([])
   /// Raw addresses pasted by the sender, resolved to people at send time and
   /// then subject to exactly the same scope intersection as includePersonIds.
+  /// On an unscoped campaign, an address matching no Person is emailed as a
+  /// bare address instead of being dropped.
   pastedEmails      String[]            @default([])
+  /// Recruitment cycles whose applicants this campaign also emails, at the
+  /// address each applied with, whether or not they have a HAVEN Hub account.
+  /// Resolved live at send time. Honoured only on an UNSCOPED campaign: an
+  /// applicant with no Person cannot be tested against a scope, so a scoped
+  /// campaign ignores this entirely. See resolveCampaignAudience.
+  applicantCycleIds String[]            @default([])
   /// The sending identity CHOSEN for this campaign, or null to take whatever the
   /// resolution order yields (the scope identity, then an address issued to the
   /// sender; there is no third layer, and sender-identity.ts records at length

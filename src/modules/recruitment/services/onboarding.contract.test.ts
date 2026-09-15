@@ -620,6 +620,54 @@ describe("submitContract with records already on file", () => {
   });
 });
 
+describe("submitContract required and optional system fields", () => {
+  /** layoutFor() plus the given system field blocks, frozen onto a pending contract. */
+  async function seedWith(...extra: ContractLayout["blocks"]) {
+    const seeded = await seedPending({ deptCode: "BVHD", requiresEpicVolunteer: "ALL" });
+    const layout = layoutFor();
+    layout.blocks.push(...extra);
+    await prisma.onboardingContract.update({ where: { id: seeded.contractId }, data: { templateSnapshot: layout as object } });
+    return seeded;
+  }
+  const answered: ContractSubmission = { ...base, signatures: {}, customAnswers: {}, confirmations: { dept_bvhd: true } };
+
+  it("requires a field a director marked required", async () => {
+    const { token } = await seedWith({ kind: "system_field", systemKey: "phone", required: true });
+    const err = await submitContract(token, answered).catch((e: unknown) => e);
+    expect((err as ContractValidationError).fieldErrors).toEqual({ phone: "required" });
+  });
+
+  it("does not require a field left at its optional default", async () => {
+    const { token } = await seedWith({ kind: "system_field", systemKey: "phone" });
+    expect((await submitContract(token, answered)).status).toBe("SUBMITTED");
+  });
+
+  it("lets a director make the photo, shift count, and availability check optional", async () => {
+    const { token } = await seedWith(
+      { kind: "system_field", systemKey: "photo", required: false },
+      { kind: "system_field", systemKey: "shiftsWanted", required: false },
+      { kind: "system_field", systemKey: "availabilityChange", required: false },
+    );
+    const res = await submitContract(token, answered);
+    expect(res.status).toBe("SUBMITTED");
+    expect(res.shiftsWanted).toBeNull();
+    expect(res.availabilityChangeNeeded).toBeNull();
+    expect(res.photoStoredName).toBeNull();
+  });
+
+  it("still checks an optional field's answer when one is given", async () => {
+    const { token } = await seedWith(
+      { kind: "system_field", systemKey: "shiftsWanted", required: false },
+      { kind: "system_field", systemKey: "availabilityChange", required: false },
+    );
+    const err = await submitContract(token, { ...answered, shiftsWanted: "40", availabilityChangeNeeded: "yes" }).catch((e: unknown) => e);
+    expect((err as ContractValidationError).fieldErrors).toEqual({
+      shiftsWanted: "Choose one of the listed options.",
+      availabilityChangeRequest: "required",
+    });
+  });
+});
+
 describe("lookupStoredEpicId", () => {
   beforeEach(async () => { await resetDb(); });
   afterEach(async () => { await resetDb(); });

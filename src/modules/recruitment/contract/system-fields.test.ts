@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { SYSTEM_FIELDS, SYSTEM_FIELD_KEYS, DEFAULT_CONTRACT_LAYOUT, defaultContractLayout, YALE_AFFILIATION_OPTIONS, systemFieldOptions } from "./system-fields";
+import { SYSTEM_FIELDS, SYSTEM_FIELD_KEYS, DEFAULT_CONTRACT_LAYOUT, defaultContractLayout, YALE_AFFILIATION_OPTIONS, systemFieldOptions, canToggleRequired, isSystemFieldRequired } from "./system-fields";
 import { parseContractLayout, type AgreementBlock, type SystemFieldBlock } from "./layout";
 import { GRAD_YEAR, YALE_AFFILIATION } from "../templates/content/options";
 
@@ -138,5 +138,32 @@ describe("new system fields", () => {
     const opts = systemFieldOptions("gradYear", "1999");
     expect(opts[0]).toEqual({ value: "1999", label: "1999" });
     expect(opts.length).toBe(GRAD_YEAR.length + 1);
+  });
+});
+
+describe("required and optional system fields", () => {
+  it("keeps the core fields and initials required whatever the block says", () => {
+    for (const systemKey of ["name", "email", "epic", "hipaa", "initials"] as const) {
+      expect(isSystemFieldRequired({ systemKey, required: false })).toBe(true);
+      expect(canToggleRequired(systemKey)).toBe(false);
+    }
+  });
+
+  it("never requires a yes/no checkbox, and does not offer the switch", () => {
+    expect(canToggleRequired("licensedRN")).toBe(false);
+    expect(isSystemFieldRequired({ systemKey: "licensedRN", required: true })).toBe(false);
+  });
+
+  it("uses each field's default until a director chooses", () => {
+    expect(isSystemFieldRequired({ systemKey: "photo" })).toBe(true);
+    expect(isSystemFieldRequired({ systemKey: "shiftsWanted" })).toBe(true);
+    expect(isSystemFieldRequired({ systemKey: "phone" })).toBe(false);
+    expect(isSystemFieldRequired({ systemKey: "photo", required: false })).toBe(false);
+    expect(isSystemFieldRequired({ systemKey: "phone", required: true })).toBe(true);
+  });
+
+  it("stores the choice on the layout block", () => {
+    const layout = parseContractLayout({ blocks: [{ kind: "system_field", systemKey: "phone", required: true }] });
+    expect(layout.blocks[0]).toMatchObject({ systemKey: "phone", required: true });
   });
 });

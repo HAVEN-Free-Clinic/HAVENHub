@@ -282,3 +282,17 @@ describe("ContractField HIPAA certificate", () => {
       .toContain("It is waiting to be verified, so there is no need to upload it again.");
   });
 });
+
+describe("ContractField required switch", () => {
+  it("marks and enforces a field a director made required", () => {
+    const out = html({ kind: "system_field", systemKey: "phone", required: true });
+    expect(out).toMatch(/<input(?=[^>]*name="phone")(?=[^>]*required)[^>]*>/);
+  });
+
+  it("drops the requirement when a director made a default-required field optional", () => {
+    expect(html({ kind: "system_field", systemKey: "shiftsWanted", required: false }))
+      .not.toMatch(/<select(?=[^>]*name="shiftsWanted")(?=[^>]*required)[^>]*>/);
+    expect(html({ kind: "system_field", systemKey: "photo", required: false }))
+      .not.toMatch(/<input(?=[^>]*name="photo")(?=[^>]*required)[^>]*>/);
+  });
+});

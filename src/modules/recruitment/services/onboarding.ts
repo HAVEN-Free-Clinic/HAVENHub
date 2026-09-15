@@ -17,8 +17,8 @@ import { RecruitmentAuthError } from "./review";
 import { findAcceptanceConflicts } from "../engine/conflicts";
 import { renderCycleEmail } from "../email/render";
 import { resolveContractLayout } from "../contract/resolve";
-import { parseContractLayout, type ContractLayout, type SystemFieldKey } from "../contract/layout";
-import { AVAILABILITY_CHANGE_OPTIONS, DEFAULT_CONTRACT_LAYOUT, SHIFTS_WANTED_OPTIONS } from "../contract/system-fields";
+import { parseContractLayout, type ContractLayout, type SystemFieldBlock, type SystemFieldKey } from "../contract/layout";
+import { AVAILABILITY_CHANGE_OPTIONS, DEFAULT_CONTRACT_LAYOUT, SHIFTS_WANTED_OPTIONS, isSystemFieldRequired } from "../contract/system-fields";
 import { buildContractAnswers, visibleContractBlocks, type ContractContext } from "../contract/visibility";
 import { epicRequirementFor, resolveEpicNeeded } from "../contract/epic-requirement";
 import { buildOnboardingNextSteps } from "../onboarding-next-steps";
@@ -516,6 +516,27 @@ export async function submitContract(
   const asks = (key: SystemFieldKey) =>
     visible.some((b) => b.kind === "system_field" && b.systemKey === key && b.enabled !== false);
   const initialsEnabled = asks("initials");
+  // The shown, enabled block for a system field, or undefined.
+  const shownField = (key: SystemFieldKey) =>
+    visible.find((b): b is SystemFieldBlock => b.kind === "system_field" && b.systemKey === key && b.enabled !== false);
+  // Fields a director marked required (or required by default) must be answered
+  // when shown. The fields with their own value checks below (shift count,
+  // availability, photo) apply the same rule there.
+  const plainValues: Partial<Record<SystemFieldKey, { name: string; value: string | null | undefined }>> = {
+    netId: { name: "netId", value: contract.netId ?? input.netId },
+    phone: { name: "phone", value: input.phone },
+    dob: { name: "dateOfBirth", value: input.dateOfBirth },
+    dietary: { name: "dietaryRestrictions", value: input.dietaryRestrictions },
+    yaleAffiliation: { name: "yaleAffiliation", value: input.yaleAffiliation },
+    gradYear: { name: "gradYear", value: input.gradYear },
+    pronouns: { name: "pronouns", value: input.pronouns },
+    staffTitle: { name: "staffTitle", value: input.staffTitle },
+    epicIdExpiration: { name: "epicIdExpiration", value: input.epicIdExpiration },
+  };
+  for (const [key, field] of Object.entries(plainValues) as [SystemFieldKey, { name: string; value: string | null | undefined }][]) {
+    const block = shownField(key);
+    if (block && isSystemFieldRequired(block) && !field.value?.trim()) e[field.name] = "required";
+  }
   const signed = (id: string) => Boolean(input.signatures?.[id]?.dataUrl);
   if (initialsEnabled && !signed("initials")) e["sig__initials"] = "required";
   for (const b of visible) {
@@ -536,9 +557,12 @@ export async function submitContract(
   // Scheduling answers. A value outside the option list is refused rather than
   // stored, because the schedule builder renders it to directors verbatim.
   let shiftsWanted: string | null = null;
-  if (asks("shiftsWanted")) {
+  const shiftsBlock = shownField("shiftsWanted");
+  if (shiftsBlock) {
     const v = input.shiftsWanted?.trim() ?? "";
-    if (!v) e.shiftsWanted = "required";
+    if (!v) {
+      if (isSystemFieldRequired(shiftsBlock)) e.shiftsWanted = "required";
+    }
     else if (!SHIFTS_WANTED_OPTIONS.some((o) => o.value === v)) e.shiftsWanted = "Choose one of the listed options.";
     else shiftsWanted = v;
   }
@@ -546,9 +570,12 @@ export async function submitContract(
   // then abandoned by switching back to "no" is not a request.
   let availabilityChangeNeeded: boolean | null = null;
   let availabilityChangeRequest: string | null = null;
-  if (asks("availabilityChange")) {
+  const availabilityBlock = shownField("availabilityChange");
+  if (availabilityBlock) {
     const needed = input.availabilityChangeNeeded;
-    if (!needed) e.availabilityChangeNeeded = "required";
+    if (!needed) {
+      if (isSystemFieldRequired(availabilityBlock)) e.availabilityChangeNeeded = "required";
+    }
     else if (!AVAILABILITY_CHANGE_OPTIONS.some((o) => o.value === needed)) e.availabilityChangeNeeded = "Choose one of the listed options.";
     else if (needed === "yes") {
       availabilityChangeNeeded = true;
@@ -562,12 +589,13 @@ export async function submitContract(
   // back as a field error beside any others rather than after the certificate
   // and signatures have been written to storage.
   let photoBytes: Buffer | null = null;
-  if (asks("photo")) {
+  const photoBlock = shownField("photo");
+  if (photoBlock) {
     const photo = input.photoFile;
     const maxMb = await getSetting<number>("uploads.maxMb");
     if (!photo) {
       // A photo already on their profile stands in for a new one.
-      if (!onFile.photoPersonId) e.photo = "required";
+      if (isSystemFieldRequired(photoBlock) && !onFile.photoPersonId) e.photo = "required";
     }
     // The browser converts HEIC before sending when it can; one that arrives still
     // in HEIC is a browser that could not, and the server cannot decode it either.

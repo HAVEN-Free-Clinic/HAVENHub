@@ -33,15 +33,18 @@ export function ProfilePhotoField({
   error,
   maxUploadMb,
   currentPhoto = null,
+  required: requiredIfMissing = true,
 }: {
   label: string;
   error?: string;
   maxUploadMb: number;
   /** Their stored profile photo as a data URI, when they have one. */
   currentPhoto?: string | null;
+  /** Whether the layout requires a photo. Even then, one on file is enough. */
+  required?: boolean;
 }) {
   const [preview, setPreview] = useState<string | null>(null);
-  const required = !currentPhoto;
+  const required = requiredIfMissing && !currentPhoto;
   const shown = preview ?? currentPhoto;
   // Release each object URL once it is replaced or the field unmounts.
   useEffect(() => () => {

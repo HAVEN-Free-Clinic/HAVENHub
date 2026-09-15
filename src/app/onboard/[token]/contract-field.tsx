@@ -7,7 +7,7 @@ import { Checkbox } from "@/platform/ui/checkbox";
 import { SignaturePad } from "@/platform/ui/signature-pad";
 import { FieldPreview } from "@/modules/recruitment/components/field-preview";
 import { Prose } from "@/modules/recruitment/contract/prose";
-import { AVAILABILITY_CHANGE_OPTIONS, SYSTEM_FIELDS, systemFieldOptions } from "@/modules/recruitment/contract/system-fields";
+import { AVAILABILITY_CHANGE_OPTIONS, SYSTEM_FIELDS, isSystemFieldRequired, systemFieldOptions } from "@/modules/recruitment/contract/system-fields";
 import type { ContractBlock } from "@/modules/recruitment/contract/layout";
 import { UploadSizeField } from "@/platform/ui/upload-size-field";
 import { ProfilePhotoField } from "./photo-field";
@@ -65,11 +65,13 @@ function renderVars(text: string, ctx: Ctx): string {
  * required server-side whenever the submitted answer is "yes".
  */
 function AvailabilityChangeField({
-  label, dates, err,
+  label, dates, err, required,
 }: {
   label: string;
   dates: string[];
   err: (k: string) => string | undefined;
+  /** Whether the yes/no must be answered. The explanation is required after a "yes" either way. */
+  required: boolean;
 }) {
   const [needed, setNeeded] = useState("");
   return (
@@ -102,7 +104,7 @@ function AvailabilityChangeField({
         f={{
           key: "availabilityChangeNeeded",
           label: "Do you need to make any last-minute changes to your availability?",
-          helpText: null, type: "SINGLE_SELECT", required: true,
+          helpText: null, type: "SINGLE_SELECT", required,
           options: AVAILABILITY_CHANGE_OPTIONS, validation: null,
         }}
         departments={[]}
@@ -335,9 +337,24 @@ export function ContractField({
       );
     }
     case "photoBlock":
-      return <ProfilePhotoField label={label} error={err("photo")} maxUploadMb={maxUploadMb} currentPhoto={ctx.photoOnFile ?? null} />;
+      return (
+        <ProfilePhotoField
+          label={label}
+          error={err("photo")}
+          maxUploadMb={maxUploadMb}
+          currentPhoto={ctx.photoOnFile ?? null}
+          required={isSystemFieldRequired(block)}
+        />
+      );
     case "availabilityBlock":
-      return <AvailabilityChangeField label={label} dates={ctx.applicationAvailability ?? []} err={err} />;
+      return (
+        <AvailabilityChangeField
+          label={label}
+          dates={ctx.applicationAvailability ?? []}
+          err={err}
+          required={isSystemFieldRequired(block)}
+        />
+      );
     case "checkbox":
       // "spanish" is no longer emitted by either default layout (the Spanish
       // field was dropped from Prefill along with it), but the system key
@@ -363,9 +380,9 @@ export function ContractField({
         gradYear: prefill.gradYear,
       };
       const current = selectDefaults[block.systemKey] ?? "";
-      // shiftsWanted is a question the volunteer has to answer whenever it is
-      // shown; submitContract enforces the same rule.
-      const required = block.systemKey === "shiftsWanted";
+      // Required per the director's choice or the field's default; submitContract
+      // reads the same rule.
+      const required = isSystemFieldRequired(block);
       return (
         <Field
           label={label}
@@ -444,7 +461,7 @@ export function ContractField({
         pronouns: prefill.pronouns ?? "",
         staffTitle: prefill.staffTitle ?? "",
       };
-      const required = block.systemKey === "email";
+      const required = isSystemFieldRequired(block);
       const inputName = nameByKey[block.systemKey];
       return (
         <Field label={label} required={required} error={err(inputName)}>

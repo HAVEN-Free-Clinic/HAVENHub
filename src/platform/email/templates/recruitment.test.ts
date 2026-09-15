@@ -17,6 +17,8 @@ const KEYS = [
   "recruitment.draft_reminder",
   "recruitment.portal_link",
   "recruitment.applicant_withdrew",
+  "recruitment.dual_appointment_requested",
+  "recruitment.dual_appointment_decided",
 ];
 
 describe("recruitment email descriptors", () => {

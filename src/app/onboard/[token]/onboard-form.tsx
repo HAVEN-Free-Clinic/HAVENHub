@@ -26,6 +26,8 @@ type Ctx = {
   trainingDate: string; trainingLocation: string;
   department: string | null; track: Track; epicRequirement: EpicRequirement;
   storedEpicId: string | null;
+  /** Departments they are also accepted into as a dual appointment. */
+  additionalDepartments?: string[];
   /** Labelled clinic dates from the application, for the availability check. */
   applicationAvailability?: string[];
   /** A HIPAA certificate on file that covers the term; the upload becomes optional. */
@@ -171,7 +173,8 @@ export function OnboardForm({
   // director turned off entirely) and the visibleWhen evaluation against the
   // applicant's answers merged with the authoritative context.
   const shown = visibleOnboardingBlocks(layout, answers, {
-    department: ctx.department, track: ctx.track, epicRequirement: ctx.epicRequirement,
+    department: ctx.department, additionalDepartments: ctx.additionalDepartments,
+    track: ctx.track, epicRequirement: ctx.epicRequirement,
     storedEpicId: ctx.storedEpicId,
   });
 

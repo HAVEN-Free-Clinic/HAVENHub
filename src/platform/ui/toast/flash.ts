@@ -495,6 +495,37 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
     message: () => "Acceptance rescinded.",
   },
   {
+    // recruitment/cycles/[id]/applicants/actions.ts (the Dual appointment card).
+    // A director's request waits for a recruitment manager; a manager's add is
+    // already approved. Distinct wordings because the two mean different things.
+    params: ["saved"],
+    matchValues: { saved: "dual_requested" },
+    pathnames: [APPLICANT_DETAIL_PATHNAME],
+    tone: "success",
+    message: () => "Dual appointment requested. A recruitment manager will approve or decline it.",
+  },
+  {
+    params: ["saved"],
+    matchValues: { saved: "dual_approved" },
+    pathnames: [APPLICANT_DETAIL_PATHNAME],
+    tone: "success",
+    message: () => "Dual appointment approved. They are accepted into both departments.",
+  },
+  {
+    params: ["saved"],
+    matchValues: { saved: "dual_declined" },
+    pathnames: [APPLICANT_DETAIL_PATHNAME],
+    tone: "success",
+    message: () => "Dual appointment request declined.",
+  },
+  {
+    params: ["saved"],
+    matchValues: { saved: "dual_cancelled" },
+    pathnames: [APPLICANT_DETAIL_PATHNAME],
+    tone: "success",
+    message: () => "Dual appointment cancelled.",
+  },
+  {
     // recruitment/interviews/[interviewId]/page.tsx:30-37 (savedMessage.schedule).
     params: ["saved"],
     matchValues: { saved: "schedule" },
@@ -959,8 +990,15 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
     // convention above, so without this entry a page's failures vanished and its
     // successes stayed pinned to the URL through refresh, back-navigation and a
     // shared link -- opposite lifetimes for the two halves of one action.
+    // Also the cycle's dual appointments page, and the Decisions page's "keep both
+    // departments" action, which carry the same kind of ready-made sentence.
     params: ["ok"],
-    pathnames: ["/volunteers/spanish-review", "/volunteers/dual-roles"],
+    pathnames: [
+      "/volunteers/spanish-review",
+      "/volunteers/dual-roles",
+      "/recruitment/cycles/*/dual-appointments",
+      "/recruitment/cycles/*/decisions",
+    ],
     tone: "success",
     message: (values) => values.get("ok") ?? "Saved.",
   },

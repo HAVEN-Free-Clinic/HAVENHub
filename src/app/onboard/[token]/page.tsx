@@ -1,9 +1,8 @@
-import { getContractByToken, lookupStoredEpicId, lookupHasAccount, lookupOnFile } from "@/modules/recruitment/services/onboarding";
+import { getContractByToken, lookupStoredEpicId, lookupHasAccount, lookupOnFile, contractDepartmentContext } from "@/modules/recruitment/services/onboarding";
 import { resolvePhoto } from "@/platform/photos";
 import { formatCalendarDate } from "@/platform/dates/format";
 import { parseContractLayout } from "@/modules/recruitment/contract/layout";
 import { DEFAULT_CONTRACT_LAYOUT } from "@/modules/recruitment/contract/system-fields";
-import { epicRequirementFor } from "@/modules/recruitment/contract/epic-requirement";
 import { buildOnboardingNextSteps } from "@/modules/recruitment/onboarding-next-steps";
 import { getSetting } from "@/platform/settings/service";
 import { getSupportContact } from "@/platform/branding/support";
@@ -135,15 +134,13 @@ export default async function OnboardPage({ params }: { params: Promise<{ token:
   // Department (deleted/renamed) falls through epicRequirementFor's null
   // branch to NONE, matching its documented "no basis to provision Epic"
   // contract.
-  const departmentCode = contract.acceptance?.departmentCode ?? null;
+  //
+  // A dual appointment adds the second department it was approved for: that
+  // department's blocks show too, and the Epic requirement is the stricter of
+  // the two (contractDepartmentContext, the same resolution submit runs).
   const track = cycle?.track ?? "VOLUNTEER";
-  const dept = departmentCode
-    ? await prisma.department.findUnique({
-        where: { code: departmentCode },
-        select: { requiresEpicDirector: true, requiresEpicVolunteer: true },
-      })
-    : null;
-  const epicRequirement = epicRequirementFor(dept, track);
+  const { department: departmentCode, additionalDepartments, epicRequirement } =
+    await contractDepartmentContext(contract.acceptance, track);
   // The Epic ID already on file for this applicant (a returning member), matched
   // the same way promotion and submitContract match. When set, the Epic section
   // confirms it instead of re-collecting. Same lookup on both sides keeps the
@@ -210,7 +207,7 @@ export default async function OnboardPage({ params }: { params: Promise<{ token:
         ctx={{
           firstName: contract.firstName, orgName, todayIso,
           trainingDate, trainingLocation,
-          department: departmentCode, track, epicRequirement, storedEpicId,
+          department: departmentCode, additionalDepartments, track, epicRequirement, storedEpicId,
           applicationAvailability, hipaaOnFile, photoOnFile,
         }}
         departments={departments}

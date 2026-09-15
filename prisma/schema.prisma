@@ -280,6 +280,8 @@ model Person {
   dualRoleInterests              DualRoleInterest[]         @relation("dualRoleInterestPerson")
   /// Dual-role offers this person accepted or declined as a receiving director.
   dualRoleDecisions              DualRoleInterest[]         @relation("dualRoleInterestDecider")
+  dualAppointmentsRequested      DualAppointment[]          @relation("dualAppointmentRequestedBy")
+  dualAppointmentsDecided        DualAppointment[]          @relation("dualAppointmentDecidedBy")
   applicantSubmissions           Applicant[]                @relation("ApplicantPerson")
   contractsPromoted              OnboardingContract[]       @relation("contractPromotedBy")
   contractsPromotedTo            OnboardingContract[]       @relation("contractPromotedPerson")
@@ -2778,6 +2780,7 @@ model Application {
   applicant              Applicant          @relation(fields: [applicantId], references: [id], onDelete: Cascade)
   acceptances            Acceptance[]
   dualRoleInterests      DualRoleInterest[]
+  dualAppointments       DualAppointment[]
   interviews             Interview[]
   languageAssessments    ApplicationLanguageAssessment[]
   languageReviewLater    LanguageReviewDeferral[]
@@ -2824,6 +2827,50 @@ model Acceptance {
 /// PENDING row there would surface as a real member in all of them. Someone
 /// waiting on a dual role is not a member of that department yet, and this enum
 /// is only ever read by the queue that decides.
+/// Where a request to accept a volunteer into a SECOND department stands.
+enum DualAppointmentStatus {
+  PENDING
+  APPROVED
+  DECLINED
+  CANCELLED
+}
+
+/// A volunteer accepted into two departments in one recruitment cycle: the one
+/// their application routes to, plus this one.
+///
+/// Exceptional by design. A director asks for a volunteer they want (PENDING) and
+/// a recruitment manager, meaning a holder of recruitment.review_all, approves or
+/// declines it; a manager may also add one directly, already APPROVED. Approval
+/// mints the second Acceptance, and an APPROVED row is what tells the acceptance
+/// conflict guard that two departments on one application is intended rather
+/// than two departments each believing they won the same person.
+///
+/// Not a DualRoleInterest. That is the VADM/INTP checkbox offer recorded at
+/// promotion and decided by the receiving department alone; this is a full
+/// second acceptance that goes through release, onboarding and promotion.
+model DualAppointment {
+  id             String                @id @default(cuid())
+  applicationId  String
+  /// The SECOND department, by code, like Acceptance.departmentCode.
+  departmentCode String
+  status         DualAppointmentStatus @default(PENDING)
+  /// Why the department wants them. Required from a director, optional from a manager.
+  reason         String?
+  requestedById  String
+  decidedById    String?
+  decidedAt      DateTime?
+  decisionNote   String?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  requestedBy Person      @relation("dualAppointmentRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
+  decidedBy   Person?     @relation("dualAppointmentDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+
+  @@unique([applicationId, departmentCode])
+  @@index([status])
+}
+
 enum DualRoleStatus {
   PENDING
   ACCEPTED

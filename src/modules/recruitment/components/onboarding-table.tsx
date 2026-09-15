@@ -27,10 +27,11 @@ const STATE_LABELS: Record<OnboardingRowState, { label: string; tone: Tone }> = 
   SUBMITTED: { label: "Submitted", tone: "warning" },
   PROMOTED: { label: "Promoted", tone: "success" },
   CONFLICT: { label: "Conflict", tone: "warning" },
+  DUAL: { label: "Dual appointment", tone: "brand" },
 };
 
 const STATUS_ORDER: OnboardingRowState[] = [
-  "NO_CONTRACT", "SENT", "EXPIRED", "SUBMITTED", "PROMOTED", "CONFLICT",
+  "NO_CONTRACT", "SENT", "EXPIRED", "SUBMITTED", "PROMOTED", "CONFLICT", "DUAL",
 ];
 
 export function OnboardingTable({
@@ -181,7 +182,14 @@ export function OnboardingTable({
                     </dl>
                   )}
                 </TD>
-                <TD className="text-foreground-soft">{r.departmentCode}</TD>
+                <TD className="text-foreground-soft">
+                  {r.departmentCode}
+                  {/* A dual appointment's second department: its onboarding is the
+                      other row's contract, so this row has nothing to send. */}
+                  {r.onboardsWith && (
+                    <span className="block text-xs text-subtle-foreground">Onboards with {r.onboardsWith}</span>
+                  )}
+                </TD>
                 <TD>
                   <Badge tone={s.tone}>{s.label}</Badge>
                   {r.onRoster && <span className="ml-2 text-xs text-subtle-foreground">on roster</span>}

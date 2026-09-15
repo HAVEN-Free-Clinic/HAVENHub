@@ -45,6 +45,10 @@ export type ViewableApplication = {
   departmentChoices: string[];
   routedDepartmentCode: string | null;
   cycle: { track: string };
+  /** An APPROVED dual appointment opens the application to that department's
+   *  directors too. Optional so a caller holding a bare Application row still
+   *  type-checks; such a caller simply does not grant that access. */
+  dualAppointments?: { departmentCode: string; status: string }[];
 };
 
 /** May this viewer see one application's detail (and its uploaded files)?
@@ -63,7 +67,10 @@ export function canViewApplication(
   if (ctx.scope.all || ctx.managesCycles || ctx.canScore) return true;
   const mine = new Set(ctx.scope.departmentCodes);
   if (app.cycle.track === "VOLUNTEER") {
-    return app.routedDepartmentCode != null && mine.has(app.routedDepartmentCode);
+    if (app.routedDepartmentCode != null && mine.has(app.routedDepartmentCode)) return true;
+    // Accepted into their department as a dual appointment: the volunteer is
+    // theirs too. A PENDING request does not open the record; approval does.
+    return (app.dualAppointments ?? []).some((d) => d.status === "APPROVED" && mine.has(d.departmentCode));
   }
   return app.departmentChoices.some((d) => mine.has(d));
 }
@@ -189,6 +196,7 @@ export type ReviewApplication = Application & {
    */
   isOwnApplication: boolean;
   acceptances: Acceptance[];
+  dualAppointments: { departmentCode: string; status: string }[];
   committeeScores: { score: number; scorerId: string }[];
   interviews: { decision: "PENDING" | "ACCEPT" | "REJECT" | "WAITLIST" }[];
 };
@@ -213,6 +221,7 @@ export async function listApplicantsForReview(cycleId: string, viewerId: string)
       include: {
         applicant: { select: { firstName: true, lastName: true, email: true, emailLower: true, netId: true, applicantPersonId: true } },
         acceptances: true,
+        dualAppointments: { select: { departmentCode: true, status: true } },
         committeeScores: { select: { score: true, scorerId: true } },
         interviews: { select: { decision: true } },
       },
@@ -237,7 +246,9 @@ export async function listApplicantsForReview(cycleId: string, viewerId: string)
   // Volunteer cycles: committee ROUTING drives a director's queue. Director-track
   // cycles have no routing stage, so directors keep the ranked-choice view.
   if (cycle?.track === "VOLUNTEER") {
-    return apps.filter((a) => a.routedDepartmentCode != null && mine.has(a.routedDepartmentCode));
+    // The same rule canViewApplication applies, so the list and the detail page
+    // agree: routed to one of theirs, or approved as one of theirs.
+    return apps.filter((a) => canViewApplication({ ...a, cycle: { track: "VOLUNTEER" } }, { scope, managesCycles: false, canScore: false }));
   }
   return apps.filter((a) => a.departmentChoices.some((d) => mine.has(d)));
 }
@@ -359,6 +370,15 @@ export async function listReviewableCycles(
   if (canScore) or.push({ applications: { some: { status: "SUBMITTED" } } }); // committee scores both tracks
   if (scope.departmentCodes.length) {
     or.push({ track: "VOLUNTEER", applications: { some: { status: "SUBMITTED", routedDepartmentCode: { in: scope.departmentCodes } } } });
+    or.push({
+      track: "VOLUNTEER",
+      applications: {
+        some: {
+          status: "SUBMITTED",
+          dualAppointments: { some: { status: "APPROVED", departmentCode: { in: scope.departmentCodes } } },
+        },
+      },
+    });
     or.push({ track: "DIRECTOR", applications: { some: { status: "SUBMITTED", departmentChoices: { hasSome: scope.departmentCodes } } } });
   }
   if (or.length === 0) return [];
@@ -393,6 +413,15 @@ export async function revokeAcceptance(acceptanceId: string, actorId: string): P
   if (acc.emailedAt && !scope.all) {
     throw new RecruitmentAuthError("This applicant was already notified; ask SRR to revoke.");
   }
-  await prisma.acceptance.delete({ where: { id: acceptanceId } });
+  await prisma.$transaction(async (tx) => {
+    await tx.acceptance.delete({ where: { id: acceptanceId } });
+    // Revoking the acceptance a dual appointment minted undoes the appointment:
+    // an APPROVED row with no acceptance behind it would still tell the conflict
+    // guard that a second department is intended.
+    await tx.dualAppointment.updateMany({
+      where: { applicationId: acc.applicationId, departmentCode: acc.departmentCode, status: "APPROVED" },
+      data: { status: "CANCELLED", decidedById: actorId, decidedAt: new Date(), decisionNote: "Acceptance revoked." },
+    });
+  });
   await recordAudit({ actorPersonId: actorId, action: "recruitment.revoke", entityType: "Acceptance", entityId: acceptanceId, before: { applicationId: acc.applicationId, departmentCode: acc.departmentCode } });
 }

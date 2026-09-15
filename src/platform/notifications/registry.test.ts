@@ -26,6 +26,8 @@ describe("notification registry", () => {
         "incidents.strike_issued_directors",
         "incidents.strike_requested",
         "recruitment.applicant_withdrew",
+        "recruitment.dual_appointment_decided",
+        "recruitment.dual_appointment_requested",
         "recruitment.interview_assignment",
         "recruitment.review_digest",
         "support.ticket_submitted",

@@ -18,7 +18,14 @@ type DualFallbackSource = {
   dualFallbackAt: Date | null;
   dualFallbackFromDepartmentCode: string | null;
   cycle: { departments: string[] };
+  /** A department already asking for them as a dual appointment is not a fallback. */
+  dualAppointments?: { departmentCode: string; status: string }[];
 };
+
+/** Departments holding this application's dual appointment, pending or approved. */
+function dualAppointmentCodes(app: { dualAppointments?: { departmentCode: string; status: string }[] }, statuses: readonly string[] = ["PENDING", "APPROVED"]): string[] {
+  return (app.dualAppointments ?? []).filter((d) => statuses.includes(d.status)).map((d) => d.departmentCode);
+}
 
 /**
  * What a rejection means for an applicant who may have ticked a dual box (see
@@ -35,8 +42,9 @@ function planDualFallback(
     rejectingDepartmentCode && isDualRoleDepartment(rejectingDepartmentCode)
       ? [...new Set([...app.dualRoleDeclinedBy, rejectingDepartmentCode])].sort()
       : app.dualRoleDeclinedBy;
+  const appointed = new Set(dualAppointmentCodes(app));
   const next = nextDualFallback({
-    declared: app.dualRoleDepartments,
+    declared: app.dualRoleDepartments.filter((code) => !appointed.has(code)),
     declinedBy,
     rejectingDepartmentCode,
     cycleDepartments: app.cycle.departments,
@@ -110,7 +118,10 @@ export async function routeApplication(
   }
   const app = await prisma.application.findUnique({
     where: { id: applicationId },
-    include: { cycle: { select: { departments: true, track: true } } },
+    include: {
+      cycle: { select: { departments: true, track: true } },
+      dualAppointments: { select: { departmentCode: true, status: true } },
+    },
   });
   if (!app) throw new RoutingError("Application not found.");
   if (app.status !== "SUBMITTED") throw new RoutingError("This application hasn't been submitted yet.");
@@ -128,6 +139,15 @@ export async function routeApplication(
   if (app.returnedFromDepartmentCode === departmentCode) {
     throw new RoutingError(
       `${departmentCode} declined this applicant and handed them back. Route them to a different department, or reject the application.`,
+    );
+  }
+
+  // A department asking for this applicant as their SECOND department cannot
+  // also be the first. Routing them there would leave one department holding
+  // both the routed decision and the dual appointment.
+  if (dualAppointmentCodes(app).includes(departmentCode)) {
+    throw new RoutingError(
+      `${departmentCode} is this applicant's dual appointment. Cancel that on the Dual appointments page before routing them there.`,
     );
   }
 
@@ -227,6 +247,7 @@ export async function decideRoutedApplication(
       dualFallbackFromDepartmentCode: true,
       cycle: { select: { track: true, departments: true } },
       applicant: { select: { applicantPersonId: true } },
+      dualAppointments: { select: { departmentCode: true, status: true } },
     },
   });
   if (!app) throw new RoutingError("Application not found.");
@@ -447,7 +468,8 @@ export async function rejectApplication(
     include: {
       cycle: { select: { track: true, departments: true } },
       applicant: { select: { applicantPersonId: true } },
-      acceptances: { select: { emailedAt: true, contract: { select: { id: true } } } },
+      acceptances: { select: { departmentCode: true, emailedAt: true, contract: { select: { id: true } } } },
+      dualAppointments: { select: { departmentCode: true, status: true } },
     },
   });
   if (!app) throw new RoutingError("Application not found.");
@@ -460,7 +482,12 @@ export async function rejectApplication(
   // An emailed acceptance or an onboarding contract must be torn down first (mirrors
   // decideRoutedApplication / revokeAcceptance): rejecting under it would leave the
   // applicant emailed-accepted-yet-rejected, or destroy onboarding data on cascade.
-  if (app.acceptances.some((a) => a.emailedAt != null || a.contract != null)) {
+  // An approved dual appointment's acceptance is its own department's decision,
+  // made through the dual appointment, and survives this one: the applicant is
+  // still accepted there. Everything below reads only the other acceptances.
+  const keep = dualAppointmentCodes(app, ["APPROVED"]);
+  const decidedHere = { applicationId, ...(keep.length > 0 ? { departmentCode: { notIn: keep } } : {}) };
+  if (app.acceptances.some((a) => !keep.includes(a.departmentCode) && (a.emailedAt != null || a.contract != null))) {
     throw new AcceptanceError("This applicant has an emailed acceptance or onboarding contract. Resolve that before rejecting.");
   }
   const rejectingDepartmentCode = app.routedDepartmentCode ?? app.returnedFromDepartmentCode;
@@ -472,8 +499,8 @@ export async function rejectApplication(
     // have stamped emailedAt in the gap -- which the deleteMany (emailedAt: null) won't
     // remove. Re-check inside the tx: any surviving acceptance is a live emailed one,
     // so abort instead of flipping decision to REJECT under an emailed acceptance.
-    await tx.acceptance.deleteMany({ where: { applicationId, emailedAt: null } });
-    if ((await tx.acceptance.count({ where: { applicationId } })) > 0) {
+    await tx.acceptance.deleteMany({ where: { ...decidedHere, emailedAt: null } });
+    if ((await tx.acceptance.count({ where: decidedHere })) > 0) {
       throw new AcceptanceError("This applicant has an emailed acceptance or onboarding contract. Resolve that before rejecting.");
     }
     if (fallsThrough) {
@@ -506,7 +533,8 @@ export async function reopenDecision(applicationId: string, actorId: string): Pr
     where: { id: applicationId },
     include: {
       cycle: { select: { decisionsReleasedAt: true, track: true } },
-      acceptances: { select: { emailedAt: true, contract: { select: { id: true } } } },
+      acceptances: { select: { departmentCode: true, emailedAt: true, contract: { select: { id: true } } } },
+      dualAppointments: { select: { departmentCode: true, status: true } },
     },
   });
   if (!app) throw new RoutingError("Application not found.");
@@ -517,7 +545,11 @@ export async function reopenDecision(applicationId: string, actorId: string): Pr
   // An emailed acceptance or an onboarding contract must be torn down first (mirrors
   // rejectApplication): reopening under it would leave the applicant emailed-accepted,
   // or cascade-destroy onboarding data.
-  if (app.acceptances.some((a) => a.emailedAt != null || a.contract != null)) {
+  // As in rejectApplication: an approved dual appointment's acceptance is not this
+  // decision's to reopen.
+  const keep = dualAppointmentCodes(app, ["APPROVED"]);
+  const decidedHere = { applicationId, ...(keep.length > 0 ? { departmentCode: { notIn: keep } } : {}) };
+  if (app.acceptances.some((a) => !keep.includes(a.departmentCode) && (a.emailedAt != null || a.contract != null))) {
     throw new AcceptanceError("This applicant has an emailed acceptance or onboarding contract. Resolve that before reopening.");
   }
   const updated = await prisma.$transaction(async (tx) => {
@@ -525,8 +557,8 @@ export async function reopenDecision(applicationId: string, actorId: string): Pr
     // would later email it. The guard above read acceptances outside this tx; re-check
     // inside after dropping the not-emailed ones so a concurrently-emailed acceptance
     // aborts the reopen instead of coexisting with a PENDING decision.
-    await tx.acceptance.deleteMany({ where: { applicationId, emailedAt: null } });
-    if ((await tx.acceptance.count({ where: { applicationId } })) > 0) {
+    await tx.acceptance.deleteMany({ where: { ...decidedHere, emailedAt: null } });
+    if ((await tx.acceptance.count({ where: decidedHere })) > 0) {
       throw new AcceptanceError("This applicant has an emailed acceptance or onboarding contract. Resolve that before reopening.");
     }
     return tx.application.update({

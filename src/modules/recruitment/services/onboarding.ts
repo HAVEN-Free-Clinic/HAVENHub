@@ -1,6 +1,6 @@
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import type { OnboardingContract } from "@prisma/client";
+import type { EpicRequirement, OnboardingContract, Track } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { getSetting } from "@/platform/settings/service";
@@ -15,12 +15,14 @@ import { recordAudit } from "@/platform/audit";
 import { parseCompletionDate, CompletionDateError } from "@/platform/compliance/completion-date";
 import { RecruitmentAuthError } from "./review";
 import { findAcceptanceConflicts } from "../engine/conflicts";
+import { isAcceptanceConflict, onboardingAnchor } from "../engine/dual-appointments";
+import { approvedDualAppointmentPairs } from "./dual-appointments";
 import { renderCycleEmail } from "../email/render";
 import { resolveContractLayout } from "../contract/resolve";
 import { parseContractLayout, type ContractLayout, type SystemFieldBlock, type SystemFieldKey } from "../contract/layout";
 import { AVAILABILITY_CHANGE_OPTIONS, DEFAULT_CONTRACT_LAYOUT, SHIFTS_WANTED_OPTIONS, isSystemFieldRequired } from "../contract/system-fields";
 import { buildContractAnswers, visibleContractBlocks, type ContractContext } from "../contract/visibility";
-import { epicRequirementFor, resolveEpicNeeded } from "../contract/epic-requirement";
+import { epicRequirementFor, resolveEpicNeeded, strictestEpicRequirement } from "../contract/epic-requirement";
 import { buildOnboardingNextSteps } from "../onboarding-next-steps";
 import { formatTrainingDate, formatTrainingLocation } from "../training-date";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
@@ -78,11 +80,61 @@ function parseReviewContext(value: unknown): ContractContext | null {
   if (typeof epicRequirement !== "string") return null;
   if (department !== null && typeof department !== "string") return null;
   if (storedEpicId !== null && typeof storedEpicId !== "string") return null;
+  const additional = v.additionalDepartments;
+  const additionalDepartments =
+    Array.isArray(additional) && additional.every((d) => typeof d === "string") ? (additional as string[]) : [];
   return {
     department: department as string | null,
+    ...(additionalDepartments.length > 0 ? { additionalDepartments } : {}),
     track: track as ContractContext["track"],
     epicRequirement: epicRequirement as ContractContext["epicRequirement"],
     storedEpicId: storedEpicId as string | null,
+  };
+}
+
+/**
+ * The department facts a contract's visibility turns on, for the acceptance it
+ * was sent through.
+ *
+ * Usually one department. With an approved dual appointment the application is
+ * accepted into two, and the one form covers both: `additionalDepartments` makes
+ * the other department's gated blocks show, and the Epic requirement is the
+ * stricter of the two. The onboarding page, submitContract and the signed-contract
+ * review all resolve it here, so the three agree on what the person was asked.
+ */
+export async function contractDepartmentContext(
+  acceptance: { applicationId: string; departmentCode: string } | null | undefined,
+  track: Track,
+): Promise<{ department: string | null; additionalDepartments: string[]; epicRequirement: EpicRequirement }> {
+  if (!acceptance) return { department: null, additionalDepartments: [], epicRequirement: "NONE" };
+  const [siblings, approved] = await Promise.all([
+    prisma.acceptance.findMany({
+      where: { applicationId: acceptance.applicationId, departmentCode: { not: acceptance.departmentCode } },
+      select: { departmentCode: true },
+      orderBy: { createdAt: "asc" },
+    }),
+    approvedDualAppointmentPairs({ applicationIds: [acceptance.applicationId] }),
+  ]);
+  const others = siblings.map((a) => a.departmentCode);
+  // Only an allowed pair counts. A conflicted application is refused a link and
+  // a promotion, so this only matters if one slips through, and then showing a
+  // department nobody agreed to would be the wrong way to fail.
+  const additionalDepartments = isAcceptanceConflict(
+    [acceptance.departmentCode, ...others],
+    approved.map((d) => d.departmentCode),
+  )
+    ? []
+    : others;
+  const codes = [acceptance.departmentCode, ...additionalDepartments];
+  const rows = await prisma.department.findMany({
+    where: { code: { in: codes } },
+    select: { code: true, requiresEpicDirector: true, requiresEpicVolunteer: true },
+  });
+  const byCode = new Map(rows.map((r) => [r.code, r]));
+  return {
+    department: acceptance.departmentCode,
+    additionalDepartments,
+    epicRequirement: strictestEpicRequirement(codes.map((code) => epicRequirementFor(byCode.get(code) ?? null, track))),
   };
 }
 
@@ -154,7 +206,11 @@ export async function createOrResendContract(
         include: {
           applicant: true,
           cycle: { select: { id: true, title: true, status: true } },
-          acceptances: { select: { departmentCode: true } },
+          acceptances: {
+            select: { id: true, departmentCode: true, contract: { select: { id: true } } },
+            orderBy: { createdAt: "asc" },
+          },
+          dualAppointments: { where: { status: "APPROVED" }, select: { departmentCode: true } },
         },
       },
       contract: true,
@@ -169,11 +225,26 @@ export async function createOrResendContract(
   if (cycle.status === "DRAFT" || cycle.status === "ARCHIVED") {
     throw new ContractError("Onboarding links can only be sent for an open or closed cycle.");
   }
+  const approvedDual = acceptance.application.dualAppointments.map((d) => d.departmentCode);
   const conflicts = findAcceptanceConflicts(
     acceptance.application.acceptances.map((a) => ({ applicationId: acceptance.applicationId, departmentCode: a.departmentCode })),
+    approvedDual.map((departmentCode) => ({ applicationId: acceptance.applicationId, departmentCode })),
   );
   if (conflicts.has(acceptance.applicationId)) {
     throw new ContractError("This applicant was accepted by more than one department. Resolve the conflict on the Decisions page before onboarding.");
+  }
+  // A dual appointment is two acceptances and one person, who fills in one form.
+  // It goes out through one acceptance (onboardingAnchor), and promoting it puts
+  // them on both rosters. A second contract on the other acceptance would ask
+  // them to sign everything twice and promote them twice.
+  const anchor = onboardingAnchor(
+    acceptance.application.acceptances.map((a) => ({ ...a, hasContract: a.contract != null })),
+    approvedDual,
+  );
+  if (anchor && anchor.id !== acceptance.id) {
+    throw new ContractError(
+      `This applicant is a dual appointment. They onboard with one form, sent through their ${anchor.departmentCode} acceptance.`,
+    );
   }
   const applicant = acceptance.application.applicant;
   let contract = acceptance.contract;
@@ -459,14 +530,8 @@ export async function submitContract(
   });
   const cycle = acceptance?.application?.cycle ?? null;
   const track = cycle?.track ?? "VOLUNTEER";
-  const departmentCode = acceptance?.departmentCode ?? null;
-  const dept = departmentCode
-    ? await prisma.department.findUnique({
-        where: { code: departmentCode },
-        select: { requiresEpicDirector: true, requiresEpicVolunteer: true },
-      })
-    : null;
-  const requirement = epicRequirementFor(dept, track);
+  const { department: departmentCode, additionalDepartments, epicRequirement: requirement } =
+    await contractDepartmentContext(acceptance, track);
   const storedEpicId = await lookupStoredEpicId(contract.netId, contract.email);
   // The same on-file lookup the page ran, so a certificate or photo the form
   // showed as already on file is not demanded here.
@@ -508,7 +573,7 @@ export async function submitContract(
   if (input.shiftsWanted) systemAnswers.shiftsWanted = input.shiftsWanted;
   const answers = buildContractAnswers(
     { ...systemAnswers, ...(input.customAnswers ?? {}), hasEpic: input.hasEpic ? "on" : "" },
-    { department: departmentCode, track, epicRequirement: requirement, storedEpicId },
+    { department: departmentCode, additionalDepartments, track, epicRequirement: requirement, storedEpicId },
   );
   const visible = visibleContractBlocks(layout.blocks, answers);
   // An optional system field is asked only when its block is visible and not
@@ -825,6 +890,7 @@ export async function submitContract(
         // and only re-derives live for pre-column rows (#107/#108/#109).
         reviewContext: {
           department: departmentCode, track, epicRequirement: requirement, storedEpicId,
+          ...(additionalDepartments.length > 0 ? { additionalDepartments } : {}),
           // What stood in for an upload, so the signed-contract review can say
           // "on file" rather than "not provided".
           onFile: {
@@ -992,25 +1058,54 @@ export async function withdrawContract(contractId: string, actorId: string): Pro
 }
 
 export async function listOnboarding(cycleId: string) {
-  const rows = await prisma.acceptance.findMany({
-    where: { application: { cycleId } },
-    include: {
-      application: {
-        include: {
-          applicant: { select: { firstName: true, lastName: true, email: true } },
+  const [rows, approved] = await Promise.all([
+    prisma.acceptance.findMany({
+      where: { application: { cycleId } },
+      include: {
+        application: {
+          include: {
+            applicant: { select: { firstName: true, lastName: true, email: true } },
+          },
         },
+        contract: true,
       },
-      contract: true,
-    },
-    orderBy: { createdAt: "asc" },
-  });
-  // Flag acceptances whose application was accepted by more than one department.
-  // The onboarding surface must not let SRR send links to, or promote, these
-  // until the conflict is resolved on the Decisions page.
+      orderBy: { createdAt: "asc" },
+    }),
+    approvedDualAppointmentPairs({ cycleId }),
+  ]);
+  // Flag acceptances whose application was accepted by more than one department
+  // without an approved dual appointment. The onboarding surface must not let SRR
+  // send links to, or promote, these until the conflict is resolved on the
+  // Decisions page.
   const conflicts = findAcceptanceConflicts(
     rows.map((r) => ({ applicationId: r.applicationId, departmentCode: r.departmentCode })),
+    approved,
   );
-  return rows.map((r) => ({ ...r, conflicted: conflicts.has(r.applicationId) }));
+  // A dual appointment onboards through one of its two acceptances; the other row
+  // points at it (onboardsWith) and has nothing of its own to send or promote.
+  const approvedByApp = new Map<string, string[]>();
+  for (const d of approved) approvedByApp.set(d.applicationId, [...(approvedByApp.get(d.applicationId) ?? []), d.departmentCode]);
+  const rowsByApp = new Map<string, typeof rows>();
+  for (const r of rows) rowsByApp.set(r.applicationId, [...(rowsByApp.get(r.applicationId) ?? []), r]);
+  const anchorByApp = new Map<string, (typeof rows)[number]>();
+  for (const [applicationId, appRows] of rowsByApp) {
+    if (appRows.length < 2 || conflicts.has(applicationId)) continue;
+    const anchor = onboardingAnchor(
+      appRows.map((r) => ({ row: r, departmentCode: r.departmentCode, hasContract: r.contract != null })),
+      approvedByApp.get(applicationId) ?? [],
+    );
+    if (anchor) anchorByApp.set(applicationId, anchor.row);
+  }
+  return rows.map((r) => {
+    const anchor = anchorByApp.get(r.applicationId);
+    const coveredBy = anchor && anchor.id !== r.id ? anchor : null;
+    return {
+      ...r,
+      conflicted: conflicts.has(r.applicationId),
+      onboardsWith: coveredBy?.departmentCode ?? null,
+      onRosterThroughAnchor: coveredBy?.contract?.promotedPersonId != null,
+    };
+  });
 }
 
 /**
@@ -1037,8 +1132,9 @@ export async function listOnboardingRows(
     firstName: r.application.applicant.firstName,
     lastName: r.application.applicant.lastName,
     departmentCode: r.departmentCode,
-    state: deriveRowState({ conflicted: r.conflicted, contract: r.contract, now }),
-    onRoster: r.contract?.promotedPersonId != null,
+    state: deriveRowState({ conflicted: r.conflicted, onboardsWith: r.onboardsWith, contract: r.contract, now }),
+    onboardsWith: r.onboardsWith,
+    onRoster: r.contract?.promotedPersonId != null || r.onRosterThroughAnchor,
     customAnswers: r.contract
       ? resolveCustomAnswers(r.contract.templateSnapshot, r.contract.customAnswers)
       : [],
@@ -1072,18 +1168,15 @@ export async function getContractForReview(contractId: string) {
   if (frozen) {
     ctx = frozen;
   } else {
-    const departmentCode = contract.acceptance.departmentCode;
     const track = contract.acceptance.application.cycle?.track ?? "VOLUNTEER";
-    const dept = departmentCode
-      ? await prisma.department.findUnique({
-          where: { code: departmentCode },
-          select: { requiresEpicDirector: true, requiresEpicVolunteer: true },
-        })
-      : null;
+    const departments = await contractDepartmentContext(contract.acceptance, track);
     ctx = {
-      department: departmentCode,
+      department: departments.department,
+      // Only when there is one, so a single-department context reads exactly as
+      // it always has, frozen or live.
+      ...(departments.additionalDepartments.length > 0 ? { additionalDepartments: departments.additionalDepartments } : {}),
       track,
-      epicRequirement: epicRequirementFor(dept, track),
+      epicRequirement: departments.epicRequirement,
       storedEpicId: await lookupStoredEpicId(contract.netId, contract.email),
     };
   }

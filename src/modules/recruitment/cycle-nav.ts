@@ -53,6 +53,8 @@ export function cycleNavItems(opts: {
   canAccess: boolean; // recruitment.access
   canManage: boolean; // recruitment.manage_cycles
   canReviewAll: boolean; // recruitment.review_all
+  /** Directs at least one department (a non-empty review scope). */
+  hasReviewScope?: boolean;
 }): CycleNavItem[] {
   const base = `/recruitment/cycles/${opts.cycleId}`;
   const items: CycleNavItem[] = [];
@@ -73,6 +75,14 @@ export function cycleNavItems(opts: {
   }
   if (opts.canAccess) items.push({ label: "Waitlist", href: `${base}/waitlist`, group: "review" });
   if (opts.canAccess && opts.canReviewAll) items.push({ label: "Decisions", href: `${base}/decisions`, group: "review" });
+  // Dual appointments: recruitment managers decide them, directors ask for them.
+  // Like Applicants, the page self-authorizes by review scope rather than
+  // recruitment.access, since a director may hold a department and nothing else;
+  // the manager half keeps canAccess so this tab obeys the same stacking rule as
+  // Decisions beside it. Volunteer cycles only (services/dual-appointments.ts).
+  if (opts.track === "VOLUNTEER" && ((opts.canAccess && opts.canReviewAll) || opts.hasReviewScope)) {
+    items.push({ label: "Dual appointments", href: `${base}/dual-appointments`, group: "review" });
+  }
   if (opts.canAccess && opts.track === "VOLUNTEER" && (opts.canReviewAll || opts.canManage)) {
     items.push({ label: "Subcommittees", href: `${base}/subcommittees`, group: "accepted" });
   }

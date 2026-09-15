@@ -1,3 +1,5 @@
+import { isAcceptanceConflict } from "./dual-appointments";
+
 export type Decision = "PENDING" | "ACCEPT" | "REJECT" | "WAITLIST";
 
 export type RosterDecisionStatus = "ACCEPTED" | "WAITLIST" | "REJECTED" | "NONE";
@@ -20,12 +22,17 @@ export function rosterDecision(input: {
   acceptances: { departmentCode: string }[];
   applicationDecision: Decision;
   interviews: { decision: Decision }[];
+  /** The application's dual appointments. An APPROVED one turns two accepted
+   *  departments from a conflict into an intended pair (dual-appointments.ts). */
+  dualAppointments?: { departmentCode: string; status: string }[];
 }): RosterDecision {
   if (input.acceptances.length > 0) {
     const departments = [...new Set(input.acceptances.map((a) => a.departmentCode))];
-    return departments.length > 1
-      ? { status: "ACCEPTED", label: `Conflict: ${departments.join(" + ")}`, tone: "critical", departments }
-      : { status: "ACCEPTED", label: `Accepted: ${departments[0]}`, tone: "success", departments };
+    const approved = (input.dualAppointments ?? []).filter((d) => d.status === "APPROVED").map((d) => d.departmentCode);
+    if (departments.length > 1 && isAcceptanceConflict(departments, approved)) {
+      return { status: "ACCEPTED", label: `Conflict: ${departments.join(" + ")}`, tone: "critical", departments };
+    }
+    return { status: "ACCEPTED", label: `Accepted: ${departments.join(" + ")}`, tone: "success", departments };
   }
   const decisions = [input.applicationDecision, ...input.interviews.map((i) => i.decision)];
   if (decisions.includes("WAITLIST")) return { status: "WAITLIST", label: "Waitlisted", tone: "warning", departments: [] };

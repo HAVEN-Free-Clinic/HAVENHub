@@ -111,6 +111,65 @@ export function draftReminderContext(p: DraftReminderParams): Record<string, unk
 
 export const recruitmentDescriptors: TemplateDescriptor[] = [
   {
+    // To every recruitment manager (recruitment.review_all) when a director asks
+    // for a volunteer as a dual appointment. Says who asked, for whom, where the
+    // volunteer is already headed, and why, since that is what approval weighs.
+    key: "recruitment.dual_appointment_requested",
+    name: "Recruitment: dual appointment requested",
+    category: "transactional",
+    group: "recruitment",
+    variables: [
+      { name: "firstName", label: "Recruitment manager first name", sampleValue: "Alex" },
+      { name: "requesterName", label: "Who asked", sampleValue: "Jordan Lee" },
+      { name: "applicantName", label: "The volunteer", sampleValue: "Sam Rivera" },
+      { name: "departmentName", label: "The department asking for them", sampleValue: "Quality Improvement" },
+      { name: "primaryDepartmentName", label: "The department their application is routed to", sampleValue: "Food Pantry" },
+      { name: "cycleTitle", label: "Cycle title", sampleValue: "Volunteer Fall 2026 Recruitment" },
+      { name: "reason", label: "Why the department wants them", sampleValue: "Sam has led our intake audits for two terms." },
+      { name: "reviewLink", label: "Link to the cycle's dual appointments", sampleValue: "https://hub.havenfreeclinic.org/recruitment/cycles/abc/dual-appointments" },
+    ],
+    defaultSubject: "[HAVEN] Dual appointment requested: {{ applicantName }} for {{ departmentName }}",
+    defaultBody: `<p>Hi {{ firstName }},</p>
+
+<p>{{ requesterName }} asked to accept <strong>{{ applicantName }}</strong> into {{ departmentName }} as a dual appointment for {{ cycleTitle }}{{#if primaryDepartmentName}}, alongside {{ primaryDepartmentName }}{{/if}}.</p>
+
+{{#if reason}}<p>Their reason: {{ reason }}</p>{{/if}}
+
+<p><a href="{{ reviewLink }}">Review dual appointments</a></p>
+
+<p>Thank you,<br>HAVEN Free Clinic</p>`,
+  },
+  {
+    // To the director who asked, once a recruitment manager approves, declines,
+    // or cancels their dual appointment request.
+    key: "recruitment.dual_appointment_decided",
+    name: "Recruitment: dual appointment decision",
+    category: "transactional",
+    group: "recruitment",
+    variables: [
+      { name: "firstName", label: "Requesting director first name", sampleValue: "Jordan" },
+      { name: "applicantName", label: "The volunteer", sampleValue: "Sam Rivera" },
+      { name: "departmentName", label: "The department that asked for them", sampleValue: "Quality Improvement" },
+      { name: "cycleTitle", label: "Cycle title", sampleValue: "Volunteer Fall 2026 Recruitment" },
+      { name: "outcome", label: "approved, declined, or cancelled", sampleValue: "approved" },
+      { name: "isApproved", label: "True when the request was approved", sampleValue: "true" },
+      { name: "note", label: "The recruitment manager's note", sampleValue: "" },
+      { name: "reviewLink", label: "Link to the cycle's dual appointments", sampleValue: "https://hub.havenfreeclinic.org/recruitment/cycles/abc/dual-appointments" },
+    ],
+    defaultSubject: "[HAVEN] Dual appointment {{ outcome }}: {{ applicantName }}",
+    defaultBody: `<p>Hi {{ firstName }},</p>
+
+<p>The dual appointment for <strong>{{ applicantName }}</strong> in {{ departmentName }} ({{ cycleTitle }}) was {{ outcome }}.</p>
+
+{{#if isApproved}}<p>They are accepted into {{ departmentName }} as well as their other department. One onboarding form covers both, and they join both rosters when it is processed.</p>{{/if}}
+
+{{#if note}}<p>Note: {{ note }}</p>{{/if}}
+
+<p><a href="{{ reviewLink }}">Open dual appointments</a></p>
+
+<p>Thank you,<br>HAVEN Free Clinic</p>`,
+  },
+  {
     key: "recruitment.acceptance",
     name: "Recruitment: acceptance",
     category: "transactional",

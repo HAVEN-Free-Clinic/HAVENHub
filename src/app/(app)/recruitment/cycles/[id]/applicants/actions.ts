@@ -386,8 +386,10 @@ export async function requestDualAppointmentFromApplicantAction(cycleId: string,
     const result = await requestDualAppointment(person.personId, {
       applicationId,
       cycleId,
-      departmentCode: String(formData.get("departmentCode") ?? ""),
-      reason: String(formData.get("reason") ?? ""),
+      // Named apart from the Routing card's own departmentCode field, which
+      // shares this page. See the comment beside the select.
+      departmentCode: String(formData.get("dualDepartmentCode") ?? ""),
+      reason: String(formData.get("dualReason") ?? ""),
     });
     saved = result.status === "PENDING" ? "dual_requested" : "dual_approved";
   } catch (err) {

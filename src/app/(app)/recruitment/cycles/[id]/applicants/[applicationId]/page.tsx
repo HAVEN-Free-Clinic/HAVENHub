@@ -728,8 +728,12 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
               {dualChoices.length > 0 && (
                 <form action={requestDualAppointmentFromApplicantAction.bind(null, id, applicationId)}>
                   <FormRow className="mt-4 border-t border-border-subtle pt-4">
+                    {/* Deliberately NOT name="departmentCode": the Routing card on
+                        this same page already has a select by that name, and a
+                        second one makes every unscoped lookup of it ambiguous --
+                        which is exactly how the e2e routing helper broke. */}
                     <RowField label="Second department">
-                      <Select name="departmentCode" required defaultValue={dualChoices.length === 1 ? dualChoices[0].code : ""}>
+                      <Select name="dualDepartmentCode" required defaultValue={dualChoices.length === 1 ? dualChoices[0].code : ""}>
                         {dualChoices.length > 1 && <option value="" disabled>Select…</option>}
                         {dualChoices.map((d) => (
                           <option key={d.code} value={d.code}>{d.code}</option>
@@ -737,7 +741,7 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
                       </Select>
                     </RowField>
                     <RowField label="Why" hint={scope.all ? "Optional for a recruitment manager." : "Required. A recruitment manager reads it."} width="grow">
-                      <Input name="reason" required={!scope.all} />
+                      <Input name="dualReason" required={!scope.all} />
                     </RowField>
                     <SubmitButton size="sm" pendingLabel="Saving…">{scope.all ? "Add dual appointment" : "Ask"}</SubmitButton>
                   </FormRow>

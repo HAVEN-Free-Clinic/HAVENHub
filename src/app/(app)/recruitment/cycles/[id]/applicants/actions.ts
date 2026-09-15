@@ -2,6 +2,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requirePersonSession, requirePermission } from "@/platform/auth/session";
+import { prisma } from "@/platform/db";
 import { captureEvent, GROUP_DEPARTMENT } from "@/platform/posthog/capture";
 import { termGroupForCycle } from "@/platform/posthog/groups";
 import { RecruitmentAuthError, AcceptanceError, revokeAcceptance, canViewerOpenApplication, recordApplicationView } from "@/modules/recruitment/services/review";
@@ -24,6 +25,13 @@ import {
 import { recordApplicationLanguageAssessment } from "@/platform/languages";
 import { LanguageValidationError } from "@/platform/languages/catalog";
 import { normalizeScore } from "@/platform/languages/spanish-assessments";
+import {
+  DualAppointmentError,
+  approveDualAppointment,
+  cancelDualAppointment,
+  declineDualAppointment,
+  requestDualAppointment,
+} from "@/modules/recruitment/services/dual-appointments";
 
 // Each form on the applicant page carries its own error param so a failure renders
 // in the card that produced it. A single shared `error` used to dump routing and
@@ -364,4 +372,78 @@ export async function clearApplicantExcuseAction(cycleId: string, applicationId:
     throw err;
   }
   redirect(bounce(cycleId, applicationId, { saved: "excuse-cleared" }));
+}
+
+/**
+ * The Dual appointment card on the applicant page: a director's request, or a
+ * recruitment manager's add, approval, decline, or cancel. Every rule is in
+ * services/dual-appointments.ts; a refusal lands in the page's error toast.
+ */
+export async function requestDualAppointmentFromApplicantAction(cycleId: string, applicationId: string, formData: FormData) {
+  const person = await requirePersonSession();
+  let saved: "dual_requested" | "dual_approved";
+  try {
+    const result = await requestDualAppointment(person.personId, {
+      applicationId,
+      cycleId,
+      // Named apart from the Routing card's own departmentCode field, which
+      // shares this page. See the comment beside the select.
+      departmentCode: String(formData.get("dualDepartmentCode") ?? ""),
+      reason: String(formData.get("dualReason") ?? ""),
+    });
+    saved = result.status === "PENDING" ? "dual_requested" : "dual_approved";
+  } catch (err) {
+    if (err instanceof DualAppointmentError || err instanceof RecruitmentAuthError) {
+      redirect(bounce(cycleId, applicationId, { error: err.message }));
+    }
+    throw err;
+  }
+  redirect(bounce(cycleId, applicationId, { saved }));
+}
+
+export async function decideDualAppointmentFromApplicantAction(cycleId: string, applicationId: string, formData: FormData) {
+  const person = await requirePersonSession();
+  const id = String(formData.get("id") ?? "");
+  const note = String(formData.get("note") ?? "");
+  const outcome = String(formData.get("outcome") ?? "");
+  let saved: "dual_approved" | "dual_declined" | "dual_cancelled";
+  try {
+    if (outcome === "approve") {
+      await approveDualAppointment(person.personId, id, note);
+      saved = "dual_approved";
+    } else if (outcome === "decline") {
+      await declineDualAppointment(person.personId, id, note);
+      saved = "dual_declined";
+    } else if (outcome === "cancel") {
+      await cancelDualAppointment(person.personId, id, note);
+      saved = "dual_cancelled";
+    } else {
+      throw new DualAppointmentError("Invalid action.");
+    }
+  } catch (err) {
+    if (err instanceof DualAppointmentError || err instanceof RecruitmentAuthError) {
+      redirect(bounce(cycleId, applicationId, { error: err.message }));
+    }
+    throw err;
+  }
+  revalidatePath(bounce(cycleId, applicationId));
+  // Cancelling an approval can take away the only thing that let a director of
+  // that department open this record, so land them somewhere they can still see.
+  if (saved === "dual_cancelled" && !(await canViewerOpenApplication(await dualViewable(applicationId), person.personId))) {
+    redirect(`/recruitment/cycles/${cycleId}/dual-appointments?ok=${encodeURIComponent("Dual appointment cancelled.")}`);
+  }
+  redirect(bounce(cycleId, applicationId, { saved }));
+}
+
+async function dualViewable(applicationId: string) {
+  const app = await prisma.application.findUniqueOrThrow({
+    where: { id: applicationId },
+    select: {
+      departmentChoices: true,
+      routedDepartmentCode: true,
+      cycle: { select: { track: true } },
+      dualAppointments: { select: { departmentCode: true, status: true } },
+    },
+  });
+  return app;
 }

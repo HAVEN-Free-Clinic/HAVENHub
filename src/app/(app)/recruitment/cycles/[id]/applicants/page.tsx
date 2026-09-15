@@ -154,7 +154,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
     : null;
   const query = normalizeApplicantQuery(queryParam);
   const byDecision = decisionFilter
-    ? apps.filter((a) => rosterDecision({ acceptances: a.acceptances, applicationDecision: a.decision, interviews: a.interviews }).status === decisionFilter)
+    ? apps.filter((a) => rosterDecision({ acceptances: a.acceptances, applicationDecision: a.decision, interviews: a.interviews, dualAppointments: a.dualAppointments }).status === decisionFilter)
     : apps;
   // Search last in the chain, on the same rows the count and the pager read, so
   // "3 applicants" is always the number of rows the search actually returned.
@@ -262,7 +262,9 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
         </THead>
         <tbody>
           {pageApps.map((a) => {
-            const d = rosterDecision({ acceptances: a.acceptances, applicationDecision: a.decision, interviews: a.interviews });
+            const d = rosterDecision({ acceptances: a.acceptances, applicationDecision: a.decision, interviews: a.interviews, dualAppointments: a.dualAppointments });
+            // A dual appointment still in play: asked for (pending) or agreed (approved).
+            const dual = a.dualAppointments.find((x) => x.status === "PENDING" || x.status === "APPROVED");
             const gap = a.applicant.applicantPersonId ? serviceGaps.get(a.applicant.applicantPersonId) : undefined;
             return (
               <TR key={a.id}>
@@ -281,6 +283,14 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
                     {a.invited && (
                       <Badge tone="brand" title="Applied through an invitation link">
                         Invited
+                      </Badge>
+                    )}
+                    {dual && (
+                      <Badge
+                        tone={dual.status === "APPROVED" ? "success" : "warning"}
+                        title={dual.status === "APPROVED" ? `Also accepted into ${dual.departmentCode} as a dual appointment` : `${dual.departmentCode} asked for a dual appointment`}
+                      >
+                        {dual.status === "APPROVED" ? `Dual: ${dual.departmentCode}` : `Dual requested: ${dual.departmentCode}`}
                       </Badge>
                     )}
                   </span>

@@ -5,6 +5,7 @@ import { can } from "@/platform/rbac/engine";
 import { prisma } from "@/platform/db";
 import { cycleNavItems } from "@/modules/recruitment/cycle-nav";
 import { CycleNavTabs } from "@/modules/recruitment/components/cycle-nav-tabs";
+import { reviewScope } from "@/modules/recruitment/services/review";
 
 type LayoutProps = {
   children: ReactNode;
@@ -33,15 +34,20 @@ export default async function CycleWorkspaceLayout({ children, params }: LayoutP
   // resolveAvailabilityOptions) is the module's heaviest query. This layout
   // only needs track, so it selects just that instead of paying for the full
   // load a second time on every render.
-  const [cycle, canAccess, canManage, canReviewAll] = await Promise.all([
+  const [cycle, canAccess, canManage, canReviewAll, scope] = await Promise.all([
     prisma.recruitmentCycle.findUnique({ where: { id }, select: { track: true } }),
     can(session.personId, "recruitment.access"),
     can(session.personId, "recruitment.manage_cycles"),
     can(session.personId, "recruitment.review_all"),
+    // Request-cached; the subtree gate above already resolved it.
+    reviewScope(session.personId),
   ]);
   if (!cycle) notFound();
 
-  const items = cycleNavItems({ cycleId: id, track: cycle.track, canAccess, canManage, canReviewAll });
+  const items = cycleNavItems({
+    cycleId: id, track: cycle.track, canAccess, canManage, canReviewAll,
+    hasReviewScope: scope.departmentCodes.length > 0,
+  });
 
   return (
     <div className="space-y-6">

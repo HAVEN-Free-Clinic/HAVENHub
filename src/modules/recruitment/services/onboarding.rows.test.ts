@@ -21,6 +21,8 @@ describe("listOnboardingRows", () => {
       lastName: "Last0",
       departmentCode: "SRHD",
       state: "SENT",
+      // Set only on a dual appointment's second row: the department it onboards with.
+      onboardsWith: null,
       onRoster: false,
       customAnswers: [],
     });

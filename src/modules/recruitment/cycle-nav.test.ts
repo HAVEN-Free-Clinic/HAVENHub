@@ -106,6 +106,7 @@ describe("cycleNavItems", () => {
       "Speed route",
       "Waitlist",
       "Decisions",
+      "Dual appointments",
       "Subcommittees",
       "Onboarding",
       "Emails",
@@ -120,7 +121,7 @@ describe("cycleNavItems", () => {
     const items = cycleNavItems({ cycleId: CYCLE_ID, track: "VOLUNTEER", canAccess: true, canManage: true, canReviewAll: true });
     const byGroup = (g: string) => items.filter((i) => i.group === g).map((i) => i.label);
     expect(byGroup("setup")).toEqual(["Form", "Contract", "Emails", "Quiz"]);
-    expect(byGroup("review")).toEqual(["Applicants", "Speed route", "Waitlist", "Decisions"]);
+    expect(byGroup("review")).toEqual(["Applicants", "Speed route", "Waitlist", "Decisions", "Dual appointments"]);
     expect(byGroup("accepted")).toEqual(["Subcommittees", "Onboarding", "Training"]);
     expect(byGroup("settings")).toEqual(["Overview"]);
 
@@ -131,6 +132,18 @@ describe("cycleNavItems", () => {
       "Decisions",
       "Interviews",
     ]);
+  });
+
+  describe("Dual appointments", () => {
+    it("shows for a department director with no recruitment.access, who asks for volunteers there", () => {
+      const items = cycleNavItems({ cycleId: CYCLE_ID, track: "VOLUNTEER", canAccess: false, canManage: false, canReviewAll: false, hasReviewScope: true });
+      expect(items.map((i) => i.label)).toEqual(["Applicants", "Dual appointments"]);
+    });
+
+    it("never shows on a DIRECTOR cycle, where dual appointments do not apply", () => {
+      const items = cycleNavItems({ cycleId: CYCLE_ID, track: "DIRECTOR", canAccess: true, canManage: true, canReviewAll: true, hasReviewScope: true });
+      expect(items.map((i) => i.label)).not.toContain("Dual appointments");
+    });
   });
 
   describe("committee scorer (recruitment.score only, no recruitment.access)", () => {

@@ -38,6 +38,8 @@ export const NOTIFICATION_TYPES: NotificationType[] = [
   { key: "recruitment.interview_assignment", label: "Recruitment: interview panel assignment", defaultChannel: "email" },
   { key: "recruitment.review_digest", label: "Recruitment: daily review digest (directors)", defaultChannel: "email" },
   { key: "recruitment.applicant_withdrew", label: "Recruitment: applicant withdrew (panel + directors)", defaultChannel: "email" },
+  { key: "recruitment.dual_appointment_requested", label: "Recruitment: dual appointment requested (recruitment managers)", defaultChannel: "email" },
+  { key: "recruitment.dual_appointment_decided", label: "Recruitment: dual appointment approved, declined or cancelled (requesting director)", defaultChannel: "email" },
   { key: "support.ticket_submitted", label: "IT Support: ticket received (requester)", defaultChannel: "email" },
   { key: "support.ticket_manager_alert", label: "IT Support: new-ticket alert (managers)", defaultChannel: "email" },
   { key: "support.status_changed", label: "IT Support: status changed", defaultChannel: "email" },

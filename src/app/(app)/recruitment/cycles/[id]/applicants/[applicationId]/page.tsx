@@ -10,7 +10,8 @@ import { visibleSections, applicantTypeLabel } from "@/modules/recruitment/engin
 import { requirePersonSession } from "@/platform/auth/session";
 import { reviewScope, listAcceptances, canViewApplication, recordApplicationView } from "@/modules/recruitment/services/review";
 import { can } from "@/platform/rbac/engine";
-import { scheduleInterviewAction, committeeScoreAction, routeAction, decideRoutedAction, reopenDecisionAction, rescindAcceptanceAction, reopenWithdrawnAction, excuseApplicantAbsenceAction, clearApplicantExcuseAction, assessApplicantLanguageAction } from "../actions";
+import { scheduleInterviewAction, committeeScoreAction, routeAction, decideRoutedAction, reopenDecisionAction, rescindAcceptanceAction, reopenWithdrawnAction, excuseApplicantAbsenceAction, clearApplicantExcuseAction, assessApplicantLanguageAction, requestDualAppointmentFromApplicantAction, decideDualAppointmentFromApplicantAction } from "../actions";
+import { listDualAppointments, type DualAppointmentRow } from "@/modules/recruitment/services/dual-appointments";
 import { getApplicantAbsenceExcuse } from "@/modules/recruitment/services/training";
 import { languagesToAssessBeforeAcceptance, priorLanguageVerdicts } from "@/platform/languages";
 import { nextDualFallback } from "@/platform/dual-roles/catalog";
@@ -44,6 +45,13 @@ import { TextLink } from "@/platform/ui/text-link";
 import { FormRow, RowField } from "@/platform/ui/form";
 import { DECISION_LABELS } from "@/modules/recruitment/components/status-badge";
 
+
+const DUAL_STATUS: Record<DualAppointmentRow["status"], { label: string; tone: "default" | "success" | "warning" }> = {
+  PENDING: { label: "Waiting for approval", tone: "warning" },
+  APPROVED: { label: "Approved", tone: "success" },
+  DECLINED: { label: "Declined", tone: "default" },
+  CANCELLED: { label: "Cancelled", tone: "default" },
+};
 
 export default async function ApplicationDetailPage({ params }: { params: Promise<{ id: string; applicationId: string }> }) {
   const { id, applicationId } = await params;
@@ -173,6 +181,26 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
   // Dual departments that declined before this one, for the fallback note.
   const declinedEarlier = app.dualRoleDeclinedBy.filter((c) => c !== app.routedDepartmentCode);
   const interviewedDepts = new Set(existingInterviews.map((i) => i.departmentCode));
+  // Dual appointments (services/dual-appointments.ts). Volunteer cycles only.
+  // Shown to recruitment managers and to directors; the list is already scoped
+  // to what this viewer may see.
+  const dualRows: DualAppointmentRow[] =
+    app.cycle.track === "VOLUNTEER" && (scope.all || scope.departmentCodes.length > 0)
+      ? await listDualAppointments({ cycleId: id, applicationId }, person.personId)
+      : [];
+  const dualInPlay = dualRows.some((r) => r.status === "PENDING" || r.status === "APPROVED");
+  // Where this viewer could put them as a second department: any active
+  // department for a manager, their own for a director, never the routed one.
+  const dualChoices =
+    app.cycle.track === "VOLUNTEER" && app.status === "SUBMITTED" && !dualInPlay && (scope.all || scope.departmentCodes.length > 0)
+      ? (
+          await prisma.department.findMany({
+            where: scope.all ? { isActive: true } : { isActive: true, code: { in: scope.departmentCodes } },
+            select: { code: true, name: true },
+            orderBy: { name: "asc" },
+          })
+        ).filter((d) => d.code !== app.routedDepartmentCode)
+      : [];
   const scheduleChoices = choices.filter((d) => !interviewedDepts.has(d));
   const answers = (app.answers ?? {}) as Record<string, unknown>;
   const sections = visibleSections(app.cycle.sections, {
@@ -648,6 +676,76 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
                 </>
               ) : (
                 <p className="mt-3 text-sm text-muted-foreground">Routed to {app.routedDepartmentCode}. Waiting on the department to decide.</p>
+              )}
+            </Card>
+          )}
+
+          {(dualRows.length > 0 || dualChoices.length > 0) && (
+            <Card>
+              <SectionHeader>Dual appointment</SectionHeader>
+              <p className="mt-2 text-xs text-subtle-foreground">
+                Accepting a strong volunteer into a second department as well. A director asks; a recruitment manager approves.
+              </p>
+              {dualRows.length > 0 && (
+                <ul className="mt-3 space-y-3 text-sm">
+                  {dualRows.map((r) => (
+                    <li key={r.id} className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <strong className="text-foreground">{r.departmentCode}</strong>
+                        <Badge tone={DUAL_STATUS[r.status].tone}>{DUAL_STATUS[r.status].label}</Badge>
+                      </div>
+                      <p className="text-xs text-subtle-foreground">
+                        Asked by {r.requestedByName} · <DateTime value={r.requestedAt} />
+                      </p>
+                      {r.reason && <p className="whitespace-pre-line text-foreground-soft">&ldquo;{r.reason}&rdquo;</p>}
+                      {r.decidedByName && r.status !== "PENDING" && (
+                        <p className="text-xs text-subtle-foreground">
+                          {DUAL_STATUS[r.status].label} by {r.decidedByName}
+                          {r.decisionNote ? ` · ${r.decisionNote}` : ""}
+                        </p>
+                      )}
+                      {(r.canDecide || r.canCancel) && (
+                        <form action={decideDualAppointmentFromApplicantAction.bind(null, id, applicationId)} className="flex flex-wrap items-center gap-2 pt-1">
+                          <input type="hidden" name="id" value={r.id} />
+                          {r.canDecide && <Input name="note" placeholder="Note (optional)" className="w-40" aria-label="Note" />}
+                          {r.canDecide && (
+                            <SubmitButton size="sm" name="outcome" value="approve" pendingLabel="Approving…">Approve</SubmitButton>
+                          )}
+                          {r.canDecide && (
+                            <SubmitButton size="sm" variant="outline" name="outcome" value="decline" pendingLabel="Declining…">Decline</SubmitButton>
+                          )}
+                          {r.canCancel && !r.canDecide && (
+                            <SubmitButton size="sm" variant="outline" name="outcome" value="cancel" pendingLabel="Cancelling…">
+                              {r.status === "PENDING" ? "Withdraw request" : "Cancel"}
+                            </SubmitButton>
+                          )}
+                        </form>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {dualChoices.length > 0 && (
+                <form action={requestDualAppointmentFromApplicantAction.bind(null, id, applicationId)}>
+                  <FormRow className="mt-4 border-t border-border-subtle pt-4">
+                    {/* Deliberately NOT name="departmentCode": the Routing card on
+                        this same page already has a select by that name, and a
+                        second one makes every unscoped lookup of it ambiguous --
+                        which is exactly how the e2e routing helper broke. */}
+                    <RowField label="Second department">
+                      <Select name="dualDepartmentCode" required defaultValue={dualChoices.length === 1 ? dualChoices[0].code : ""}>
+                        {dualChoices.length > 1 && <option value="" disabled>Select…</option>}
+                        {dualChoices.map((d) => (
+                          <option key={d.code} value={d.code}>{d.code}</option>
+                        ))}
+                      </Select>
+                    </RowField>
+                    <RowField label="Why" hint={scope.all ? "Optional for a recruitment manager." : "Required. A recruitment manager reads it."} width="grow">
+                      <Input name="dualReason" required={!scope.all} />
+                    </RowField>
+                    <SubmitButton size="sm" pendingLabel="Saving…">{scope.all ? "Add dual appointment" : "Ask"}</SubmitButton>
+                  </FormRow>
+                </form>
               )}
             </Card>
           )}

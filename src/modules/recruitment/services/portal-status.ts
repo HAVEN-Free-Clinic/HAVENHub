@@ -3,6 +3,7 @@ import type { ApplicantIdentity } from "./portal-auth";
 import { canSubmitToCycle } from "./cycle-window";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { formatDateTime } from "@/platform/dates";
+import { joinNames } from "../engine/dual-appointments";
 
 /** Which self-service control the portal should offer for this application.
  *  Computed on the server and re-checked in the action; the client only renders
@@ -116,7 +117,11 @@ export async function getApplicantStatus(identity: ApplicantIdentity): Promise<A
       const withdraw: WithdrawOption | null = onboardingAcc.contract.status === "PROMOTED" ? null : { kind: "decline_offer" };
       views.push({ ...base, state: "ONBOARDING", headline: "Onboarding in progress", detail: step, canContinue: false, withdraw });
     } else if (emailedAcc) {
-      views.push({ ...base, state: "ACCEPTED", headline: `Accepted to ${deptName.get(emailedAcc.departmentCode) ?? emailedAcc.departmentCode}`, detail: null, canContinue: false, withdraw: { kind: "decline_offer" } });
+      // Every department that has told them, so a dual appointment reads as both.
+      const acceptedTo = joinNames(
+        app.acceptances.filter((acc) => acc.emailedAt != null).map((acc) => deptName.get(acc.departmentCode) ?? acc.departmentCode),
+      );
+      views.push({ ...base, state: "ACCEPTED", headline: `Accepted to ${acceptedTo}`, detail: null, canContinue: false, withdraw: { kind: "decline_offer" } });
     } else if (released && waitlisted) {
       // Coming off a waitlist is a real thing to want, so the control stays.
       views.push({ ...base, state: "WAITLISTED", headline: "Waitlisted", detail: "We will be in touch if a spot opens.", canContinue: false, withdraw: { kind: "withdraw" } });

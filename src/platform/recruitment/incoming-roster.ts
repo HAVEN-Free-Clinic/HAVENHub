@@ -196,8 +196,16 @@ function incomingName(applicant: {
  */
 function liveAcceptanceWhere(): Prisma.AcceptanceWhereInput {
   return {
-    application: { status: { not: "WITHDRAWN" } },
-    OR: [{ contract: { is: null } }, { contract: { status: { not: "PROMOTED" } } }],
+    application: {
+      status: { not: "WITHDRAWN" },
+      // Promoted means on the roster, and promotion puts a person on EVERY
+      // department their application was accepted into (a dual appointment is
+      // two acceptances, one contract). So the test is the application's
+      // contract, wherever it hangs: reading only this acceptance's own contract
+      // would keep the second department's acceptance, which has none, "incoming"
+      // forever, a duplicate row beside the member it has already become.
+      acceptances: { none: { contract: { is: { status: "PROMOTED" } } } },
+    },
   };
 }
 
@@ -230,6 +238,9 @@ export async function listIncomingMembers(opts: {
         select: {
           id: true,
           answers: true,
+          // A dual appointment's second acceptance has no contract of its own;
+          // the one the person filled in hangs off the other acceptance.
+          acceptances: { select: { contract: { select: { status: true, ...SCHEDULING_NOTE_COLUMNS } } } },
           cycle: { select: { track: true } },
           applicant: {
             select: {
@@ -249,6 +260,7 @@ export async function listIncomingMembers(opts: {
       const { application } = row;
       const { applicant } = application;
       const person = applicant.applicantPerson;
+      const contract = row.contract ?? application.acceptances.find((a) => a.contract)?.contract ?? null;
       return {
         acceptanceId: row.id,
         applicationId: application.id,
@@ -258,9 +270,9 @@ export async function listIncomingMembers(opts: {
         lastName: person?.lastName ?? applicant.lastName,
         licensedRN: person?.licensedRN ?? false,
         kind: kindFor(application.cycle.track),
-        stage: stageFor(row.contract?.status),
+        stage: stageFor(contract?.status),
         availabilityDates: applicationAvailabilityDates(application.answers, opts.clinicDates),
-        onboardingNotes: schedulingNotesOf(row.contract),
+        onboardingNotes: schedulingNotesOf(contract),
       };
     })
     .sort(comparePersonName);
@@ -289,9 +301,14 @@ export async function onboardingNotesByMember(opts: {
     where: {
       status: "PROMOTED",
       promotedPersonId: { in: opts.personIds },
+      // Any contract on an application accepted into this department, not only
+      // the one on this department's own acceptance: a dual appointment's
+      // second department shares the contract of the first.
       acceptance: {
-        departmentCode: opts.departmentCode,
-        application: { cycle: { termId: opts.termId } },
+        application: {
+          cycle: { termId: opts.termId },
+          acceptances: { some: { departmentCode: opts.departmentCode } },
+        },
       },
     },
     select: {

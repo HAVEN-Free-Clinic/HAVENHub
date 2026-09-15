@@ -7,6 +7,10 @@ import type { ContractBlock, ContractLayout } from "./layout";
  *  conditions may key on even though they are never asked as questions. */
 export type ContractContext = {
   department: string | null;
+  /** Departments they are also accepted into, as an approved dual appointment.
+   *  Department-gated blocks show for these too, so they read and sign every
+   *  department's responsibilities, not only the first one's. */
+  additionalDepartments?: string[];
   track: Track;
   epicRequirement: EpicRequirement;
   /** The Epic ID already on file for this applicant (matched Person), or null.
@@ -52,7 +56,12 @@ export function buildContractAnswers(
   const epicAsk = ctx.epicRequirement === "SOME" && !ctx.storedEpicId ? "yes" : "no";
   return {
     ...rest,
-    ...(ctx.department ? { department: ctx.department } : {}),
+    // An array when they serve in more than one department. Conditions on
+    // `department` are membership tests (isFieldVisible's "is" asks whether the
+    // answer includes the value), so each department's blocks match.
+    ...(ctx.department
+      ? { department: ctx.additionalDepartments?.length ? [ctx.department, ...ctx.additionalDepartments] : ctx.department }
+      : {}),
     track: ctx.track,
     epicRequirement: ctx.epicRequirement,
     epicSection,

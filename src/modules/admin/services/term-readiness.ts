@@ -145,7 +145,7 @@ async function incomingReadiness(term: Term, now: Date): Promise<IncomingReadine
         application: { status: { not: "WITHDRAWN" }, cycle: { termId: term.id } },
         OR: [{ contract: { is: null } }, { contract: { is: { status: { not: "PROMOTED" } } } }],
       },
-      select: { application: { select: { cycle: { select: { id: true, title: true } } } } },
+      select: { applicationId: true, application: { select: { cycle: { select: { id: true, title: true } } } } },
     }),
     prisma.termMembership.findMany({
       where: { termId: term.id, status: "ACTIVE", person: { status: "ACTIVE" } },
@@ -168,7 +168,12 @@ async function incomingReadiness(term: Term, now: Date): Promise<IncomingReadine
   ]);
 
   const byCycle = new Map<string, { cycleId: string; title: string; count: number }>();
+  // Counted by application, not acceptance: a dual appointment is two
+  // acceptances for one person waiting on one promotion.
+  const seenApplications = new Set<string>();
   for (const a of acceptances) {
+    if (seenApplications.has(a.applicationId)) continue;
+    seenApplications.add(a.applicationId);
     const { id, title } = a.application.cycle;
     const entry = byCycle.get(id) ?? { cycleId: id, title, count: 0 };
     entry.count += 1;

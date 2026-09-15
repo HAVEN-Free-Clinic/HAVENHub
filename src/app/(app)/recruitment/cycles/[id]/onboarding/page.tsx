@@ -18,6 +18,7 @@ export default async function OnboardingPage({ params }: { params: Promise<{ id:
   if (!cycle) notFound();
   const rows = await listOnboardingRows(id);
   const hasConflicts = rows.some((r) => r.state === "CONFLICT");
+  const hasDualAppointments = rows.some((r) => r.state === "DUAL");
 
   // full: this tab's body is OnboardingTable -- checkbox, name, department,
   // status, plus a per-row action -- and 56rem squeezed it while the tab beside
@@ -45,6 +46,13 @@ export default async function OnboardingPage({ params }: { params: Promise<{ id:
         Resending refreshes the 21-day expiry on the same link, so an expired or
         undelivered link is recoverable without a fresh acceptance.
       </p>
+      {hasDualAppointments && (
+        <p className="text-xs text-subtle-foreground">
+          A <span className="font-medium text-foreground-soft">Dual appointment</span> row is the second department of
+          someone accepted into two. They fill in one form, sent through their other row, and promoting it puts them on
+          both rosters.
+        </p>
+      )}
       {hasConflicts && (
         <p className="text-xs text-subtle-foreground">
           Applicants accepted by more than one department are marked{" "}

@@ -55,14 +55,17 @@ async function loadCatalog(): Promise<RequirableTraining[]> {
  *  volunteers.view_compliance OR volunteers.manage_compliance (see
  *  platform/compliance/access.ts). Marking completions is a write and stays
  *  manage-only; the page drops those controls for a view-only holder. */
-export async function getEhsDashboard(): Promise<EhsDashboard> {
-  const activeTerm = await getActiveTerm();
-  if (!activeTerm) return { trainings: [], rows: [] };
+export async function getEhsDashboard(termIdOverride?: string): Promise<EhsDashboard> {
+  // The active term by default. A next term can be passed to see its incoming roster
+  // before it goes live; completions are per person, not per term, so everything
+  // already on file for a returning member counts there too.
+  const termId = termIdOverride ?? (await getActiveTerm())?.id;
+  if (!termId) return { trainings: [], rows: [] };
 
   const catalog = await loadCatalog();
 
   const memberships = (await prisma.termMembership.findMany({
-    where: { termId: activeTerm.id, status: "ACTIVE" },
+    where: { termId, status: "ACTIVE" },
     include: {
       person: {
         select: {

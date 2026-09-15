@@ -18,6 +18,11 @@ import { SubmitButton } from "@/platform/ui/submit-button";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { Pagination } from "@/platform/ui/pagination";
 import { getEhsDashboard } from "@/platform/ehs/services/status";
+import { getActiveTerm } from "@/platform/terms/active-term";
+import { getNextTerm } from "@/platform/terms/next-term";
+import { buildTermOptions } from "@/platform/terms/term-options";
+import { TermSwitcher } from "@/platform/ui/term-switcher";
+import { Alert } from "@/platform/ui/alert";
 import { toggleEhsCompletionAction, toggleAddedToEhsAction } from "./actions";
 import { EmptyState } from "@/platform/ui/empty-state";
 
@@ -26,16 +31,23 @@ const PAGE_SIZE = 25;
 export default async function EhsDashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ page?: string }>;
+  searchParams: Promise<{ page?: string; term?: string }>;
 }) {
   const viewer = await requireAnyPermission([
     "volunteers.view_compliance",
     "volunteers.manage_compliance",
   ]);
   const isManager = await can(viewer.personId, "volunteers.manage_compliance");
-  const { trainings, rows } = await getEhsDashboard();
-  const trainingNameById = new Map(trainings.map((t) => [t.id, t.name]));
   const sp = await searchParams;
+  // Whose roster: the live term, or the next one before it goes live, so the
+  // incoming class's EHS can be recorded ahead of the switch (their onboarding gate
+  // already follows that term). Only the next term is accepted, so a stale or
+  // hand-typed ?term= reads as the live roster. The mark/unmark forms post back to
+  // this same URL, so the chosen term survives each click.
+  const [liveTerm, nextTerm] = await Promise.all([getActiveTerm(), getNextTerm()]);
+  const termId = nextTerm && sp.term === nextTerm.id ? nextTerm.id : undefined;
+  const { trainings, rows } = await getEhsDashboard(termId);
+  const trainingNameById = new Map(trainings.map((t) => [t.id, t.name]));
 
   // Render-level pagination: bounds the DOM (one form per row plus one per
   // training cell) for large active-volunteer rosters. Mirrors master/page.tsx.
@@ -49,6 +61,22 @@ export default async function EhsDashboardPage({
         title="EHS training"
         description="Environmental Health and Safety training completion."
       />
+      {liveTerm && nextTerm && (
+        <div className="mt-4 space-y-3">
+          <TermSwitcher
+            options={buildTermOptions([liveTerm, nextTerm])}
+            selectedId={termId ?? liveTerm.id}
+            liveTermId={liveTerm.id}
+            hrefForTerm={(id) => (id ? `/volunteers/ehs?term=${id}` : "/volunteers/ehs")}
+          />
+          {termId && (
+            <Alert tone="info">
+              Showing {nextTerm.name}, which is not active yet: everyone promoted onto its roster. EHS completions
+              are not tied to a term, so anything already recorded for a returning member counts here too.
+            </Alert>
+          )}
+        </div>
+      )}
       <div className="mt-6 max-w-fit space-y-4">
         {isManager && (
           <div className="mb-4">

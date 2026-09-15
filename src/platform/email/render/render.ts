@@ -71,5 +71,21 @@ export function renderTemplate(
     return out;
   }
 
-  return renderUntil(false);
+  const out = renderUntil(false);
+  // HTML only: drop list items a conditional left empty. The email editor is a rich
+  // text editor, and saving a list with {{#if x}}...{{/if}} between its items moves
+  // each marker into a list item of its own, so the markers render as blank bullets
+  // whether the condition is true or false. Plain-text renders (subjects, Teams
+  // drafts) pass escape: false and are left exactly as rendered.
+  return escapeVars ? removeEmptyListItems(out) : out;
+}
+
+/** A list item holding nothing visible: whitespace, non-breaking spaces, line
+ *  breaks, or empty paragraphs (what the editor writes for an empty line). */
+const EMPTY_LIST_ITEM = /<li\b[^>]*>(?:\s|&nbsp;|<br\s*\/?>|<p\b[^>]*>(?:\s|&nbsp;|<br\s*\/?>)*<\/p>)*<\/li>/gi;
+const EMPTY_LIST = /<(ul|ol)\b[^>]*>\s*<\/\1>/gi;
+
+/** Remove list items with no visible content, then any list left with none. */
+export function removeEmptyListItems(html: string): string {
+  return html.replace(EMPTY_LIST_ITEM, "").replace(EMPTY_LIST, "");
 }

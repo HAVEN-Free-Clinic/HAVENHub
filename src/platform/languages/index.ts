@@ -24,7 +24,7 @@ import { notify } from "@/platform/notifications/notify";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
 import { languageClaimedContext } from "@/platform/email/templates/volunteers";
 import { getSetting } from "@/platform/settings/service";
-import { firstNameOf } from "@/platform/person-name";
+import { firstNameOf, personNameOrderVia, comparePersonName } from "@/platform/person-name";
 import { log, errorAttrs } from "@/platform/logging";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { peopleWithPermission } from "@/platform/rbac/permission-holders";
@@ -37,6 +37,7 @@ import {
 } from "./catalog";
 import { upsertSpanishAssessmentForTerm, verifyAssessmentRecord } from "./spanish-assessments";
 import { listApplicantLanguageQueue } from "./applicant-review";
+import { clearMemberReviewLater } from "./review-later";
 
 /**
  * The catalog and its pure helpers are re-exported so every existing server
@@ -80,6 +81,12 @@ export type LanguageReviewRow = {
   contextLabel: string;
   /** Department codes. A dual-role offer is rendered as "INTP (dual)". */
   departments: string[];
+  /**
+   * Set while a reviewer has this row parked on the Review later tab: since
+   * when, and by whom. Null means it is in the queue proper. Either way nothing
+   * has been recorded and the person is still owed an assessment.
+   */
+  reviewLater: { since: Date; byName: string | null } | null;
 };
 
 /**
@@ -100,7 +107,7 @@ export async function listLanguageReviewQueue(): Promise<LanguageReviewRow[]> {
     listApplicantLanguageQueue(),
     prisma.personLanguage.findMany({
       where: languageReviewWhere(),
-      orderBy: [{ person: { name: "asc" } }, { language: "asc" }],
+      orderBy: [...personNameOrderVia("person"), { language: "asc" }],
       select: {
         id: true,
         personId: true,
@@ -147,19 +154,50 @@ export async function listLanguageReviewQueue(): Promise<LanguageReviewRow[]> {
   );
 
   const memberIds = memberRows.map((r) => r.personId);
-  // Department context for the member half. Resolved live from the ACTIVE
-  // memberships in the ACTIVE term, matching how every other roster read here
-  // resolves a person's departments.
-  const memberships = activeTerm
-    ? await prisma.termMembership.findMany({
-        where: { personId: { in: memberIds }, termId: activeTerm.id, status: "ACTIVE" },
-        select: { personId: true, department: { select: { code: true } } },
-      })
-    : [];
+  const [memberships, deferrals] = await Promise.all([
+    // Department context for the member half. Resolved live from the ACTIVE
+    // memberships in the ACTIVE term, matching how every other roster read here
+    // resolves a person's departments.
+    activeTerm
+      ? prisma.termMembership.findMany({
+          where: { personId: { in: memberIds }, termId: activeTerm.id, status: "ACTIVE" },
+          select: { personId: true, department: { select: { code: true } } },
+        })
+      : [],
+    // Rows a reviewer set aside to review later, asked for only among the rows
+    // still queued, so a deferral on a row settled some other way (a verdict
+    // carried forward at promotion, say) never surfaces.
+    prisma.languageReviewDeferral.findMany({
+      where: {
+        OR: [
+          { personLanguageId: { in: memberRows.map((r) => r.id) } },
+          { applicationId: { in: [...new Set(applicantRows.map((r) => r.applicationId))] } },
+        ],
+      },
+      select: {
+        personLanguageId: true, applicationId: true, language: true,
+        deferredById: true, createdAt: true,
+      },
+    }),
+  ]);
   const deptsByPerson = new Map<string, string[]>();
   for (const m of memberships) {
     deptsByPerson.set(m.personId, [...(deptsByPerson.get(m.personId) ?? []), m.department.code]);
   }
+  const deferrers = deferrals.length === 0
+    ? []
+    : await prisma.person.findMany({
+        where: { id: { in: [...new Set(deferrals.map((d) => d.deferredById))] } },
+        select: { id: true, name: true },
+      });
+  const deferrerName = new Map(deferrers.map((p) => [p.id, p.name]));
+  // Keyed by queue row id, which for an applicant is `${applicationId}:${language}`.
+  const reviewLaterByRowId = new Map(
+    deferrals.map((d) => [
+      d.personLanguageId ?? `${d.applicationId}:${d.language}`,
+      { since: d.createdAt, byName: deferrerName.get(d.deferredById) ?? null },
+    ]),
+  );
 
   const applicants: LanguageReviewRow[] = applicantRows.map((r) => ({
     id: `${r.applicationId}:${r.language}`,
@@ -173,6 +211,7 @@ export async function listLanguageReviewQueue(): Promise<LanguageReviewRow[]> {
     score: null,
     contextLabel: r.cycleTitle,
     departments: [...r.departments, ...r.dualRoleDepartments.map((c) => `${c} (dual)`)],
+    reviewLater: reviewLaterByRowId.get(`${r.applicationId}:${r.language}`) ?? null,
   }));
 
   const members: LanguageReviewRow[] = memberRows.map((r) => ({
@@ -187,6 +226,7 @@ export async function listLanguageReviewQueue(): Promise<LanguageReviewRow[]> {
     score: r.score,
     contextLabel: activeTerm?.name ?? "",
     departments: (deptsByPerson.get(r.personId) ?? []).sort(),
+    reviewLater: reviewLaterByRowId.get(r.id) ?? null,
   }));
 
   return [...applicants, ...members];
@@ -263,6 +303,7 @@ export async function recordLanguageAssessment(
       ...scoreWrite,
     },
   });
+  await clearMemberReviewLater(input.personId, input.language);
 
   // Mirror the decision into the assessment history for the current term, so the
   // history tab and the profile badge agree with what the queue just recorded.
@@ -561,16 +602,19 @@ async function sendPendingClaimDigest(
     getSetting<string>("app.baseUrl"),
     prisma.person.findMany({
       where: { id: { in: [...new Set(claims.map((c) => c.personId))] } },
-      select: { id: true, name: true },
+      select: { id: true, name: true, legalFirstName: true, lastName: true },
     }),
   ]);
   if (reviewers.length === 0) return;
 
-  const nameById = new Map(claimants.map((p) => [p.id, p.name]));
+  const byId = new Map(claimants.map((p) => [p.id, p]));
   const lines = claims
-    .map((c) => ({ name: nameById.get(c.personId), language: languageLabel(c.language) }))
-    .filter((l): l is { name: string; language: string } => Boolean(l.name))
-    .sort((a, b) => a.name.localeCompare(b.name) || a.language.localeCompare(b.language));
+    .map((c) => {
+      const person = byId.get(c.personId);
+      return person && { ...person, language: languageLabel(c.language) };
+    })
+    .filter((l) => l !== undefined && l !== null)
+    .sort((a, b) => comparePersonName(a, b) || a.language.localeCompare(b.language));
   if (lines.length === 0) return;
 
   const reviewUrl = `${baseUrl}/volunteers/spanish-review`;

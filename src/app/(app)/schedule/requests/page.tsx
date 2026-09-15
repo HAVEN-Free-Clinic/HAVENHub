@@ -84,7 +84,19 @@ export default async function ScheduleRequestsPage() {
             rows: await listDepartmentRequests(session.personId, dept.id, term.id),
           })),
         );
-        return { term, isLive, perDept: perDept.filter((p) => p.rows.length > 0) };
+        // Departments with something to decide lead. A department is listed at
+        // all if it has recent decisions, so an approver with one pending request
+        // among many quiet departments had to scroll past every "No pending
+        // requests" card to find it. Array.sort is stable, so ties keep code order.
+        const pendingCount = (p: (typeof perDept)[number]) =>
+          p.rows.filter((r) => r.request.status === "PENDING").length;
+        return {
+          term,
+          isLive,
+          perDept: perDept
+            .filter((p) => p.rows.length > 0)
+            .sort((a, b) => Number(pendingCount(b) > 0) - Number(pendingCount(a) > 0)),
+        };
       }),
     )
   ).filter((g) => g.perDept.length > 0);
@@ -194,7 +206,7 @@ export default async function ScheduleRequestsPage() {
           <div key={term.id} className="space-y-6">
             {showTermHeadings && (
               <div className="flex items-center gap-2">
-                <SectionHeader as="h2" level="title" className="text-xl">{term.name}</SectionHeader>
+                <SectionHeader as="h2" level="group">{term.name}</SectionHeader>
                 <Badge tone={isLive ? "brand" : "default"}>{isLive ? "Live" : "Next term"}</Badge>
               </div>
             )}

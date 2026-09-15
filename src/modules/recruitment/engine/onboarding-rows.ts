@@ -12,7 +12,9 @@ export type OnboardingRowState =
   | "EXPIRED"
   | "SUBMITTED"
   | "PROMOTED"
-  | "CONFLICT";
+  | "CONFLICT"
+  /** A dual appointment's second acceptance, carried by the other one's contract. */
+  | "DUAL";
 
 export type OnboardingBulkAction = "send" | "promote" | "withdraw";
 
@@ -23,6 +25,8 @@ export type OnboardingRow = {
   lastName: string;
   departmentCode: string;
   state: OnboardingRowState;
+  /** For a DUAL row: the department whose onboarding contract covers this one. */
+  onboardsWith?: string | null;
   onRoster: boolean;
   customAnswers: { label: string; value: string }[];
 };
@@ -40,16 +44,23 @@ export type OnboardingFilters = {
  * one department cannot be onboarded or promoted until SRR resolves it on the
  * Decisions page, no matter how far its contract got.
  *
+ * DUAL is the second department of an approved dual appointment. It has nothing
+ * to send or promote of its own: the person fills in one form, through the other
+ * acceptance, and promoting that puts them on both rosters.
+ *
  * Expiry only distinguishes SENT from EXPIRED, because it only gates the window
  * in which an applicant may still submit. A null expiresAt is grandfathered as
  * non-expiring (contracts predate the column).
  */
 export function deriveRowState(input: {
   conflicted: boolean;
+  /** Set when another acceptance on the same application carries onboarding. */
+  onboardsWith?: string | null;
   contract: { status: string; expiresAt: Date | null } | null;
   now: Date;
 }): OnboardingRowState {
   if (input.conflicted) return "CONFLICT";
+  if (input.onboardsWith) return "DUAL";
   const c = input.contract;
   if (!c) return "NO_CONTRACT";
   if (c.status === "PROMOTED") return "PROMOTED";

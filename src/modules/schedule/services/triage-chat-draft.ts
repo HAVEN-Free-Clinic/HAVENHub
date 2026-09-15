@@ -137,7 +137,15 @@ export async function loadTriageChatDraft(
       triage: true,
       department: { select: { id: true, code: true, name: true } },
       person: {
-        select: { id: true, name: true, netId: true, contactEmail: true, entraObjectId: true },
+        select: {
+          id: true,
+          name: true,
+          legalFirstName: true,
+          lastName: true,
+          netId: true,
+          contactEmail: true,
+          entraObjectId: true,
+        },
       },
     },
   });

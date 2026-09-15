@@ -37,10 +37,6 @@
               "type": "boolean",
               "description": "Whether the visitor holds the admin.manage_settings permission in HAVEN Hub."
             },
-            "manage_subcommittees": {
-              "type": "boolean",
-              "description": "Whether the visitor holds the admin.manage_subcommittees permission in HAVEN Hub."
-            },
             "manage_sync": {
               "type": "boolean",
               "description": "Whether the visitor holds the admin.manage_sync permission in HAVEN Hub."

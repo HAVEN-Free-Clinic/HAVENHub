@@ -146,7 +146,7 @@ export default async function NotificationsPage({ searchParams }: PageProps) {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Notifications"
+        title="Notification log"
         description="Monitor outgoing Teams messages. Retry failed messages to re-queue them for the next delivery pass."
       />
 

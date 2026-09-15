@@ -1,5 +1,5 @@
 import type { CycleStatus } from "@prisma/client";
-import { Badge } from "@/platform/ui/badge";
+import { Badge, type Tone } from "@/platform/ui/badge";
 import type { Decision } from "@/modules/recruitment/engine/decision-summary";
 import { APPLICANT_TYPE_LABELS } from "@/modules/recruitment/engine/visibility";
 import type { RosterOrigin } from "@/modules/recruitment/services/training";
@@ -18,12 +18,13 @@ import type { RosterOrigin } from "@/modules/recruitment/services/training";
  */
 
 /**
- * Badge's tone union, named here so recruitment's status vocabularies (this
- * file's cycle + decision maps, and interviewStatus in interview-cells.tsx) all
- * pick from one list. Consolidating the labels while each caller kept its own
- * copy of the tone type would only move the fork.
+ * Badge's tone union, re-exported so recruitment's status vocabularies (this
+ * file's cycle + decision maps, and interviewStatus in interview-cells.tsx) can
+ * name it without importing the primitive. It is a re-export, not a second
+ * declaration: writing the union out again here consolidated the labels while
+ * leaving the tone type forked, which is the fork it set out to close.
  */
-export type Tone = "default" | "brand" | "success" | "warning" | "critical";
+export type { Tone };
 
 /** Short, friendly cycle status (never the raw enum). */
 export const CYCLE_STATUS_LABELS: Record<CycleStatus, string> = {

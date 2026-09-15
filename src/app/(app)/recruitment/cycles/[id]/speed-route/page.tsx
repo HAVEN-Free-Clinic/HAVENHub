@@ -1,8 +1,9 @@
 import { notFound } from "next/navigation";
+import { PageBody } from "@/platform/ui/page-body";
 import { requirePersonSession } from "@/platform/auth/session";
 import { can } from "@/platform/rbac/engine";
 import { loadSpeedRouteBoard } from "@/modules/recruitment/services/speed-route";
-import { RecruitmentAuthError } from "@/modules/recruitment/services/review";
+import { RecruitmentAuthError, recordSpeedRouteView } from "@/modules/recruitment/services/review";
 import { RoutingError } from "@/modules/recruitment/services/routing";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
@@ -32,13 +33,17 @@ export default async function SpeedRoutePage({ params }: { params: Promise<{ id:
     if (err instanceof RecruitmentAuthError || err instanceof RoutingError) notFound();
     throw err;
   }
+  // Past loadSpeedRouteBoard's review_all check, so a permitted view: the board
+  // lists every applicant in play with their scores. Once per sitting, since
+  // every route or reject on the board re-renders it.
+  await recordSpeedRouteView(person.personId, id);
   // loadSpeedRouteBoard gates on recruitment.review_all, NOT recruitment.access,
   // so a review_all holder without access can reach this page while the cycle
   // overview would bounce them. The breadcrumb must not link there for them.
   const canOpenOverview = await can(person.personId, "recruitment.access");
   const middlePercent = Math.max(0, 100 - board.topPercent - board.bottomPercent);
   return (
-    <div className="space-y-6">
+    <PageBody>
       <SetBreadcrumb
         trail={cycleTrail({ canOpenOverview, cycleId: id, cycleTitle: board.title, section: { label: "Speed route", slug: "speed-route" } })}
       />
@@ -70,6 +75,6 @@ export default async function SpeedRoutePage({ params }: { params: Promise<{ id:
         onApplyTop={applyTopTierAction}
         onApplyBottom={applyBottomTierAction}
       />
-    </div>
+    </PageBody>
   );
 }

@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { PageBody } from "@/platform/ui/page-body";
 import { requirePermission } from "@/platform/auth/session";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { getContractLayoutForEdit } from "@/modules/recruitment/contract/template";
@@ -21,9 +22,10 @@ export default async function ContractBuilderPage({ params }: { params: Promise<
     inPersonTrainingDate: cycle.inPersonTrainingDate,
     trainingLocation: cycle.trainingLocation,
     title: cycle.title,
+    termId: cycle.termId,
   });
   return (
-    <div className="max-w-3xl space-y-6">
+    <PageBody width="content">
       <SetBreadcrumb
         trail={cycleTrail({
           cycleId: id,
@@ -34,6 +36,6 @@ export default async function ContractBuilderPage({ params }: { params: Promise<
       />
       <PageHeader title="Onboarding contract" description={cycle.title} />
       <ContractEditor cycleId={id} initialLayout={layout} hasOverride={hasOverride} status={cycle.status} preview={preview} />
-    </div>
+    </PageBody>
   );
 }

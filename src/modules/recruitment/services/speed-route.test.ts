@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import { RecruitmentAuthError } from "./review";
-import { RoutingError } from "./routing";
+import { RoutingError, rejectApplication, reopenDecision } from "./routing";
 import { loadSpeedRouteBoard } from "./speed-route";
 
 async function seed() {
@@ -75,6 +75,34 @@ describe("loadSpeedRouteBoard", () => {
     expect(row?.proposedDepartmentCode).toBeNull();
   });
 
+  it("drops a returned applicant from the Returned card once the lead rejects them", async () => {
+    const { lead, cycle, apps } = await seed();
+    await prisma.application.update({
+      where: { id: apps[0] },
+      data: { returnedToRoutingAt: new Date(), returnedFromDepartmentCode: "EDUC" },
+    });
+    expect((await loadSpeedRouteBoard(cycle.id, lead.id)).returned.map((r) => r.applicationId)).toEqual([apps[0]]);
+
+    // Rejecting answers the return just as routing does, so the row must leave
+    // the card. It used to stay forever, still offering Route and Reject.
+    await rejectApplication(apps[0], lead.id, null);
+    const board = await loadSpeedRouteBoard(cycle.id, lead.id);
+    expect(board.returned).toEqual([]);
+  });
+
+  it("puts a reopened reject back in the Returned card, still barred from the decliner", async () => {
+    const { lead, cycle, apps } = await seed();
+    await prisma.application.update({
+      where: { id: apps[0] },
+      data: { returnedToRoutingAt: new Date(), returnedFromDepartmentCode: "EDUC" },
+    });
+    await rejectApplication(apps[0], lead.id, null);
+    await reopenDecision(apps[0], lead.id);
+    const board = await loadSpeedRouteBoard(cycle.id, lead.id);
+    expect(board.returned.map((r) => r.applicationId)).toEqual([apps[0]]);
+    expect(board.returned[0].proposedDepartmentCode).toBeNull();
+  });
+
   it("rejects a viewer without review_all", async () => {
     const { other, cycle } = await seed();
     await expect(loadSpeedRouteBoard(cycle.id, other.id)).rejects.toBeInstanceOf(RecruitmentAuthError);
@@ -85,5 +113,18 @@ describe("loadSpeedRouteBoard", () => {
     const term = await prisma.term.findFirstOrThrow();
     const dir = await prisma.recruitmentCycle.create({ data: { track: "DIRECTOR", termId: term.id, title: "D", publicSlug: "dboard", departments: ["EDUC"], createdById: lead.id, status: "OPEN" } });
     await expect(loadSpeedRouteBoard(dir.id, lead.id)).rejects.toBeInstanceOf(RoutingError);
+  });
+
+  it("leaves a lead's own application off their board, after tiering everyone", async () => {
+    const { lead, cycle, apps } = await seed();
+    // The lead applied too, signed out, as the top-scored applicant (a0, average 5).
+    await prisma.person.update({ where: { id: lead.id }, data: { contactEmail: "a0@y.edu" } });
+    const board = await loadSpeedRouteBoard(cycle.id, lead.id);
+    const ids = [...board.top, ...board.middle, ...board.bottom, ...board.unscored, ...board.returned].map((r) => r.applicationId);
+    expect(ids).not.toContain(apps[0]);
+    // The tiers are still cut over the whole cohort, so nobody moves up into the
+    // empty top slot: that would tell the lead where their own application sits.
+    expect(board.top).toHaveLength(0);
+    expect(board.middle.map((r) => r.average).sort()).toEqual([3, 4]);
   });
 });

@@ -18,7 +18,7 @@
  * mutate data.
  */
 
-import type { Person, Department, YnhhTicket, EpicRequestKind } from "@prisma/client";
+import type { Person, Department, YnhhTicket, EpicRequestKind, TechRequestStatus } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { recordAudit } from "@/platform/audit";
@@ -27,7 +27,12 @@ import { MANAGE, SupportConflictError, SupportForbiddenError, SupportNotFoundErr
 import { onEpicSubmitted, syncYnhhServiceRequestToIntercom } from "./epic-ticket-sync";
 import { TERMINAL_STATUSES } from "./manage";
 import { normalizeServiceRequestNumber } from "./identifiers";
-import { PERSON_NAME_ORDER } from "@/platform/person-name";
+import { formatPhone } from "@/platform/phone";
+import {
+  PERSON_NAME_ORDER,
+  personNameOrderVia,
+  type PersonNameParts,
+} from "@/platform/person-name";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -58,7 +63,7 @@ export type EpicAuthorizer = {
   /** Person id: the stable key the form submits and the route re-resolves. */
   id: string;
   name: string;
-  /** First+last name initials, used for PDF filenames and email subjects. */
+  /** Legal first + surname initials, for PDF filenames and email subjects. */
   initials: string;
   /** From Person.phone; "" when unset rather than a stale hardcoded number. */
   phone: string;
@@ -76,15 +81,19 @@ const ITCM_DEPARTMENT_CODE = "ITCM";
 // ---------------------------------------------------------------------------
 
 /**
- * Initials from a full name: the first letter of the first and last
- * whitespace-separated tokens, uppercased. "Caprice Culkin" -> "CC",
- * "Mary Jane Watson" -> "MW", "Cher" -> "C", "" -> "".
+ * An authorizer's initials, for the Epic PDF filename and the email subject.
+ *
+ * The LEGAL first name and the surname: these go to YNHH IT, who hold the name
+ * of record, so a director who goes by Peggy is still "MB" and not "PB".
+ * Reading the stored parts rather than tokenising the display name also keeps a
+ * compound surname whole -- "Ponce Terashima" initials as P, not T.
+ *
+ * A mononym has an empty lastName and initials as one letter.
  */
-export function authorizerInitials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "";
-  if (parts.length === 1) return parts[0][0].toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+export function authorizerInitials(person: PersonNameParts): string {
+  const first = person.legalFirstName.trim()[0] ?? "";
+  const last = person.lastName.trim()[0] ?? "";
+  return `${first}${last}`.toUpperCase();
 }
 
 /**
@@ -106,8 +115,19 @@ export async function listEpicAuthorizers(): Promise<EpicAuthorizer[]> {
       kind: "DIRECTOR",
       department: { code: ITCM_DEPARTMENT_CODE },
     },
-    include: { person: { select: { id: true, name: true, phone: true, contactEmail: true } } },
-    orderBy: { person: { name: "asc" } },
+    include: {
+      person: {
+        select: {
+          id: true,
+          name: true,
+          legalFirstName: true,
+          lastName: true,
+          phone: true,
+          contactEmail: true,
+        },
+      },
+    },
+    orderBy: personNameOrderVia("person"),
   });
 
   // De-dupe by person (the membership unique constraint already prevents a
@@ -118,8 +138,10 @@ export async function listEpicAuthorizers(): Promise<EpicAuthorizer[]> {
     byId.set(m.person.id, {
       id: m.person.id,
       name: m.person.name,
-      initials: authorizerInitials(m.person.name),
-      phone: m.person.phone ?? "",
+      initials: authorizerInitials(m.person),
+      // Formatted here, once, so the authorizer line on the form and the YNHH
+      // PDF built from it print the same number the same way.
+      phone: formatPhone(m.person.phone) ?? "",
       email: m.person.contactEmail ?? "",
     });
   }
@@ -143,7 +165,7 @@ export async function listDepartmentsWithMembers(): Promise<DepartmentWithMember
       person: true,
       department: true,
     },
-    orderBy: [{ department: { code: "asc" } }, { person: { name: "asc" } }],
+    orderBy: [{ department: { code: "asc" } }, ...personNameOrderVia("person")],
   });
 
   // Group by department.
@@ -211,7 +233,7 @@ export async function findMirrorPerson(
       person: { epicId: { not: null } },
     },
     include: { person: { select: { name: true, epicId: true } } },
-    orderBy: { person: { name: "asc" } },
+    orderBy: personNameOrderVia("person"),
   });
 
   if (!membership?.person.epicId) return null;
@@ -644,7 +666,7 @@ export async function listPendingDeactivations(): Promise<PendingDeactivation[]>
         },
       },
     },
-    orderBy: { person: { name: "asc" } },
+    orderBy: personNameOrderVia("person"),
   });
 
   // De-duplicate by person (a person should have at most one open DEACTIVATE,
@@ -886,6 +908,75 @@ export async function submitEpicRequests(
   await onEpicSubmitted(actorPersonId, ticket.id);
 
   return ticket;
+}
+
+// ---------------------------------------------------------------------------
+// listEpicTicketsWithoutRequest
+// ---------------------------------------------------------------------------
+
+export type OrphanEpicTicketRow = {
+  id: string;
+  number: number;
+  subject: string;
+  createdAt: Date;
+  status: TechRequestStatus;
+  /** True when the ticket came in from a Messenger conversation rather than a Hub form. */
+  fromIntercom: boolean;
+  requester: { id: string; name: string | null; epicId: string | null };
+};
+
+/**
+ * EPIC-category support tickets that have no EpicRequest attached.
+ *
+ * This is the hole an Intercom-origin Epic ask falls into. The inbound sync
+ * deliberately creates only a TechRequest -- the ingest route takes none of the
+ * Epic intake fields, because that intake needs a government id and a date of
+ * birth and no part of it may be collected in chat (see the Intercom ticket-sync
+ * design doc, "The category is chosen, not inferred"). The intended handoff is
+ * that Fin links the member to the Hub form. Nothing checked that the second
+ * half ever happened: the ticket sat as a plain EPIC ticket, absent from every
+ * Epic surface, and Intercom -- which owns status -- could resolve it with no
+ * Epic request ever raised. In production all three Intercom-origin EPIC tickets
+ * reached RESOLVED this way; the members were only covered because each had also
+ * gone through the Hub form independently.
+ *
+ * Non-terminal only, so the list drains by itself as tickets close rather than
+ * accruing a backlog nobody can clear -- a manager has no status controls on an
+ * Intercom-linked ticket (ticket-detail.tsx gates them on intercomTicketId), so
+ * a list that kept resolved rows would have no way to be emptied from the Hub.
+ * The moment of loss is covered separately: resolving one of these records its
+ * own audit entry rather than passing silently (intercom-sync.ts).
+ */
+export async function listEpicTicketsWithoutRequest(): Promise<OrphanEpicTicketRow[]> {
+  const rows = await prisma.techRequest.findMany({
+    where: {
+      category: "EPIC",
+      status: { notIn: TERMINAL_STATUSES },
+      // Relation filter, not a null check on a column: an EpicRequest points AT
+      // the ticket (EpicRequest.techRequestId), so "has none" is the only way to
+      // ask this.
+      epicRequests: { none: {} },
+    },
+    orderBy: { number: "desc" },
+    select: {
+      id: true,
+      number: true,
+      subject: true,
+      createdAt: true,
+      status: true,
+      intercomConversationId: true,
+      requester: { select: { id: true, name: true, epicId: true } },
+    },
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    number: r.number,
+    subject: r.subject,
+    createdAt: r.createdAt,
+    status: r.status,
+    fromIntercom: r.intercomConversationId !== null,
+    requester: { id: r.requester.id, name: r.requester.name, epicId: r.requester.epicId },
+  }));
 }
 
 // ---------------------------------------------------------------------------

@@ -1,5 +1,7 @@
+import Link from "next/link";
 import { requireModuleAccess } from "@/platform/auth/session";
 import { PageHeader } from "@/platform/ui/page-header";
+import { buttonClasses } from "@/platform/ui/button";
 import { isIntercomConfigured } from "@/platform/intercom/config";
 import { listMyRequests } from "@/modules/support/services/tech-request";
 import { RequestList } from "@/modules/support/components/request-list";
@@ -10,7 +12,16 @@ export default async function MyRequestsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="My requests" description="Requests you have submitted to IT Support." />
+      {/* The way in to the form, now that "Submit a request" is no tab of its own. */}
+      <PageHeader
+        title="My requests"
+        description="Requests you have submitted to IT Support."
+        action={
+          <Link href="/support/new" className={buttonClasses("primary", "sm")}>
+            Submit a request
+          </Link>
+        }
+      />
       <RequestList
         rows={rows}
         hrefBase="/support"

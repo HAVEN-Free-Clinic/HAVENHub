@@ -623,6 +623,9 @@ export async function getApplication(id: string) {
     where: { id },
     include: {
       applicant: true,
+      // canViewApplication reads approved dual appointments, and every caller of
+      // this loader checks view access with it.
+      dualAppointments: { select: { departmentCode: true, status: true } },
       cycle: {
         include: {
           term: { select: { clinicDates: true } },

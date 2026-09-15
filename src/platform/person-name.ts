@@ -59,7 +59,7 @@ const SURNAME_PARTICLES = new Set([
   "de", "del", "della", "di", "da", "do", "dos", "das", "du",
   "van", "von", "der", "den", "ter", "ten",
   "la", "las", "le", "les", "el", "al",
-  "bin", "ibn", "af", "av", "st", "san", "santa",
+  "bin", "ibn", "ben", "af", "av", "st", "san", "santa",
 ]);
 
 /** Lowercased with periods stripped, the form both suffix sets are keyed by. */
@@ -189,7 +189,13 @@ export function splitPersonName(raw: string | null | undefined): SplitName {
   // review queue. Known limit: a capitalised annotation, "(Inactive)", reads as a
   // nickname and always will. It is pinned in the tests as a limit, not a bug.
   const preferredFirstName = preferredFromParenthetical(text);
-  let needsReview = preferredFirstName !== null && !looksLikeGivenName(preferredFirstName);
+  // A parenthetical carrying more than one token has had part of itself thrown
+  // away: "Antonio Bolea (Tony Vega)" lifts "Tony" and drops "Vega", and nothing
+  // here can tell a second given name from the surname he actually goes by.
+  const multiWordParenthetical = /\([^)]*\p{L}[^)\s]*\s+\p{L}[^)]*\)/u.test(text);
+  let needsReview =
+    preferredFirstName !== null &&
+    (!looksLikeGivenName(preferredFirstName) || multiWordParenthetical);
 
   // Every parenthetical is consumed here: the usable one became the preferred
   // name, and the rest were pronouns or credentials that are not part of a name.
@@ -197,11 +203,23 @@ export function splitPersonName(raw: string | null | undefined): SplitName {
 
   // A comma is either a trailing credential ("Jane Doe, RN") or the inverted
   // form ("Carney, Jonathan"). What follows it decides which.
+  //
+  // In the inverted form the surname is settled: everything BEFORE the comma is
+  // it, however many words that is, so it is taken whole and only the part after
+  // the comma is tokenised. Folding the two halves back into one string and
+  // re-splitting turned "Ponce Terashima, Javier" into Javier / Ponce /
+  // Terashima, which files him under a surname he does not have.
+  let invertedSurname: string | null = null;
   const commaAt = rest.indexOf(",");
   if (commaAt !== -1) {
     const before = rest.slice(0, commaAt).trim();
     const after = rest.slice(commaAt + 1).trim();
-    rest = isSuffix(after.split(/\s+/)[0] ?? "") ? before : `${after} ${before}`;
+    if (isSuffix(after.split(/\s+/)[0] ?? "")) {
+      rest = before;
+    } else {
+      rest = after;
+      invertedSurname = before;
+    }
     needsReview = true;
   }
 
@@ -216,6 +234,19 @@ export function splitPersonName(raw: string | null | undefined): SplitName {
   // survives. "J. R. Carney" displays as "J. Carney", which is not what J. R. is
   // called: when the given name is ITSELF an initial, the person goes by the set.
   if (tokens.length > 0 && isInitial(tokens[0])) needsReview = true;
+
+  // The inverted form already knows its surname, so the tokens left are the
+  // given name and any middle names, and none of the token-counting rules below
+  // apply to them.
+  if (invertedSurname !== null) {
+    return {
+      legalFirstName: tokens[0] ?? "",
+      legalMiddleName: tokens.slice(1).join(" ") || null,
+      lastName: invertedSurname,
+      preferredFirstName,
+      needsReview: true,
+    };
+  }
 
   if (tokens.length === 0) return { ...empty, preferredFirstName };
   if (tokens.length === 1) {
@@ -343,12 +374,25 @@ export function personNameSearchClauses(
   path?: string,
 ): Array<Record<string, unknown>> {
   const match = { contains: term, mode: "insensitive" as const };
-  // The middle name is included even though no surface DISPLAYS it: it is the
-  // one part of a person's name that is otherwise unsearchable, and somebody
-  // known at clinic by a second surname is exactly who gets typed into a search.
-  return ["name", "legalFirstName", "legalMiddleName", "lastName"].map((column) =>
-    path ? { [path]: { [column]: match } } : { [column]: match },
-  );
+  const clauses: Array<Record<string, unknown>> = [
+    { name: match },
+    { legalFirstName: match },
+    { lastName: match },
+    // The middle name is included even though no surface DISPLAYS it: it is the
+    // one part of a person's name that is otherwise unsearchable, and somebody
+    // known at clinic by a second surname is exactly who gets typed into a
+    // search.
+    //
+    // It is also the only NULLABLE column here, and that is why it carries an
+    // explicit IS NOT NULL guard rather than a bare `contains`. In Postgres
+    // `"legalMiddleName" LIKE '%x%'` is NULL for a row with no middle name; NULL
+    // survives the surrounding OR, and NOT(NULL) is NULL, so under any negation
+    // (the audience builder's "does not contain", a NONE group) every person
+    // without a middle name silently vanished from the result. Same shape as
+    // #224. The guard turns that NULL into a false, which negates correctly.
+    { AND: [{ legalMiddleName: { not: null } }, { legalMiddleName: match }] },
+  ];
+  return path ? clauses.map((clause) => ({ [path]: clause })) : clauses;
 }
 
 /**
@@ -378,6 +422,41 @@ export const PERSON_NAME_ORDER: Prisma.PersonOrderByWithRelationInput[] = [
   { legalFirstName: "asc" },
   { id: "asc" },
 ];
+
+/**
+ * The in-memory half of PERSON_NAME_ORDER, for a list the database did not
+ * order: rows built from an aggregation, a Map, or several queries stitched
+ * together.
+ *
+ *   rows.sort(comparePersonName)
+ *
+ * Keyed on the LEGAL name for the same reason the Prisma constant is. Sorting
+ * on the display name means the list jumps the moment somebody sets a preferred
+ * name, reordering itself under a reader who did nothing.
+ *
+ * The row has to carry `legalFirstName` and `lastName`, which usually means
+ * widening a `select`. That is the cost of ordering people the same way
+ * everywhere; sorting the rendered string instead is what leaves half the app
+ * filed under given names and the other half under surnames.
+ */
+export function comparePersonName(a: PersonNameParts, b: PersonNameParts): number {
+  const [aLast, aFirst] = sortKeyOf(a);
+  const [bLast, bFirst] = sortKeyOf(b);
+  return aLast.localeCompare(bLast) || aFirst.localeCompare(bFirst);
+}
+
+/**
+ * The same order, for a query that reaches Person through a relation.
+ *
+ * `PERSON_NAME_ORDER` is typed as a Person orderBy and cannot nest, so a query
+ * on TeamsMessage, PersonLanguage, EpicRequest and friends needs this instead of
+ * `{ person: { name: "asc" } }`. Same three keys, same reasons.
+ *
+ *   orderBy: personNameOrderVia("person")
+ */
+export function personNameOrderVia(relation: string): Array<Record<string, unknown>> {
+  return PERSON_NAME_ORDER.map((clause) => ({ [relation]: clause }));
+}
 
 /** Accent-folded and lowercased, so "Peña" collates beside "Pena". */
 function fold(value: string): string {

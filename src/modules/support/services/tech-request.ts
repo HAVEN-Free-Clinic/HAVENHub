@@ -29,6 +29,21 @@ import { recordAudit } from "@/platform/audit";
 import { can, getEffectivePermissions, hasPermission } from "@/platform/rbac/engine";
 import { personNameSearchClauses } from "@/platform/person-name";
 
+/**
+ * RESOLVED, CLOSED, and CANCELLED are terminal: no further assign, status
+ * transition, priority change, resolve, or cancel is allowed. Also used by
+ * ticket-detail.tsx to gate the owner-facing cancel button and the manager
+ * control panel.
+ *
+ * Declared here rather than in manage.ts, which is where it used to live and
+ * still re-exports it. manage.ts is not a leaf -- it reaches notifications.ts,
+ * which reaches intercom-sync.ts -- so an inbound-sync module importing the
+ * constant from there closed an import cycle. This file imports nothing from
+ * the support module at all, which is what makes it safe for every side to
+ * share.
+ */
+export const TERMINAL_STATUSES: TechRequestStatus[] = ["RESOLVED", "CLOSED", "CANCELLED"];
+
 export const MANAGE = "support.manage_requests";
 /**
  * Read-only counterpart to MANAGE: opens the cross-clinic ticket views to an

@@ -1,4 +1,5 @@
 import { prisma } from "@/platform/db";
+import { comparePersonName } from "@/platform/person-name";
 import { can } from "@/platform/rbac/engine";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { recordAudit } from "@/platform/audit";
@@ -15,6 +16,8 @@ async function requireViewer(actorId: string): Promise<void> {
 export type CompletionRow = {
   personId: string;
   name: string;
+  legalFirstName: string;
+  lastName: string;
   departmentCode: string;
   status: "COMPLETE" | "IN_PROGRESS" | "NOT_STARTED";
   completedAt: Date | null;
@@ -49,7 +52,10 @@ export async function getCourseCompletion(courseId: string, viewerId: string): P
 
   const memberships = await prisma.termMembership.findMany({
     where: { termId: term.id, status: "ACTIVE", ...deptFilter, ...(kind ? { kind } : {}) },
-    include: { person: { select: { id: true, name: true } }, department: { select: { code: true } } },
+    include: {
+      person: { select: { id: true, name: true, legalFirstName: true, lastName: true } },
+      department: { select: { code: true } },
+    },
   });
 
   const personIds = memberships.map((m) => m.person.id);
@@ -94,13 +100,15 @@ export async function getCourseCompletion(courseId: string, viewerId: string): P
       return {
         personId: m.person.id,
         name: m.person.name,
+        legalFirstName: m.person.legalFirstName,
+        lastName: m.person.lastName,
         departmentCode: m.department.code,
         status,
         completedAt: status === "COMPLETE" ? (p?.completedAt ?? null) : null,
         scoreRaw: p?.scoreRaw ?? null,
       };
     })
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .sort(comparePersonName);
 }
 
 /**

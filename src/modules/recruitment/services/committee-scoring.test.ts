@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import { RecruitmentAuthError } from "./review";
-import { submitCommitteeScore, committeeScoreSummary, CommitteeScoreError } from "./committee-scoring";
+import { submitCommitteeScore, committeeScoreSummary, myCommitteeComments, CommitteeScoreError } from "./committee-scoring";
 
 async function seed() {
   const term = await prisma.term.create({ data: { code: "FA26", name: "Fall", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
@@ -46,6 +46,14 @@ describe("submitCommitteeScore", () => {
     await expect(submitCommitteeScore(application.id, scorer.id, 5, null)).rejects.toBeInstanceOf(RecruitmentAuthError);
   });
 
+  it("rejects scoring your own application when it is not linked to your account", async () => {
+    const { scorer, application } = await seed();
+    // Applied signed out under their contact address, so there is no account
+    // link and only the address says whose application this is.
+    await prisma.person.update({ where: { id: scorer.id }, data: { contactEmail: "a@y.edu" } });
+    await expect(submitCommitteeScore(application.id, scorer.id, 5, null)).rejects.toBeInstanceOf(RecruitmentAuthError);
+  });
+
   it("rejects self-scoring on a director-track cycle too (SoD applies on both tracks)", async () => {
     // The motivating case: a director renewing their own membership who is also
     // on the scoring committee must not score their own director-track application.
@@ -81,5 +89,34 @@ describe("committeeScoreSummary", () => {
     const summary = await committeeScoreSummary(application.id);
     expect(summary.count).toBe(2);
     expect(summary.average).toBe(3);
+  });
+
+  it("names each reviewer beside their score and comment, oldest first", async () => {
+    // The routed-decision director reads these to decide, so an anonymous
+    // comment ("who thought the essay was thin?") is not enough.
+    const { scorer, scorer2, application } = await seed();
+    await submitCommitteeScore(application.id, scorer.id, 4, "Clear about why HAVEN");
+    await submitCommitteeScore(application.id, scorer2.id, 2, null);
+    const summary = await committeeScoreSummary(application.id);
+    expect(summary.scores.map((s) => [s.scorer.name, s.score, s.comments])).toEqual([
+      ["Scorer", 4, "Clear about why HAVEN"],
+      ["Scorer2", 2, null],
+    ]);
+  });
+});
+
+describe("myCommitteeComments", () => {
+  it("returns only the scorer's own comments, and only for this cycle", async () => {
+    const { scorer, scorer2, application } = await seed();
+    await submitCommitteeScore(application.id, scorer.id, 4, "Mine");
+    await submitCommitteeScore(application.id, scorer2.id, 2, "Theirs");
+    const term = await prisma.term.create({ data: { code: "SP27", name: "Spring", startDate: new Date(), endDate: new Date(), status: "PLANNING" } });
+    const other = await prisma.recruitmentCycle.create({ data: { track: "VOLUNTEER", termId: term.id, title: "O", publicSlug: "o", departments: ["EDUC"], createdById: scorer.id, status: "OPEN" } });
+    const otherApplicant = await prisma.applicant.create({ data: { cycleId: other.id, firstName: "E", lastName: "F", email: "e@y.edu", emailLower: "e@y.edu" } });
+    const otherApp = await prisma.application.create({ data: { cycleId: other.id, applicantId: otherApplicant.id, answers: {}, applicantType: "NEW", departmentChoices: ["EDUC"] } });
+    await submitCommitteeScore(otherApp.id, scorer.id, 3, "Other cycle");
+
+    const mine = await myCommitteeComments(application.cycleId, scorer.id);
+    expect([...mine]).toEqual([[application.id, "Mine"]]);
   });
 });

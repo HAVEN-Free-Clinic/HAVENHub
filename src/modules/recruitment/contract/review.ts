@@ -4,6 +4,8 @@ import type { ContractBlock, ContractLayout, SystemFieldBlock, CustomQuestionBlo
 import type { ContractContext } from "./visibility";
 import { buildContractAnswers, visibleContractBlocks } from "./visibility";
 import { SYSTEM_FIELDS, systemFieldOptions } from "./system-fields";
+import { formatPhone } from "@/platform/phone";
+import { legalNameOf } from "@/platform/person-name";
 import {
   buildContractSignatureView,
   type ContractSignatureRow,
@@ -14,7 +16,21 @@ import {
  *  applicant's answer already rendered to a string. `value` is null when the
  *  field was shown but left blank. `cert` is present only on the HIPAA
  *  certificate row, signalling the page to render a gated download link. */
-export type ReviewField = { label: string; value: string | null; cert?: { fileName: string } };
+export type ReviewField = {
+  label: string;
+  value: string | null;
+  cert?: { fileName: string };
+  /** Present only on the profile photo row: the page inlines the private blob
+   *  stored at onboarding/<contractId>/<storedName>. */
+  photo?: { storedName: string };
+};
+
+/** What stood in for an upload at submit, as frozen in the contract's review
+ *  context: a HIPAA certificate or profile photo already on the person's record. */
+export type ReviewOnFile = {
+  hipaa: { completionDate: string; pendingVerification: boolean } | null;
+  photo: boolean;
+};
 
 /** One agreement's confirmation status for the at-a-glance checklist. */
 export type AgreementReview = {
@@ -36,11 +52,12 @@ export type ContractReview = {
  *  OnboardingContract so callers can pass the Prisma row directly. */
 export type ReviewContractFields = Pick<
   OnboardingContract,
-  | "firstName" | "lastName" | "email" | "netId" | "phone" | "dateOfBirth"
+  | "firstName" | "legalMiddleName" | "lastName" | "preferredFirstName" | "email" | "netId" | "phone" | "dateOfBirth"
   | "dietaryRestrictions" | "yaleAffiliation" | "gradYear" | "pronouns" | "staffTitle"
   | "epicIdExpiration" | "hasEpic" | "existingEpicId" | "epicAccessType" | "worksWithYnhh"
   | "spanishSelfReported" | "licensedRN" | "hipaaCompletedAt" | "hipaaFileName" | "hipaaStoredName"
   | "agreementSignature" | "professionalismSignature" | "trainingSignature" | "initials"
+  | "shiftsWanted" | "availabilityChangeNeeded" | "availabilityChangeRequest" | "photoStoredName"
 > & { customAnswers: unknown; signatures: unknown };
 
 /** ISO calendar day (YYYY-MM-DD) in UTC: the noon-UTC anchor these date columns
@@ -71,6 +88,7 @@ export function reconstructContractAnswers(c: ReviewContractFields): Record<stri
   if (c.pronouns) sys.pronouns = c.pronouns;
   if (c.staffTitle) sys.staffTitle = c.staffTitle;
   if (c.epicIdExpiration) sys.epicIdExpiration = isoDay(c.epicIdExpiration);
+  if (c.shiftsWanted) sys.shiftsWanted = c.shiftsWanted;
   const custom = (c.customAnswers ?? {}) as Record<string, string | string[]>;
   return { ...sys, ...custom, hasEpic: c.hasEpic ? "on" : "" };
 }
@@ -95,19 +113,26 @@ function selectLabel(options: { value: string; label: string }[], value: string)
 
 /** Render the response line(s) for one visible system field. Most fields emit a
  *  single label/value row; `epic` and `hipaa` expand to several. */
-function systemFieldRows(block: SystemFieldBlock, c: ReviewContractFields): ReviewField[] {
+function systemFieldRows(block: SystemFieldBlock, c: ReviewContractFields, onFile: ReviewOnFile | null): ReviewField[] {
   const spec = SYSTEM_FIELDS[block.systemKey];
   const label = block.label ?? spec.defaultLabel;
 
   switch (block.systemKey) {
-    case "name":
-      return [{ label: "Name", value: `${c.firstName} ${c.lastName}`.trim() || null }];
+    case "name": {
+      // The contract stores the legal parts under their contract column names;
+      // legalNameOf is the one place that joins them.
+      const legal = legalNameOf({ legalFirstName: c.firstName, legalMiddleName: c.legalMiddleName, lastName: c.lastName });
+      const rows: ReviewField[] = [{ label: "Legal name", value: legal || null }];
+      const goesBy = c.preferredFirstName?.trim();
+      if (goesBy) rows.push({ label: "Goes by", value: goesBy });
+      return rows;
+    }
     case "email":
       return [{ label, value: c.email || null }];
     case "netId":
       return [{ label, value: c.netId }];
     case "phone":
-      return [{ label, value: c.phone }];
+      return [{ label, value: formatPhone(c.phone) }];
     case "dob":
       return [{ label, value: c.dateOfBirth ? formatCalendarDate(c.dateOfBirth) : null }];
     case "dietary":
@@ -126,6 +151,19 @@ function systemFieldRows(block: SystemFieldBlock, c: ReviewContractFields): Revi
       return [{ label, value: yesNo(c.spanishSelfReported) }];
     case "licensedRN":
       return [{ label, value: yesNo(c.licensedRN) }];
+    case "photo":
+      if (c.photoStoredName) return [{ label, value: "Uploaded", photo: { storedName: c.photoStoredName } }];
+      return [{ label, value: onFile?.photo ? "On file from their profile" : null }];
+    case "shiftsWanted":
+      return [{ label, value: c.shiftsWanted ? selectLabel(systemFieldOptions("shiftsWanted", c.shiftsWanted), c.shiftsWanted) : null }];
+    case "availabilityChange": {
+      const rows: ReviewField[] = [{
+        label: "Availability change requested",
+        value: c.availabilityChangeNeeded == null ? null : yesNo(c.availabilityChangeNeeded),
+      }];
+      if (c.availabilityChangeNeeded) rows.push({ label: "Availability change request", value: c.availabilityChangeRequest });
+      return rows;
+    }
     case "epic": {
       const rows: ReviewField[] = [{ label: "Has Epic ID", value: yesNo(c.hasEpic) }];
       if (c.hasEpic) {
@@ -138,6 +176,12 @@ function systemFieldRows(block: SystemFieldBlock, c: ReviewContractFields): Revi
       return rows;
     }
     case "hipaa": {
+      // Nothing uploaded because a certificate on file already covered the term.
+      if (!c.hipaaCompletedAt && !c.hipaaStoredName && onFile?.hipaa) {
+        const completed = formatCalendarDate(new Date(onFile.hipaa.completionDate));
+        const pending = onFile.hipaa.pendingVerification ? ", awaiting verification" : "";
+        return [{ label: "HIPAA certificate", value: `On file from their profile (completed ${completed}${pending})` }];
+      }
       const rows: ReviewField[] = [
         { label: "HIPAA completion date", value: c.hipaaCompletedAt ? formatCalendarDate(c.hipaaCompletedAt) : null },
       ];
@@ -191,6 +235,7 @@ export function buildContractReview(
   c: ReviewContractFields,
   layout: ContractLayout,
   ctx: ContractContext,
+  onFile: ReviewOnFile | null = null,
 ): ContractReview {
   const answers = buildContractAnswers(reconstructContractAnswers(c), ctx);
   const enabled = layout.blocks.filter(
@@ -223,7 +268,7 @@ export function buildContractReview(
       responses.push(customQuestionRow(b, custom[b.key] as string | string[] | undefined));
       continue;
     }
-    responses.push(...systemFieldRows(b, c));
+    responses.push(...systemFieldRows(b, c, onFile));
   }
 
   return { responses, agreements, signatureRows };

@@ -29,6 +29,8 @@ import {
   canManageAnyScheduleDept,
   setAssignment,
   toggleTag,
+  assignmentsFor,
+  boardRevision,
   setPatientsBooked,
   setProceduresBooked,
   setAvailabilityOverride,
@@ -241,7 +243,7 @@ async function createTraining(
   termId: string,
   cycleId: string,
   track: "VOLUNTEER" | "DIRECTOR",
-  intake: { minShiftsWanted?: string; additionalShiftAvailability?: string; feedback?: string } = {}
+  intake: { feedback?: string } = {}
 ) {
   return prisma.training.create({
     data: {
@@ -249,8 +251,6 @@ async function createTraining(
       termId,
       cycleId,
       track,
-      minShiftsWanted: intake.minShiftsWanted,
-      additionalShiftAvailability: intake.additionalShiftAvailability,
       feedback: intake.feedback,
     },
   });
@@ -2043,8 +2043,6 @@ describe("builderView", () => {
 
     const cycle = await createCycle(term.id, "VOLUNTEER", director.id);
     await createTraining(volunteer.id, term.id, cycle.id, "VOLUNTEER", {
-      minShiftsWanted: "5",
-      additionalShiftAvailability: "Saturday mornings",
       feedback: "Prefer triage",
     });
 
@@ -2052,16 +2050,16 @@ describe("builderView", () => {
 
     const member = view.members.find((m) => m.person.id === volunteer.id);
     expect(member!.intake).toEqual({
-      minShiftsWanted: "5",
-      additionalShiftAvailability: "Saturday mornings",
+      preferredShifts: null,
+      availabilityChangeRequest: null,
       feedback: "Prefer triage",
     });
 
     // A member with no training row has null intake fields, not undefined.
     const dir = view.members.find((m) => m.person.id === director.id);
     expect(dir!.intake).toEqual({
-      minShiftsWanted: null,
-      additionalShiftAvailability: null,
+      preferredShifts: null,
+      availabilityChangeRequest: null,
       feedback: null,
     });
   });
@@ -2077,11 +2075,11 @@ describe("builderView", () => {
 
     // The volunteer-kind member only has a DIRECTOR-track training row; it must not bleed through.
     const cycle = await createCycle(term.id, "DIRECTOR", director.id);
-    await createTraining(volunteer.id, term.id, cycle.id, "DIRECTOR", { minShiftsWanted: "8" });
+    await createTraining(volunteer.id, term.id, cycle.id, "DIRECTOR", { feedback: "wrong track" });
 
     const view = await builderView(director.id, { departmentId: dept.id, termId: term.id });
     const member = view.members.find((m) => m.person.id === volunteer.id);
-    expect(member!.intake.minShiftsWanted).toBeNull();
+    expect(member!.intake.feedback).toBeNull();
   });
 
   it("marks overrideActive when directorAvailabilitySetAt is set", async () => {
@@ -2579,7 +2577,7 @@ describe("builderView", () => {
     expect(view.rhd).toBeNull();
   });
 
-  it("members list is sorted by name", async () => {
+  it("members list is sorted by surname, then legal given name", async () => {
     const dates = sixSaturdays();
     const term = await createTerm(dates);
     const dept = await createDepartment("PCAR");
@@ -2592,7 +2590,12 @@ describe("builderView", () => {
 
     const view = await builderView(director.id, { departmentId: dept.id, termId: term.id });
     const names = view.members.map((m) => m.person.name);
-    expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b)));
+    // Surname order, matching the rest of the app and the recruitment half that
+    // always did this. Note "Director": a mononym has an empty lastName and so
+    // sorts FIRST, which is the documented wart on PERSON_NAME_ORDER rather than
+    // a bug here. Person cannot hold a nameless row, so it is only ever the
+    // handful of people who genuinely have one name.
+    expect(names).toEqual(["Director", "Adam Anderson", "Zara Zimmerman"]);
   });
 
   it("builderView loads the working (next) term's roster and dates", async () => {
@@ -2639,6 +2642,8 @@ async function createAcceptedApplicant(opts: {
   availability?: string[];
   track?: "VOLUNTEER" | "DIRECTOR";
   contractStatus?: "PENDING" | "SUBMITTED" | "PROMOTED";
+  contractNotes?: { shiftsWanted?: string; availabilityChangeNeeded?: boolean; availabilityChangeRequest?: string };
+  promotedPersonId?: string;
 }) {
   const email = `${opts.name.replace(/\s+/g, ".").toLowerCase()}@yale.edu`;
   const cycle = await prisma.recruitmentCycle.create({
@@ -2686,6 +2691,8 @@ async function createAcceptedApplicant(opts: {
         firstName: applicant.firstName,
         lastName: applicant.lastName,
         email,
+        promotedPersonId: opts.promotedPersonId ?? null,
+        ...opts.contractNotes,
       },
     });
   }
@@ -2728,7 +2735,6 @@ describe("incoming members", () => {
     expect(row?.provisional).toEqual({
       acceptanceId: expect.any(String),
       stage: "ACCEPTED",
-      placeable: true,
     });
     expect(row?.membershipId).toBeNull();
     // The tier the availability view labels "Application", which is the literal
@@ -2741,7 +2747,7 @@ describe("incoming members", () => {
     ]);
   });
 
-  it("shows a first-time accepted applicant as a row nothing can be assigned to", async () => {
+  it("keys a first-time accepted applicant's row on their acceptance", async () => {
     const { dates, next, dept, director } = await planningFixture();
     const { acceptance } = await createAcceptedApplicant({
       termId: next.id,
@@ -2758,7 +2764,7 @@ describe("incoming members", () => {
     });
 
     const row = view.members.find((m) => m.person.name === "Nora Newcomer");
-    expect(row?.provisional?.placeable).toBe(false);
+    expect(row?.provisional?.acceptanceId).toBe(acceptance.id);
     // No Person exists, so the row carries the synthetic acceptance-scoped id.
     // It must not collide with anything a shift could be keyed on.
     expect(row?.person.id).toBe(provisionalRowId(acceptance.id));
@@ -2950,5 +2956,223 @@ describe("incoming members", () => {
     });
     expect(JSON.stringify(view.banner)).not.toContain("Rita Returner");
     expect(view.clearedPersonIds).not.toContain(returner.id);
+  });
+
+  // A first-time applicant has no Person until roster build, so their drafts are
+  // kept against the acceptance (IncomingShiftAssignment) and adopted by
+  // promoteContracts. Everything a director does to a returner's row must work
+  // on theirs.
+  describe("first-time applicants", () => {
+    /** An accepted applicant who applied signed out, so has no Person. */
+    async function newcomerFixture() {
+      const fixture = await planningFixture();
+      const { acceptance, application } = await createAcceptedApplicant({
+        termId: fixture.next.id,
+        departmentCode: fixture.dept.code,
+        name: "Nora Newcomer",
+        approvedById: fixture.director.id,
+        availability: [isoDateKey(fixture.dates[0])],
+      });
+      return { ...fixture, acceptance, application, rowId: provisionalRowId(acceptance.id) };
+    }
+
+    it("drafts a shift on their row without touching the real schedule", async () => {
+      const { dates, next, dept, director, acceptance, rowId } = await newcomerFixture();
+      const dk = isoDateKey(dates[0]);
+
+      await setAssignment(director.id, {
+        termId: next.id,
+        departmentId: dept.id,
+        dateKey: dk,
+        personId: rowId,
+        role: "VOLUNTEER",
+      });
+
+      expect(
+        await prisma.incomingShiftAssignment.count({ where: { acceptanceId: acceptance.id } }),
+      ).toBe(1);
+      // Inert until roster build: nothing any outbound path reads.
+      expect(await prisma.shiftAssignment.count({ where: { termId: next.id } })).toBe(0);
+
+      const view = await builderView(director.id, {
+        departmentId: dept.id,
+        termId: next.id,
+        dateKey: dk,
+        now: dates[0],
+      });
+      expect(view.assignmentsByDate[dk]?.[rowId]).toMatchObject({
+        role: "VOLUNTEER",
+        person: { name: "Nora Newcomer" },
+      });
+      // Counts toward "is this Saturday staffed", as a returner's draft does.
+      expect(view.capacity.headcount).toBe(1);
+      // Uncleared by definition, and no Hub account to mail yet.
+      expect(JSON.stringify(view.banner)).not.toContain("Nora Newcomer");
+      expect(view.shiftEmails).toEqual([]);
+    });
+
+    // A second director's screen learns about changes through boardRevision and
+    // assignmentsFor. Watching ShiftAssignment alone would leave it blind here.
+    it("serves the draft to the live board and moves its revision", async () => {
+      const { dates, next, dept, director, rowId } = await newcomerFixture();
+      const dk = isoDateKey(dates[0]);
+      const before = await boardRevision(next.id, dept.id);
+
+      await setAssignment(director.id, {
+        termId: next.id,
+        departmentId: dept.id,
+        dateKey: dk,
+        personId: rowId,
+        role: "VOLUNTEER",
+      });
+
+      expect(await boardRevision(next.id, dept.id)).not.toBe(before);
+      expect((await assignmentsFor(next.id, dept.id))[dk]?.[rowId]?.role).toBe("VOLUNTEER");
+    });
+
+    it("toggles a tag on a draft and clears the draft again", async () => {
+      const { dates, next, dept, director, acceptance, rowId } = await newcomerFixture();
+      const cell = {
+        termId: next.id,
+        departmentId: dept.id,
+        dateKey: isoDateKey(dates[0]),
+        personId: rowId,
+      };
+
+      await setAssignment(director.id, { ...cell, role: "VOLUNTEER" });
+      await toggleTag(director.id, { ...cell, tag: "remote" });
+      const draft = await prisma.incomingShiftAssignment.findFirstOrThrow({
+        where: { acceptanceId: acceptance.id },
+      });
+      expect(draft.remote).toBe(true);
+
+      await setAssignment(director.id, { ...cell, role: null });
+      expect(
+        await prisma.incomingShiftAssignment.count({ where: { acceptanceId: acceptance.id } }),
+      ).toBe(0);
+    });
+
+    // Withdrawal leaves the acceptance in place, so the draft is still in the
+    // table. It must stop counting and stop showing along with the person's row.
+    it("refuses a new draft once the application is withdrawn, and hides the old one", async () => {
+      const { dates, next, dept, director, application, rowId } = await newcomerFixture();
+      await setAssignment(director.id, {
+        termId: next.id,
+        departmentId: dept.id,
+        dateKey: isoDateKey(dates[0]),
+        personId: rowId,
+        role: "VOLUNTEER",
+      });
+      await prisma.application.update({
+        where: { id: application.id },
+        data: { status: "WITHDRAWN" },
+      });
+
+      await expect(
+        setAssignment(director.id, {
+          termId: next.id,
+          departmentId: dept.id,
+          dateKey: isoDateKey(dates[1]),
+          personId: rowId,
+          role: "VOLUNTEER",
+        }),
+      ).rejects.toThrow(BuilderValidationError);
+
+      const view = await builderView(director.id, {
+        departmentId: dept.id,
+        termId: next.id,
+        dateKey: isoDateKey(dates[0]),
+        now: dates[0],
+      });
+      expect(view.assignmentsByDate[isoDateKey(dates[0])]?.[rowId]).toBeUndefined();
+      expect(view.capacity.headcount).toBe(0);
+    });
+
+    // Scope is checked against the department the write names, so the
+    // acceptance has to be into THAT department too, or a director could place
+    // another department's newcomer on their own board.
+    it("refuses an acceptance into a different department", async () => {
+      const { dates, next, dept, director } = await planningFixture();
+      const { acceptance } = await createAcceptedApplicant({
+        termId: next.id,
+        departmentCode: "JCTS",
+        name: "Olga Other",
+        approvedById: director.id,
+      });
+
+      await expect(
+        setAssignment(director.id, {
+          termId: next.id,
+          departmentId: dept.id,
+          dateKey: isoDateKey(dates[0]),
+          personId: provisionalRowId(acceptance.id),
+          role: "VOLUNTEER",
+        }),
+      ).rejects.toThrow(BuilderValidationError);
+    });
+
+    it("refuses the DIRECTOR role on a volunteer-track acceptance", async () => {
+      const { dates, next, dept, director, rowId } = await newcomerFixture();
+
+      await expect(
+        setAssignment(director.id, {
+          termId: next.id,
+          departmentId: dept.id,
+          dateKey: isoDateKey(dates[0]),
+          personId: rowId,
+          role: "DIRECTOR",
+        }),
+      ).rejects.toThrow(BuilderValidationError);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Onboarding scheduling answers (shift count, availability change request)
+// ---------------------------------------------------------------------------
+
+describe("onboarding scheduling answers in the builder", () => {
+  /** Director managing SRHD, drafting a PLANNING term, like planningFixture. */
+  async function fixture() {
+    const live = await createTerm(sixSaturdays(), "ACTIVE");
+    const next = await createTerm(sixSaturdaysFrom(utcNoon(2026, 9, 5)), "PLANNING");
+    const dept = await createDepartment("SRHD");
+    const director = await createPerson("Dana Director");
+    await createMembership(director.id, live.id, dept.id, "DIRECTOR");
+    return { next, dept, director };
+  }
+
+  it("shows an incoming volunteer's submitted answers on their provisional row", async () => {
+    const { next, dept, director } = await fixture();
+    const { acceptance } = await createAcceptedApplicant({
+      termId: next.id, departmentCode: "SRHD", name: "Ivy Incoming", approvedById: director.id,
+      contractStatus: "SUBMITTED",
+      contractNotes: { shiftsWanted: "5", availabilityChangeNeeded: true, availabilityChangeRequest: "Drop Sep 12" },
+    });
+
+    const view = await builderView(director.id, { departmentId: dept.id, termId: next.id });
+    const row = view.members.find((m) => m.provisional?.acceptanceId === acceptance.id);
+    expect(row!.intake).toEqual({
+      preferredShifts: "5",
+      availabilityChangeRequest: "Drop Sep 12",
+      feedback: null,
+    });
+  });
+
+  it("keeps showing them once roster build has promoted the contract", async () => {
+    const { next, dept, director } = await fixture();
+    const volunteer = await createPerson("Rory Rostered");
+    await createMembership(volunteer.id, next.id, dept.id, "VOLUNTEER");
+    await createAcceptedApplicant({
+      termId: next.id, departmentCode: "SRHD", name: "Rory Rostered", approvedById: director.id,
+      personId: volunteer.id, contractStatus: "PROMOTED", promotedPersonId: volunteer.id,
+      contractNotes: { shiftsWanted: "8+", availabilityChangeNeeded: false },
+    });
+
+    const view = await builderView(director.id, { departmentId: dept.id, termId: next.id });
+    const member = view.members.find((m) => m.person.id === volunteer.id);
+    expect(member!.provisional).toBeNull();
+    expect(member!.intake.preferredShifts).toBe("8+");
+    expect(member!.intake.availabilityChangeRequest).toBeNull();
   });
 });

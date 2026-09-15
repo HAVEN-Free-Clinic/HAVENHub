@@ -51,7 +51,7 @@ import {
   parseTermLabel,
   termRankOf,
 } from "./assessment-terms";
-import { personNameSearchClauses } from "@/platform/person-name";
+import { personNameSearchClauses, personNameOrderVia } from "@/platform/person-name";
 
 export type SpanishAssessmentRow = {
   id: string;
@@ -256,7 +256,7 @@ export async function listSpanishFlagMismatches(): Promise<FlagMismatch[]> {
       score: true,
       person: { select: { name: true, netId: true } },
     },
-    orderBy: { person: { name: "asc" } },
+    orderBy: personNameOrderVia("person"),
   });
   if (flagged.length === 0) return [];
 

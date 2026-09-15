@@ -15,6 +15,7 @@
  */
 
 import { prisma } from "@/platform/db";
+import { comparePersonName } from "@/platform/person-name";
 import { can } from "@/platform/rbac/engine";
 import { manageableDepartmentIds } from "@/platform/departments";
 import { getActiveTerm } from "@/platform/terms/active-term";
@@ -28,6 +29,8 @@ export type TermRef = { id: string; code: string; name: string };
 export type TransitionRow = {
   personId: string;
   name: string;
+  legalFirstName: string;
+  lastName: string;
   netId: string | null;
   contactEmail: string | null;
   /** ACTIVE memberships in the CURRENT term, for display and for the CSV. */
@@ -87,7 +90,16 @@ export async function transitionView(viewerPersonId: string): Promise<Transition
       ...(departmentScope ? { departmentId: { in: departmentScope } } : {}),
     },
     include: {
-      person: { select: { id: true, name: true, netId: true, contactEmail: true } },
+      person: {
+        select: {
+          id: true,
+          name: true,
+          legalFirstName: true,
+          lastName: true,
+          netId: true,
+          contactEmail: true,
+        },
+      },
       department: { select: { code: true, name: true } },
     },
   });
@@ -189,6 +201,8 @@ export async function transitionView(viewerPersonId: string): Promise<Transition
     rows.push({
       personId,
       name: person.name,
+      legalFirstName: person.legalFirstName,
+      lastName: person.lastName,
       netId: person.netId,
       contactEmail: person.contactEmail,
       departments: [
@@ -206,7 +220,7 @@ export async function transitionView(viewerPersonId: string): Promise<Transition
     });
   }
 
-  rows.sort((a, b) => a.name.localeCompare(b.name));
+  rows.sort(comparePersonName);
 
   return { activeTerm: termRef(activeTerm), nextTerm: termRef(nextTerm), rows };
 }

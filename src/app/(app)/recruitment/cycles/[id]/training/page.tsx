@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { PageBody } from "@/platform/ui/page-body";
 import { requirePermission, requirePersonSession } from "@/platform/auth/session";
 import { can } from "@/platform/rbac/engine";
 import { getCycle } from "@/modules/recruitment/services/cycles";
@@ -62,13 +63,13 @@ export default async function TrainingRosterPage({ params }: { params: Promise<{
   } catch (e) {
     if (e instanceof TrainingStateError) {
       return (
-        <div className="max-w-2xl space-y-6">
+        <PageBody width="form">
           <SetBreadcrumb trail={trail} />
           <PageHeader title="Training" description={cycle.title} />
           <Alert tone="warning">
             {e.message} Set this cycle as the term training cycle from the overview.
           </Alert>
-        </div>
+        </PageBody>
       );
     }
     throw e;
@@ -79,7 +80,7 @@ export default async function TrainingRosterPage({ params }: { params: Promise<{
     // that must not wrap, the two row actions sit beside them, and the Cert
     // column now draws a chip on every row rather than a dash on half of them.
     // At 3xl the chips folded; at 5xl "Record attendance" folded instead.
-    <div className="max-w-6xl space-y-6">
+    <PageBody width="full">
       <SetBreadcrumb trail={trail} />
       <PageHeader
         title="Training"
@@ -240,6 +241,6 @@ export default async function TrainingRosterPage({ params }: { params: Promise<{
           )}
         </tbody>
       </Table>
-    </div>
+    </PageBody>
   );
 }

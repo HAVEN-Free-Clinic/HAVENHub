@@ -24,6 +24,7 @@ import { Suspense, useState } from "react";
 import { EpicRequestForm } from "./epic-request-form";
 import { businessDaysSince, formatDateOnly } from "@/platform/dates";
 import { useTimeZone } from "@/platform/dates/client";
+import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
 import { Button } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
@@ -43,6 +44,7 @@ import type {
   EpicAuthorizer,
   EpicRequestHistoryRow,
   LinkableTechRequest,
+  OrphanEpicTicketRow,
   PendingDeactivation,
   PendingEpicRequestRow,
 } from "@/modules/support/services/itcm";
@@ -69,6 +71,8 @@ type Props = {
   authorizers: EpicAuthorizer[];
   incidentPeople: IncidentPerson[];
   pending: PendingEpicRequestRow[];
+  /** EPIC tickets with no Epic request attached -- the ones that fell out of the workflow. */
+  orphanEpicTickets: OrphanEpicTicketRow[];
   /** Open support tickets an Epic request can be attached to, for the Tracker's picker. */
   linkableTickets: LinkableTechRequest[];
   rollup: EpicRollup | null;
@@ -90,7 +94,7 @@ type Props = {
   completeEpicRequestAction: (formData: FormData) => Promise<void>;
   sendEpicEmailFromTrackerAction: (formData: FormData) => Promise<void>;
   linkEpicRequestAction: (formData: FormData) => Promise<void>;
-  cancelEpicRequestAction: (formData: FormData) => Promise<void>;
+  cancelEpicRequestAction: (requestId: string, formData: FormData) => Promise<void>;
 };
 
 // ---------------------------------------------------------------------------
@@ -296,7 +300,7 @@ function TrackerTable({
   completeEpicRequestAction: (formData: FormData) => Promise<void>;
   sendEpicEmailFromTrackerAction: (formData: FormData) => Promise<void>;
   linkEpicRequestAction: (formData: FormData) => Promise<void>;
-  cancelEpicRequestAction: (formData: FormData) => Promise<void>;
+  cancelEpicRequestAction: (requestId: string, formData: FormData) => Promise<void>;
 }) {
   const zone = useTimeZone();
   const now = new Date(nowIso);
@@ -397,8 +401,7 @@ function TrackerTable({
                     )}
 
                     {(r.status === "PENDING" || r.status === "SUBMITTED") && (
-                      <form action={cancelEpicRequestAction}>
-                        <input type="hidden" name="requestId" value={r.id} />
+                      <form action={cancelEpicRequestAction.bind(null, r.id)}>
                         <input type="hidden" name="tab" value="tracker" />
                         <SubmitButton size="sm" variant="ghost" pendingLabel="Cancelling…">
                           Cancel
@@ -642,28 +645,74 @@ function HistoryTable({
 
 /** Exported for epic-pending-selection.interaction.test.tsx: what this posts has
  *  to match what the operator ticked, and that is worth a test of its own. */
+/**
+ * EPIC-category tickets with no Epic request attached.
+ *
+ * These are not pending Epic requests -- they are tickets that never became one.
+ * A member asks for Epic access in the Messenger, the inbound sync files a real
+ * ticket, and the Epic intake (which needs a government id, so it may never
+ * happen in chat) is left to the Hub form. Until someone attaches a request,
+ * the ask exists nowhere in this workflow, and Intercom owns the ticket's status
+ * so it can be resolved without anyone here noticing.
+ *
+ * Rendered above the queue, and outside its empty state, because the case that
+ * matters most is exactly "nothing pending, and three tickets nobody attached".
+ */
+function EpicTicketsWithoutRequest({ orphans }: { orphans: OrphanEpicTicketRow[] }) {
+  if (orphans.length === 0) return null;
+  return (
+    <Card className="space-y-3">
+      <SectionHeader level="title">Epic tickets with no request attached</SectionHeader>
+      <Alert tone="warning">
+        These support tickets are categorised Epic access but have no Epic request, so
+        they are not in the queue below and no YNHH ticket will ever include them. Open
+        each one and use its Epic access section to attach a request.
+      </Alert>
+      <ul className="space-y-1">
+        {orphans.map((t) => (
+          <li key={t.id} className="flex flex-wrap items-center gap-2 text-sm">
+            <TextLink href={`/support/${t.id}`} size="xs">
+              #{t.number}
+            </TextLink>
+            <span className="font-medium">{t.requester.name}</span>
+            <span className="text-xs text-subtle-foreground">{t.subject}</span>
+            {t.fromIntercom && <Badge>From chat</Badge>}
+            {t.requester.epicId && <Badge tone="success">Already has an Epic ID</Badge>}
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
 export function PendingTab({
   pending,
+  orphans,
   action,
   cancelAction,
 }: {
   pending: PendingEpicRequestRow[];
+  orphans: OrphanEpicTicketRow[];
   action: (formData: FormData) => Promise<void>;
-  cancelAction: (formData: FormData) => Promise<void>;
+  cancelAction: (requestId: string, formData: FormData) => Promise<void>;
 }) {
   // Hooks before the early return: an empty queue must not change the hook order.
   const selection = useBulkSelection({ rows: pending, idOf: (r) => r.id });
 
   if (pending.length === 0) {
     return (
-      <EmptyState
-        title="No pending Epic requests"
-        description="Attach some from a support ticket, or promote a volunteer who needs Epic access."
-      />
+      <div className="space-y-4">
+        <EpicTicketsWithoutRequest orphans={orphans} />
+        <EmptyState
+          title="No pending Epic requests"
+          description="Attach some from a support ticket, or promote a volunteer who needs Epic access."
+        />
+      </div>
     );
   }
   return (
     <form action={action} className="space-y-4">
+      <EpicTicketsWithoutRequest orphans={orphans} />
       <Card className="space-y-3">
         <SectionHeader level="title">Pending Epic requests</SectionHeader>
         <p className="text-xs text-subtle-foreground">
@@ -716,19 +765,19 @@ export function PendingTab({
                 <span className="text-xs text-subtle-foreground">Promotion</span>
               )}
               {r.notes && <span className="text-xs text-subtle-foreground">· {r.notes}</span>}
-              {/* Discard a stale pending request (e.g. a promotion-origin one for
-                  someone who already has an Epic ID or withdrew). formAction
-                  submits this row's id to the cancel action within the same form,
-                  so it needs no nested form. Only the clicked button's requestId
-                  enters the FormData, so it does not interfere with the create
-                  checkboxes above. */}
+              {/* Discard a stale pending request (e.g. a promotion-origin one
+                  for someone who already has an Epic ID or withdrew). A nested
+                  <form> is not legal here, so this submits the surrounding one
+                  and overrides the action -- with the row id BOUND rather than
+                  carried as name/value, which react-dom drops from a submitter
+                  it takes an action off. Binding also makes each row's action a
+                  distinct reference, so the spinner lands on the row clicked
+                  instead of on all of them. */}
               <SubmitButton
                 size="sm"
                 variant="ghost"
                 pendingLabel="Cancelling…"
-                formAction={cancelAction}
-                name="requestId"
-                value={r.id}
+                formAction={cancelAction.bind(null, r.id)}
                 className="ml-auto"
               >
                 Cancel
@@ -774,6 +823,7 @@ export function EpicRequestTabs({
   authorizers,
   incidentPeople,
   pending,
+  orphanEpicTickets,
   linkableTickets,
   rollup,
   termOptions,
@@ -816,7 +866,12 @@ export function EpicRequestTabs({
           />
         )
       ) : activeTab === "pending" ? (
-        <PendingTab pending={pending} action={createTicketFromPendingAction} cancelAction={cancelEpicRequestAction} />
+        <PendingTab
+          pending={pending}
+          orphans={orphanEpicTickets}
+          action={createTicketFromPendingAction}
+          cancelAction={cancelEpicRequestAction}
+        />
       ) : activeTab === "tracker" ? (
         <div className="space-y-8">
           <LogIncidentForm incidentPeople={incidentPeople} logIncidentAction={logIncidentAction} />

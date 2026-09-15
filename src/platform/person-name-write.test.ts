@@ -68,6 +68,41 @@ describe("reconcilePersonNameWrite on create", () => {
     ).toMatchObject({ name: "Jack Carney", preferredFirstName: "Jack" });
   });
 
+  /**
+   * The one case where `name` is allowed to disagree with the parts.
+   *
+   * A flagged row is one nobody has split correctly yet, so its parts are a
+   * PROPOSAL and its existing display name is the authority. The backfill needs
+   * to record the proposal without letting it reach the roster. Clearing the
+   * flag (an admin saving the form) restores the derivation.
+   */
+  it("lets a flagged write keep a display name that disagrees with its parts", () => {
+    expect(
+      reconcilePersonNameWrite("update", {
+        legalFirstName: "Dariana",
+        lastName: "Hernandez",
+        nameNeedsReview: true,
+        name: "Dariana Gil Hernandez",
+      }),
+    ).toMatchObject({
+      name: "Dariana Gil Hernandez",
+      legalFirstName: "Dariana",
+      lastName: "Hernandez",
+      nameNeedsReview: true,
+    });
+  });
+
+  it("still derives the name when the flag is being cleared", () => {
+    expect(
+      reconcilePersonNameWrite("update", {
+        legalFirstName: "Dariana",
+        lastName: "Gil Hernandez",
+        nameNeedsReview: false,
+        name: "stale value the caller echoed back",
+      }),
+    ).toMatchObject({ name: "Dariana Gil Hernandez", nameNeedsReview: false });
+  });
+
   it("preserves a caller's own review flag", () => {
     expect(
       reconcilePersonNameWrite("create", {

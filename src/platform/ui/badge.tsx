@@ -1,7 +1,13 @@
 import type { ComponentProps } from "react";
 import { cx } from "./cx";
 
-type Tone = "default" | "brand" | "success" | "warning" | "critical";
+/**
+ * The app's tone vocabulary, and the only declaration of it. Five files used to
+ * hand-write this same union -- stat-card, recruitment's status-badge and
+ * onboarding-table, support's labels and status-badge -- so adding a sixth tone
+ * to Badge would have left five silent forks behind.
+ */
+export type Tone = "default" | "brand" | "success" | "warning" | "critical";
 
 /**
  * Tone → label color. The chip is a bare hairline outline and the tone lives in the

@@ -16,6 +16,8 @@
 
 /** What an awaited Next.js `searchParams` gives you, plus numbers for callers
  *  that have already parsed one. */
+import { isFlashParamName } from "@/platform/ui/toast/flash";
+
 export type PageParams = Record<string, string | string[] | number | undefined>;
 
 /**
@@ -30,20 +32,18 @@ export type PageParams = Record<string, string | string[] | number | undefined>;
  * only filters; a serializer that takes the whole object has to name them
  * instead.
  *
- * The names are the ones platform/ui/toast/flash.ts already treats as action
- * feedback -- `error` plus the `*Error` suffix family, `message` as `error`'s
- * detail payload, `saved`, and `ok`. Deliberately restated rather than imported:
- * flash.ts needs a pathname and carries a several-hundred-entry message registry
- * to decide what a flash param SAYS, and a URL builder only needs to know that
- * it is one. Keeping the two in step is a one-line edit; the alternative is a
- * lists helper depending on the toast layer.
+ * Derived from flash.ts, not restated. This used to name four by hand --
+ * `error`, `message`, `ok`, `saved` -- under a comment claiming they were "the
+ * ones flash.ts already treats as action feedback", and argued that keeping the
+ * two in step was a one-line edit. They were never in step: flash.ts's registry
+ * names thirty-one, and two of the missing ones were live on pages this helper
+ * builds links for. /admin/email and /admin/notifications both redirect to
+ * `?retried=1` and both render `<Pagination params={sp} />`, so a retry toast
+ * rode every Prev/Next click down the list.
+ *
+ * flash.ts exports the NAMES only. A URL builder needs to know a param is
+ * feedback, not what it says, so none of the message registry crosses over.
  */
-const TRANSIENT_PARAMS = new Set(["error", "message", "ok", "saved"]);
-const TRANSIENT_SUFFIX = /Error$/;
-
-function isTransient(name: string): boolean {
-  return TRANSIENT_PARAMS.has(name) || TRANSIENT_SUFFIX.test(name);
-}
 
 /**
  * `basePath` plus `params`, with `page` set to `targetPage`.
@@ -65,7 +65,7 @@ function isTransient(name: string): boolean {
 export function pageHref(basePath: string, params: PageParams, targetPage: number): string {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
-    if (key === "page" || isTransient(key)) continue;
+    if (key === "page" || isFlashParamName(key)) continue;
     const single = Array.isArray(value) ? value[0] : value;
     if (single === undefined) continue;
     search.set(key, String(single));

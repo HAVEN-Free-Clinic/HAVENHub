@@ -2,6 +2,7 @@ import path from "node:path";
 import { promises as fs } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Prisma } from "@prisma/client";
+import sharp from "sharp";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import { config } from "@/platform/config";
@@ -30,6 +31,20 @@ const allAgreementSignatures = (name: string) => ({
   training: sign(name),
   haven_agreement: sign(name),
 });
+
+/** A real, decodable image for the profile photo. SIG_PNG only has to pass the
+ *  signature magic-byte check, and libpng refuses to decode it. */
+const PHOTO_PNG = await sharp({ create: { width: 8, height: 8, channels: 3, background: "#808080" } }).png().toBuffer();
+
+/** What the volunteer default requires beyond its agreements: the two
+ *  scheduling answers and the profile photo. Spread beside
+ *  allAgreementSignatures in every submission that is meant to succeed against
+ *  the real default layout. */
+const DEFAULT_LAYOUT_ANSWERS = {
+  shiftsWanted: "4",
+  availabilityChangeNeeded: "no",
+  photoFile: { fileName: "me.png", mimeType: "image/png", bytes: PHOTO_PNG },
+} as const;
 
 /** submitContract streams HIPAA files to UPLOAD_DIR/onboarding/<contractId>/.
  *  resetDb only truncates the database, so remove the on-disk files this suite
@@ -189,6 +204,7 @@ describe("onboarding link expiry", () => {
     const c = await createOrResendContract(acceptance.id, srr.id, "http://test");
     await submitContract(c.token, {
       firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu",
+      ...DEFAULT_LAYOUT_ANSWERS,
       signatures: { ...allAgreementSignatures("Ada"), initials: sign("AL") },
       customAnswers: { epic_needed_self: "no" },
       hasEpic: false, worksWithYnhh: false,
@@ -232,6 +248,7 @@ it("submitContract validates signatures + hipaa and stores SUBMITTED", async () 
 
   const ok = await submitContract(c.token, {
     firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu", netId: "al99", phone: "203",
+    ...DEFAULT_LAYOUT_ANSWERS,
     signatures: { ...allAgreementSignatures("Ada"), initials: sign("AL") },
     customAnswers: { epic_needed_self: "yes" },
     hasEpic: false, worksWithYnhh: false,
@@ -254,6 +271,7 @@ it("a repeated submit is rejected without orphaning a HIPAA blob or duplicating 
   const c = await createOrResendContract(acceptance.id, srr.id, "http://test");
   const base = {
     firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu",
+    ...DEFAULT_LAYOUT_ANSWERS,
     signatures: { ...allAgreementSignatures("Ada"), initials: sign("AL") },
     customAnswers: { epic_needed_self: "no" },
     hasEpic: false, worksWithYnhh: false,
@@ -275,6 +293,7 @@ it("a repeated submit is rejected without orphaning a HIPAA blob or duplicating 
 describe("submitContract onboarding confirmation email", () => {
   const submitBase = {
     firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu",
+    ...DEFAULT_LAYOUT_ANSWERS,
     signatures: { ...allAgreementSignatures("Ada"), initials: sign("AL") },
     customAnswers: { epic_needed_self: "no" },
     hasEpic: false, worksWithYnhh: false,
@@ -412,6 +431,7 @@ it("submitContract stores spanishSelfReported and licensedRN", async () => {
   const c = await createOrResendContract(acceptance.id, srr.id, "http://test");
   const ok = await submitContract(c.token, {
     firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu", netId: "al99", phone: "203",
+    ...DEFAULT_LAYOUT_ANSWERS,
     signatures: { ...allAgreementSignatures("Ada"), initials: sign("AL") },
     customAnswers: { epic_needed_self: "no" },
     hasEpic: false, worksWithYnhh: false,
@@ -432,6 +452,7 @@ it("submitContract pins the seeded netId/email and ignores a freely-typed identi
   const ok = await submitContract(c.token, {
     firstName: "Ada", lastName: "Lovelace",
     email: "victim@yale.edu", netId: "vv22", phone: "203",
+    ...DEFAULT_LAYOUT_ANSWERS,
     signatures: { ...allAgreementSignatures("Ada"), initials: sign("AL") },
     customAnswers: { epic_needed_self: "no" },
     hasEpic: false, worksWithYnhh: false,
@@ -451,6 +472,7 @@ it("freezes the review context at submit so a later Person.epicId or requirement
   // epic_needed_self question is shown and answered.
   await submitContract(c.token, {
     firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu", netId: "al99", phone: "203",
+    ...DEFAULT_LAYOUT_ANSWERS,
     signatures: { ...allAgreementSignatures("Ada"), initials: sign("AL") },
     customAnswers: { epic_needed_self: "yes" },
     hasEpic: false, worksWithYnhh: false,
@@ -478,6 +500,7 @@ it("falls back to the live context for a pre-column contract with no frozen revi
   const c = await createOrResendContract(acceptance.id, srr.id, "http://test");
   await submitContract(c.token, {
     firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu", netId: "al99", phone: "203",
+    ...DEFAULT_LAYOUT_ANSWERS,
     signatures: { ...allAgreementSignatures("Ada"), initials: sign("AL") },
     customAnswers: { epic_needed_self: "yes" },
     hasEpic: false, worksWithYnhh: false,
@@ -574,6 +597,7 @@ it("stores each contract signature as a blob-backed structured record", async ()
   const c = await createOrResendContract(acceptance.id, srr.id, "http://test");
   await submitContract(c.token, {
     firstName: "Ada", lastName: "Lovelace", email: "ada@yale.edu",
+    ...DEFAULT_LAYOUT_ANSWERS,
     signatures: { ...allAgreementSignatures("Ada"), initials: sign("Ada L") },
     customAnswers: { epic_needed_self: "no" },
     hasEpic: false, worksWithYnhh: false,
@@ -635,6 +659,7 @@ describe("submitContract HIPAA date validation", () => {
 
   const base: Omit<ContractSubmission, "hipaaCompletedAt" | "hipaaFile"> = {
     firstName: "A", lastName: "B", email: "a@b.com",
+    ...DEFAULT_LAYOUT_ANSWERS,
     signatures: { ...allAgreementSignatures("A B"), initials: sign("AB") },
     customAnswers: { epic_needed_self: "no" },
     hasEpic: false, worksWithYnhh: false,

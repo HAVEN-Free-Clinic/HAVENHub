@@ -228,10 +228,32 @@ test("support epic: volunteer submits an Epic access request; a manager attaches
   await expect(attachedList.getByText("New account")).toBeVisible();
   await expect(attachedList.getByText("Pending", { exact: true })).toBeVisible();
 
-  // Cancel the attached request so the shared dev.volunteer persona is left
-  // clean: a CANCELLED Epic request, no open request, epicId never set.
-  await attachedList.getByRole("button", { name: "Cancel" }).click();
-  await page.waitForURL((url) => url.pathname === `/support/${id}`);
+  // Cancel it from /support/epic's PENDING TAB, not from this ticket page, and
+  // deliberately so. That tab's Cancel is the only one in the app that submits
+  // the surrounding form with a formAction override, and it shipped broken: the
+  // row id rode on the button's name/value, which react-dom discards from a
+  // submitter it takes an action off, so every cancel posted an empty requestId
+  // and came back "not found" on a row plainly on screen. Nothing caught it
+  // because this test cancelled from the ticket page, whose Cancel is an
+  // ordinary per-row <form> with a hidden input.
+  //
+  // Scoped by the per-row select checkbox, which only the QUEUE's rows carry.
+  // Filtering on the person's name alone matched the "Epic tickets with no
+  // request attached" card above it too -- that card lists the same person's
+  // ticket and renders first, so `.first()` picked a row with no Cancel button.
+  await page.goto("/support/epic?tab=pending");
+  await page.waitForLoadState("networkidle");
+  const queuedRow = () =>
+    page.locator("li").filter({ has: page.getByRole("checkbox", { name: "Select Dev Volunteer" }) });
+  await expect(queuedRow()).toHaveCount(1);
+  await queuedRow().getByRole("button", { name: "Cancel" }).click();
+  await page.waitForURL((url) => url.pathname === "/support/epic");
+  await page.waitForLoadState("networkidle");
+  await expect(queuedRow()).toHaveCount(0);
+
+  // And the ticket agrees: no open request, epicId never set. The shared
+  // dev.volunteer persona is left exactly as clean as before.
+  await page.goto(`/support/${id}`);
   await page.waitForLoadState("networkidle");
   await expect(attachedList.getByText("Pending", { exact: true })).toHaveCount(0);
   await expect(attachedList.getByRole("button", { name: "Cancel" })).toHaveCount(0);

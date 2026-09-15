@@ -233,7 +233,9 @@ describe("promotion carries a pre-acceptance language verdict forward", () => {
     expect(history.verified).toBe(true);
   });
 
-  // Decision 1: Spanish is assessed regardless of claim. selfReported means
+  // An application can hold a verdict on a language it never claimed: Spanish
+  // for a department that assesses it regardless of claim, such as PATS, or one
+  // re-recorded from a verdict already on file. selfReported means
   // "this person claimed this language" -- carrying a pre-acceptance verdict
   // onto PersonLanguage must not assert a claim the applicant never made, or
   // person-fields.ts's "Spanish-speaking (self-reported)" email audience would

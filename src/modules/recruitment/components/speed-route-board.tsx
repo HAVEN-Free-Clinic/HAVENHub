@@ -2,6 +2,7 @@
 
 import { useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Button } from "@/platform/ui/button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Select } from "@/platform/ui/select";
@@ -13,6 +14,7 @@ import { SectionHeader } from "@/platform/ui/section-header";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { applicationStageLabel, isHandledStage } from "@/modules/recruitment/engine/application-stage";
 import { formatScoreSummary } from "@/modules/recruitment/engine/scoring";
+import { ROW_WIDTH } from "@/platform/ui/form";
 import type { SpeedRouteBoard as Board, SpeedRouteRow } from "@/modules/recruitment/services/speed-route";
 import type { BatchResult } from "@/modules/recruitment/services/routing";
 import { SpeedRouteModal } from "./speed-route-modal";
@@ -20,7 +22,7 @@ import { SpeedRouteModal } from "./speed-route-modal";
 type Props = {
   board: Board;
   onRoute: (applicationId: string, departmentCode: string) => Promise<{ error?: string }>;
-  onReject: (applicationId: string) => Promise<{ error?: string }>;
+  onReject: (applicationId: string) => Promise<{ error?: string; passedTo?: string }>;
   onReopen: (applicationId: string) => Promise<{ error?: string }>;
   onApplyTop: (entries: { applicationId: string; departmentCode: string }[]) => Promise<BatchResult | { error: string }>;
   onApplyBottom: (applicationIds: string[]) => Promise<BatchResult | { error: string }>;
@@ -30,6 +32,7 @@ type Props = {
 // stay lint-clean (no component definitions nested inside the board component,
 // matching the module-level ApplicationBody pattern in speed-score-modal.tsx).
 type RowHandlers = {
+  cycleId: string;
   departments: string[];
   /** The cycle's scoresPerApplication, or null on a cycle with no scorer pool. */
   target: number | null;
@@ -45,13 +48,30 @@ function avgLabel(r: SpeedRouteRow, target: number | null) {
   return formatScoreSummary({ average: r.average, count: r.scoreCount }, target);
 }
 
+/**
+ * The applicant's name, linked to their full application. A row here is a score
+ * and a list of ranked departments, which is not enough to route someone the lead
+ * is unsure about; the detail page has every answer and each scorer's comment.
+ * Same link recipe as the waitlist and decisions tables.
+ */
+function ApplicantName({ r, cycleId }: { r: SpeedRouteRow; cycleId: string }) {
+  return (
+    <Link
+      className="font-medium text-foreground hover:text-brand-fg"
+      href={`/recruitment/cycles/${cycleId}/applicants/${r.applicationId}`}
+    >
+      {r.name}
+    </Link>
+  );
+}
+
 function RouteRow({ r, kind, h }: { r: SpeedRouteRow; kind: "top" | "middle" | "bottom" | "returned"; h: RowHandlers }) {
   const routable = r.decision === "PENDING" && r.routedDepartmentCode == null;
   const decided = r.decision !== "PENDING";
   return (
     <TR>
-      <TD className="font-medium text-foreground">{r.name}</TD>
-      <TD className="text-foreground-soft">{avgLabel(r, h.target)}</TD>
+      <TD><ApplicantName r={r} cycleId={h.cycleId} /></TD>
+      <TD className="whitespace-nowrap text-foreground-soft">{avgLabel(r, h.target)}</TD>
       <TD className="text-foreground-soft">{r.departmentChoices.join(", ") || "(none)"}</TD>
       <TD><Badge>{applicationStageLabel[r.stage]}</Badge></TD>
       <TD>
@@ -59,7 +79,9 @@ function RouteRow({ r, kind, h }: { r: SpeedRouteRow; kind: "top" | "middle" | "
           <div className="flex flex-wrap items-center gap-2">
             {kind !== "bottom" && (
               <>
-                <div className="w-32">
+                {/* The control width, not w-32: at 8rem the placeholder read
+                    "Department." and a "(ranked)" option was cut off. */}
+                <div className={ROW_WIDTH.control}>
                   <Select
                     value={h.deptFor(r)}
                     onChange={(e) => h.setDept(r.applicationId, e.target.value)}
@@ -80,7 +102,7 @@ function RouteRow({ r, kind, h }: { r: SpeedRouteRow; kind: "top" | "middle" | "
                 <Button type="button" size="sm" variant="outline" disabled={h.busy || h.deptFor(r) === ""} onClick={() => h.onRoute(r.applicationId, h.deptFor(r))}>Route</Button>
               </>
             )}
-            <Button type="button" size="sm" variant="danger" disabled={h.busy} onClick={() => h.onReject(r.applicationId)}>Reject</Button>
+            <Button type="button" size="sm" variant="outline" disabled={h.busy} onClick={() => h.onReject(r.applicationId)}>Reject</Button>
           </div>
         ) : (
           <div className="flex items-center gap-2">
@@ -154,13 +176,13 @@ function ReturnedCard({ rows, h }: { rows: SpeedRouteRow[]; h: RowHandlers }) {
         <tbody>
           {rows.map((r) => (
             <TR key={r.applicationId}>
-              <TD className="font-medium text-foreground">{r.name}</TD>
-              <TD className="text-foreground-soft">{avgLabel(r, h.target)}</TD>
+              <TD><ApplicantName r={r} cycleId={h.cycleId} /></TD>
+              <TD className="whitespace-nowrap text-foreground-soft">{avgLabel(r, h.target)}</TD>
               <TD className="text-foreground-soft">{r.returnedFromDepartmentCode ?? "-"}</TD>
               <TD className="text-foreground-soft">{r.returnedReason || "(none given)"}</TD>
               <TD>
                 <div className="flex flex-wrap items-center gap-2">
-                  <div className="w-32">
+                  <div className={ROW_WIDTH.control}>
                     <Select
                       value={h.deptFor(r)}
                       onChange={(e) => h.setDept(r.applicationId, e.target.value)}
@@ -186,7 +208,7 @@ function ReturnedCard({ rows, h }: { rows: SpeedRouteRow[]; h: RowHandlers }) {
                   >
                     Route
                   </Button>
-                  <Button type="button" size="sm" variant="danger" disabled={h.busy} onClick={() => h.onReject(r.applicationId)}>Reject</Button>
+                  <Button type="button" size="sm" variant="outline" disabled={h.busy} onClick={() => h.onReject(r.applicationId)}>Reject</Button>
                 </div>
               </TD>
             </TR>
@@ -240,13 +262,20 @@ export function SpeedRouteBoard({ board, onRoute, onReject, onReopen, onApplyTop
   }
 
   const h: RowHandlers = {
+    cycleId: board.cycleId,
     departments: board.departments,
     target: board.scoresPerApplication,
     deptFor,
     setDept: (id, value) => setOverrides((p) => ({ ...p, [id]: value })),
     busy,
     onRoute: (id, dept) => runSingle(() => onRoute(id, dept)),
-    onReject: (id) => runSingle(() => onReject(id)),
+    onReject: (id) =>
+      runSingle(async () => {
+        const res = await onReject(id);
+        // The row moves to a department rather than to Rejected, so say where.
+        if (res.passedTo) setNote(`Passed to ${res.passedTo}, the dual-role department they ticked.`);
+        return res;
+      }),
     onReopen: (id) => runSingle(() => onReopen(id)),
   };
 
@@ -277,7 +306,12 @@ export function SpeedRouteBoard({ board, onRoute, onReject, onReopen, onApplyTop
     startBusy(async () => {
       const res = await onApplyBottom(ids);
       if ("error" in res) { setError(res.error); return; }
-      setNote(`Rejected ${res.applied}${res.skipped.length ? `, skipped ${res.skipped.length}` : ""}.`);
+      // Applicants who ticked a dual box pass to that department rather than
+      // being rejected, so they are counted apart.
+      const passed = res.passedToDual ?? 0;
+      setNote(
+        `Rejected ${res.applied - passed}${passed ? `, passed ${passed} to a dual-role department` : ""}${res.skipped.length ? `, skipped ${res.skipped.length}` : ""}.`,
+      );
       refresh();
     });
   }
@@ -400,6 +434,7 @@ export function SpeedRouteBoard({ board, onRoute, onReject, onReopen, onApplyTop
         <SpeedRouteModal
           open={modalOpen}
           onClose={() => { setModalOpen(false); refresh(); }}
+          cycleId={board.cycleId}
           rows={board.middle}
           departments={board.departments}
           onRoute={onRoute}

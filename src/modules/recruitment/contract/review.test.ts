@@ -10,7 +10,9 @@ const ctx: ContractContext = { department: "IM", track: "VOLUNTEER", epicRequire
 function contract(overrides: Record<string, unknown> = {}) {
   return {
     firstName: "Emma",
+    legalMiddleName: null,
     lastName: "Stone",
+    preferredFirstName: null,
     email: "emma@yale.edu",
     netId: null,
     phone: null,
@@ -36,6 +38,10 @@ function contract(overrides: Record<string, unknown> = {}) {
     professionalismSignature: null,
     trainingSignature: null,
     initials: null,
+    shiftsWanted: null,
+    availabilityChangeNeeded: null,
+    availabilityChangeRequest: null,
+    photoStoredName: null,
     ...overrides,
   };
 }
@@ -82,7 +88,7 @@ describe("buildContractReview responses", () => {
       ctx,
     );
     expect(r.responses).toEqual([
-      { label: "Name", value: "Emma Stone" },
+      { label: "Legal name", value: "Emma Stone" },
       { label: "Email", value: "emma@yale.edu" },
       { label: "Yale affiliation", value: "Yale School of Management (SOM)" },
       { label: "I can speak Spanish with patients", value: "Yes" },
@@ -261,5 +267,70 @@ describe("buildContractReview agreements and signatures", () => {
       ctx,
     );
     expect(r.signatureRows.map((s) => s.blockId)).toEqual(["confid", "unsig", "initials"]);
+  });
+});
+
+describe("buildContractReview name and scheduling rows", () => {
+  it("shows the legal name with its middle part, then the name they go by", () => {
+    const layout: ContractLayout = { blocks: [{ kind: "system_field", systemKey: "name" }] };
+    const r = buildContractReview(contract({ legalMiddleName: "Grace", preferredFirstName: "Em" }), layout, ctx);
+    expect(r.responses).toEqual([
+      { label: "Legal name", value: "Emma Grace Stone" },
+      { label: "Goes by", value: "Em" },
+    ]);
+  });
+
+  it("renders the shift count by its label, then a requested availability change", () => {
+    const layout: ContractLayout = {
+      blocks: [
+        { kind: "system_field", systemKey: "shiftsWanted" },
+        { kind: "system_field", systemKey: "availabilityChange" },
+      ],
+    };
+    const r = buildContractReview(
+      contract({ shiftsWanted: "8+", availabilityChangeNeeded: true, availabilityChangeRequest: "Drop Oct 17: exam." }),
+      layout,
+      ctx,
+    );
+    expect(r.responses).toEqual([
+      { label: "How many shifts would you like to work this term?", value: "8 or more shifts" },
+      { label: "Availability change requested", value: "Yes" },
+      { label: "Availability change request", value: "Drop Oct 17: exam." },
+    ]);
+  });
+
+  it("shows no request row when no change was needed", () => {
+    const layout: ContractLayout = { blocks: [{ kind: "system_field", systemKey: "availabilityChange" }] };
+    const r = buildContractReview(contract({ availabilityChangeNeeded: false }), layout, ctx);
+    expect(r.responses).toEqual([{ label: "Availability change requested", value: "No" }]);
+  });
+});
+
+describe("buildContractReview profile photo", () => {
+  it("points the photo row at the stored photo, and shows a missing one as not provided", () => {
+    const layout: ContractLayout = { blocks: [{ kind: "system_field", systemKey: "photo" }] };
+    expect(buildContractReview(contract({ photoStoredName: "photo-1.webp" }), layout, ctx).responses).toEqual([
+      { label: "Profile photo", value: "Uploaded", photo: { storedName: "photo-1.webp" } },
+    ]);
+    expect(buildContractReview(contract(), layout, ctx).responses).toEqual([{ label: "Profile photo", value: null }]);
+  });
+});
+
+describe("buildContractReview records on file", () => {
+  it("says a certificate and photo on file stood in for uploads", () => {
+    const layout: ContractLayout = {
+      blocks: [
+        { kind: "system_field", systemKey: "hipaa" },
+        { kind: "system_field", systemKey: "photo" },
+      ],
+    };
+    const r = buildContractReview(contract(), layout, ctx, {
+      hipaa: { completionDate: "2026-08-01T12:00:00.000Z", pendingVerification: true },
+      photo: true,
+    });
+    expect(r.responses).toEqual([
+      { label: "HIPAA certificate", value: "On file from their profile (completed Aug 1, 2026, awaiting verification)" },
+      { label: "Profile photo", value: "On file from their profile" },
+    ]);
   });
 });

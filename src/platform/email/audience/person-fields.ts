@@ -4,6 +4,7 @@ import type { ClearanceSummary } from "@/platform/clearance";
 import { YALE_AFFILIATIONS } from "@/platform/affiliation";
 import { ALL_COMPLIANCE_STATUSES, complianceStatusLabel } from "@/platform/compliance/labels";
 import { LANGUAGES } from "@/platform/languages";
+import { personNameSearchClauses } from "@/platform/person-name";
 import type { DisplayTimeZone } from "@/platform/dates/zone";
 import type { AudienceCondition, ConditionOp, CountLoader } from "./types";
 import {
@@ -493,7 +494,40 @@ const APPLICANT_TYPE_OPTIONS: { value: string; label: string }[] = [
 export const APPLICANT_TYPE_VALUES: string[] = APPLICANT_TYPE_OPTIONS.map((o) => o.value);
 
 export const PERSON_FIELDS: PersonFieldDef[] = [
-  textField("name", "Full name", "name", false), // Person.name is NOT NULL
+  {
+    key: "name",
+    label: "Full name",
+    group: "Identity",
+    kind: "text",
+    operators: TEXT_OPERATORS,
+    /**
+     * The one text field that is not one column.
+     *
+     * `Person.name` holds only the DISPLAY name, so a segment on a legal first
+     * name silently dropped everyone who goes by something else and the campaign
+     * never reached them. A substring search therefore spans every stored name
+     * column, matching what the person picker in this subsystem already does
+     * (audience/resolve.ts, via personNameSearchClauses).
+     *
+     * Only the substring operators span. `eq` against a part would never match
+     * ("Jane Doe" is not a legalFirstName), and emptiness is a question about
+     * the rendered name, so those stay on the display column.
+     */
+    compile: (cond) => {
+      if (cond.op !== "contains" && cond.op !== "notContains") {
+        return textWhere("name", cond, false);
+      }
+      // A blank value must match NOBODY, never everybody. Spreading `contains:
+      // ""` across four columns is an OR that every person satisfies, which
+      // would have quietly turned an unfinished condition into the whole
+      // roster. textWhere owns that rule; defer to it rather than restate it.
+      const raw = typeof cond.value === "string" ? cond.value.trim() : "";
+      if (raw === "") return textWhere("name", cond, false);
+
+      const OR = personNameSearchClauses(raw) as Prisma.PersonWhereInput[];
+      return cond.op === "contains" ? { OR } : { NOT: { OR } };
+    },
+  },
   textField("netId", "NetID", "netId"),
   textField("contactEmail", "Email", "contactEmail"),
   textField("epicId", "Epic ID", "epicId"),

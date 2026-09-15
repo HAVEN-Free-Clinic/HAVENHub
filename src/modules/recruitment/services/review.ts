@@ -2,6 +2,8 @@ import { cache } from "react";
 import type { Acceptance, Application, CycleStatus, Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { invitedEmailsFor } from "./invites";
+import { reviewerIdentity } from "./own-application";
+import { isOwnApplication } from "../engine/own-application";
 import { can } from "@/platform/rbac/engine";
 import { manageableDepartmentIds } from "@/platform/departments";
 import { recordAudit } from "@/platform/audit";
@@ -43,6 +45,10 @@ export type ViewableApplication = {
   departmentChoices: string[];
   routedDepartmentCode: string | null;
   cycle: { track: string };
+  /** An APPROVED dual appointment opens the application to that department's
+   *  directors too. Optional so a caller holding a bare Application row still
+   *  type-checks; such a caller simply does not grant that access. */
+  dualAppointments?: { departmentCode: string; status: string }[];
 };
 
 /** May this viewer see one application's detail (and its uploaded files)?
@@ -61,7 +67,10 @@ export function canViewApplication(
   if (ctx.scope.all || ctx.managesCycles || ctx.canScore) return true;
   const mine = new Set(ctx.scope.departmentCodes);
   if (app.cycle.track === "VOLUNTEER") {
-    return app.routedDepartmentCode != null && mine.has(app.routedDepartmentCode);
+    if (app.routedDepartmentCode != null && mine.has(app.routedDepartmentCode)) return true;
+    // Accepted into their department as a dual appointment: the volunteer is
+    // theirs too. A PENDING request does not open the record; approval does.
+    return (app.dualAppointments ?? []).some((d) => d.status === "APPROVED" && mine.has(d.departmentCode));
   }
   return app.departmentChoices.some((d) => mine.has(d));
 }
@@ -85,8 +94,94 @@ export async function canViewerOpenApplication(
   return canViewApplication(app, { scope, managesCycles, canScore });
 }
 
+/** Repeat opens of one record by one person inside this window are one view. */
+const VIEW_DEDUPE_MS = 10 * 60 * 1000;
+
+/**
+ * Audit that a staff member opened an applicant's record, or one of its files.
+ *
+ * Call only once canViewApplication has passed: this is a log of permitted
+ * access, which is what an access log is read for. Before it existed, reading
+ * an applicant's full application (identity, answers, uploaded resume) left no
+ * trace at all; only revoking an acceptance was audited.
+ *
+ * Repeat opens by the same person within ten minutes count once, because the
+ * detail page re-renders after every score, route and decision made on it, and
+ * one sitting would otherwise log a dozen times. A file is its own entry, keyed
+ * on the answer, since downloading a resume is a different act from reading the
+ * page.
+ */
+export async function recordApplicationView(
+  actorId: string,
+  applicationId: string,
+  file?: string,
+): Promise<void> {
+  await recordViewOnce({
+    actorId,
+    action: file ? "recruitment.application_file_view" : "recruitment.application_view",
+    entityType: "Application",
+    entityId: applicationId,
+    file,
+  });
+}
+
+/**
+ * Audit that a staff member opened a cycle's speed-route board.
+ *
+ * The board is a list, not a record: every applicant still in play, with their
+ * committee average, ranked departments and stage, and no answers. So it is one
+ * entry for the cycle rather than one per row. Speed SCORING is per applicant,
+ * because it loads each application's answers in turn; that goes through
+ * recordApplicationView from the loader, like opening the full record.
+ */
+export async function recordSpeedRouteView(actorId: string, cycleId: string): Promise<void> {
+  await recordViewOnce({
+    actorId,
+    action: "recruitment.speed_route_view",
+    entityType: "RecruitmentCycle",
+    entityId: cycleId,
+  });
+}
+
+/** Write a view entry unless this person logged the same one inside the window. */
+async function recordViewOnce(entry: {
+  actorId: string;
+  action: string;
+  entityType: string;
+  entityId: string;
+  file?: string;
+}): Promise<void> {
+  const { actorId, action, entityType, entityId, file } = entry;
+  const recent = await prisma.auditLog.findFirst({
+    where: {
+      action,
+      actorPersonId: actorId,
+      entityType,
+      entityId,
+      createdAt: { gte: new Date(Date.now() - VIEW_DEDUPE_MS) },
+      ...(file ? { after: { path: ["file"], equals: file } } : {}),
+    },
+    select: { id: true },
+  });
+  if (recent) return;
+  await recordAudit({
+    actorPersonId: actorId,
+    action,
+    entityType,
+    entityId,
+    ...(file ? { after: { file } } : {}),
+  });
+}
+
 export type ReviewApplication = Application & {
-  applicant: { firstName: string; lastName: string; email: string; applicantPersonId: string | null };
+  applicant: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    emailLower: string;
+    netId: string | null;
+    applicantPersonId: string | null;
+  };
   /**
    * True when this applicant accepted an invite link for the cycle, i.e. they
    * were recruited selectively rather than applying through the open form. It
@@ -94,7 +189,14 @@ export type ReviewApplication = Application & {
    * a reviewer reads it, and is otherwise invisible on this screen.
    */
   invited: boolean;
+  /**
+   * True when this is the viewer's own application (a reviewer who also
+   * applied). Its committeeScores come back EMPTY for them, so no score, count,
+   * sort position, or scored-or-not stage reaches them through the roster.
+   */
+  isOwnApplication: boolean;
   acceptances: Acceptance[];
+  dualAppointments: { departmentCode: string; status: string }[];
   committeeScores: { score: number; scorerId: string }[];
   interviews: { decision: "PENDING" | "ACCEPT" | "REJECT" | "WAITLIST" }[];
 };
@@ -103,10 +205,11 @@ export type ReviewApplication = Application & {
  *  managers, and committee scorers) see all; a director sees only applications
  *  intersecting their department codes. */
 export async function listApplicantsForReview(cycleId: string, viewerId: string): Promise<ReviewApplication[]> {
-  const [scope, managesCycles, canScore] = await Promise.all([
+  const [scope, managesCycles, canScore, me] = await Promise.all([
     reviewScope(viewerId),
     can(viewerId, "recruitment.manage_cycles"),
     can(viewerId, "recruitment.score"),
+    reviewerIdentity(viewerId),
   ]);
   const seeAll = scope.all || managesCycles || canScore;
   // One lookup for the whole cycle, not one per row: the marker is derived from
@@ -116,8 +219,9 @@ export async function listApplicantsForReview(cycleId: string, viewerId: string)
     prisma.application.findMany({
       where: { cycleId, status: "SUBMITTED" },
       include: {
-        applicant: { select: { firstName: true, lastName: true, email: true, applicantPersonId: true } },
+        applicant: { select: { firstName: true, lastName: true, email: true, emailLower: true, netId: true, applicantPersonId: true } },
         acceptances: true,
+        dualAppointments: { select: { departmentCode: true, status: true } },
         committeeScores: { select: { score: true, scorerId: true } },
         interviews: { select: { decision: true } },
       },
@@ -125,17 +229,26 @@ export async function listApplicantsForReview(cycleId: string, viewerId: string)
     }),
     invitedEmailsFor(cycleId),
   ]);
-  const apps: ReviewApplication[] = rawApps.map((a) => ({
-    ...a,
-    invited: invitedEmails.has(a.applicant.email.trim().toLowerCase()),
-  }));
+  const apps: ReviewApplication[] = rawApps.map((a) => {
+    // Stripped here rather than hidden in the page, so nothing downstream (the
+    // score column, sorting by score, the Stage column) can leak it by accident.
+    const own = isOwnApplication(a.applicant, me);
+    return {
+      ...a,
+      invited: invitedEmails.has(a.applicant.email.trim().toLowerCase()),
+      isOwnApplication: own,
+      committeeScores: own ? [] : a.committeeScores,
+    };
+  });
   if (seeAll) return apps;
   const mine = new Set(scope.departmentCodes);
   const cycle = await prisma.recruitmentCycle.findUnique({ where: { id: cycleId }, select: { track: true } });
   // Volunteer cycles: committee ROUTING drives a director's queue. Director-track
   // cycles have no routing stage, so directors keep the ranked-choice view.
   if (cycle?.track === "VOLUNTEER") {
-    return apps.filter((a) => a.routedDepartmentCode != null && mine.has(a.routedDepartmentCode));
+    // The same rule canViewApplication applies, so the list and the detail page
+    // agree: routed to one of theirs, or approved as one of theirs.
+    return apps.filter((a) => canViewApplication({ ...a, cycle: { track: "VOLUNTEER" } }, { scope, managesCycles: false, canScore: false }));
   }
   return apps.filter((a) => a.departmentChoices.some((d) => mine.has(d)));
 }
@@ -257,6 +370,15 @@ export async function listReviewableCycles(
   if (canScore) or.push({ applications: { some: { status: "SUBMITTED" } } }); // committee scores both tracks
   if (scope.departmentCodes.length) {
     or.push({ track: "VOLUNTEER", applications: { some: { status: "SUBMITTED", routedDepartmentCode: { in: scope.departmentCodes } } } });
+    or.push({
+      track: "VOLUNTEER",
+      applications: {
+        some: {
+          status: "SUBMITTED",
+          dualAppointments: { some: { status: "APPROVED", departmentCode: { in: scope.departmentCodes } } },
+        },
+      },
+    });
     or.push({ track: "DIRECTOR", applications: { some: { status: "SUBMITTED", departmentChoices: { hasSome: scope.departmentCodes } } } });
   }
   if (or.length === 0) return [];
@@ -291,6 +413,15 @@ export async function revokeAcceptance(acceptanceId: string, actorId: string): P
   if (acc.emailedAt && !scope.all) {
     throw new RecruitmentAuthError("This applicant was already notified; ask SRR to revoke.");
   }
-  await prisma.acceptance.delete({ where: { id: acceptanceId } });
+  await prisma.$transaction(async (tx) => {
+    await tx.acceptance.delete({ where: { id: acceptanceId } });
+    // Revoking the acceptance a dual appointment minted undoes the appointment:
+    // an APPROVED row with no acceptance behind it would still tell the conflict
+    // guard that a second department is intended.
+    await tx.dualAppointment.updateMany({
+      where: { applicationId: acc.applicationId, departmentCode: acc.departmentCode, status: "APPROVED" },
+      data: { status: "CANCELLED", decidedById: actorId, decidedAt: new Date(), decisionNote: "Acceptance revoked." },
+    });
+  });
   await recordAudit({ actorPersonId: actorId, action: "recruitment.revoke", entityType: "Acceptance", entityId: acceptanceId, before: { applicationId: acc.applicationId, departmentCode: acc.departmentCode } });
 }

@@ -181,12 +181,11 @@ export default async function EditTemplatePage({ params }: Props) {
               aria-label="From display name"
             />
           </div>
-          {/* Same two-actions-one-form rule as the send-from rows on
-              /admin/email: useFormStatus is form-wide, so "Saving…" would appear
-              on this button while a test send is what is actually running. Each
-              button keeps its own label; the spinner says something is in flight. */}
-          <SubmitButton variant="outline" pendingLabel="Save sender">Save sender</SubmitButton>
-          <SubmitButton formAction={testSenderAction} variant="ghost" pendingLabel="Send test">Send test</SubmitButton>
+          {/* Same two-actions-one-form shape as the send-from rows on
+              /admin/email, and the same rule: both submits name their own action
+              so the spinner and the verb land on the one that is running. */}
+          <SubmitButton formAction={saveSenderAction} variant="outline" pendingLabel="Saving…">Save sender</SubmitButton>
+          <SubmitButton formAction={testSenderAction} variant="ghost" pendingLabel="Sending…">Send test</SubmitButton>
         </FormRow>
       </form>
     </div>

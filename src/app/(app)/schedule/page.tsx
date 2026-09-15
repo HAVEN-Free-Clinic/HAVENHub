@@ -9,7 +9,7 @@ import {
   PastShiftsDisclosure,
   SHIFT_REQUEST_COPY,
 } from "@/modules/schedule/components/shift-parts";
-import { FormActions, FormRow, ROW_WIDTH } from "@/platform/ui/form";
+import { FormRow, ROW_WIDTH } from "@/platform/ui/form";
 import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { PageHeader } from "@/platform/ui/page-header";
@@ -20,8 +20,6 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import {
   mySchedule,
-  updateMyAvailability,
-  AvailabilityValidationError,
 } from "@/modules/schedule/services/schedule";
 import {
   createRequest,
@@ -53,10 +51,8 @@ import { displayDate } from "@/modules/schedule/engine/display";
 import { CalendarDate } from "@/platform/dates/display";
 import { CLINIC_DATE_SHORT } from "@/platform/dates";
 import { displayTodayKey } from "@/platform/dates/today";
-import { Checkbox } from "@/platform/ui/checkbox";
-import { groupByMonth } from "@/modules/schedule/components/clinic-date-order";
-import { AVAILABILITY_PILL_CLASS } from "@/modules/schedule/components/availability-pill";
 import { EmptyState } from "@/platform/ui/empty-state";
+import { getCheckInState } from "@/modules/schedule/services/attendance";
 
 type SwapPartner = { personId: string; name: string; dateKey: string };
 
@@ -102,6 +98,12 @@ export default async function MySchedulePage({
   // Resolved once for the whole page (not per shift card) -- every shift's
   // "has this passed" check compares against this same key.
   const todayKey = await displayTodayKey(now);
+  // Check in is folded under this tab (see the registry), so on a clinic day its
+  // prompt lives here, as it does on the dashboard. The same gate as the
+  // dashboard banner: only someone scheduled today, or the check-in page answers
+  // NOT_ASSIGNED; and only until they have checked in.
+  const checkIn = await getCheckInState(session.personId);
+  const showCheckIn = checkIn.clinicDate !== null && checkIn.assignmentCount > 0 && !checkIn.existing;
 
   // mySchedule spans every term the member currently belongs to: their live
   // term plus any next term they are already an active roster member of. The
@@ -164,23 +166,6 @@ export default async function MySchedulePage({
       return { t, swapPartnersByKey: new Map<string, SwapPartner[]>(swapPartnerEntries) };
     }),
   );
-
-  async function saveAvailabilityAction(formData: FormData) {
-    "use server";
-    const actor = await requireModuleAccess("schedule");
-    const termId = (formData.get("termId") as string | null) ?? "";
-    const rawDates = formData.getAll("dates") as string[];
-    const dates = rawDates.map((key) => new Date(key + "T12:00:00Z"));
-    try {
-      await updateMyAvailability(actor.personId, { termId, dates });
-    } catch (err) {
-      if (err instanceof AvailabilityValidationError) {
-        redirect(`/schedule?error=validation&message=${encodeURIComponent(err.message)}`);
-      }
-      throw err;
-    }
-    redirect("/schedule?saved=1");
-  }
 
   async function createRequestAction(formData: FormData) {
     "use server";
@@ -380,6 +365,18 @@ export default async function MySchedulePage({
         />
       </div>
 
+      {showCheckIn && (
+        <Card className="mb-6 flex flex-wrap items-center justify-between gap-4">
+          <div className="min-w-0">
+            <p className="text-lg font-semibold text-foreground">Clinic today</p>
+            <p className="mt-0.5 text-sm text-muted-foreground">Check in when you arrive at the clinic.</p>
+          </div>
+          <Link href="/schedule/check-in" className={buttonClasses("primary", "md")}>
+            Check in
+          </Link>
+        </Card>
+      )}
+
       {/* Faculty first. An attending who is ONLY an attending sees this and the
           calendar card; the volunteer block below renders its own empty state
           for them, which is why it is suppressed in that case (see the guard on
@@ -483,7 +480,10 @@ export default async function MySchedulePage({
                 {shift.clinicClosed && (
                   <p className="mb-2 text-sm text-foreground-soft">
                     <span className="text-muted-foreground">The clinic is closed this date. </span>
-                    {shift.closedNote ? `${shift.closedNote} ` : ""}
+                    {/* The note is an admin's free text ("Fall Training"), usually
+                        with no full stop, so give it one or it runs into the next
+                        sentence. */}
+                    {shift.closedNote ? `${shift.closedNote.trim().replace(/([^.!?])$/, "$1.")} ` : ""}
                     You are still scheduled, and there is no clinic-day check-in. Check with
                     your director if you are not sure whether to come in.
                   </p>
@@ -615,15 +615,18 @@ export default async function MySchedulePage({
             <div key={t.term.id} className="mb-12 last:mb-0">
               {showTermHeadings && (
                 <div className="mb-5 flex items-center gap-2">
-                  <SectionHeader as="h2" level="title" className="text-xl">{t.term.name}</SectionHeader>
+                  <SectionHeader as="h2" level="group">{t.term.name}</SectionHeader>
                   <Badge tone={t.isLive ? "brand" : "default"}>{t.isLive ? "Live" : "Next term"}</Badge>
                 </div>
               )}
 
               {/* Quick-scan stats for this term: shift count, availability progress,
                   and pending request count. Each also gets a full readout in its own
-                  section below; this row is just the at-a-glance summary. */}
-              <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
+                  section below; this row is just the at-a-glance summary.
+                  Not on a phone: there the three cards stacked full width and
+                  pushed a volunteer's own shifts below the fold on a clinic day,
+                  to repeat numbers the sections below already give. */}
+              <div className="mb-8 hidden gap-4 sm:grid sm:grid-cols-3">
                 <StatCard label="Shifts this term" value={t.shifts.length} />
                 <StatCard
                   label="Dates available"
@@ -677,10 +680,12 @@ export default async function MySchedulePage({
                 )}
               </section>
 
-              {/* My availability -- editable until this term's clinics start,
-                  regardless of whether the schedule grid is showing yet. From
-                  the first clinic date onward it goes read-only and changes run
-                  through swap/drop requests instead. */}
+              {/* My availability, read-only. Members do not edit their own
+                  availability: it starts from their application, a change is a
+                  request (on the onboarding contract, or to a director after
+                  that), and a director applies it from the schedule builder.
+                  Once a shift is assigned, the request options on that shift
+                  are the way to change it. */}
               <section className="mt-10">
                 <SectionHeader as="h2" level="title" className="mb-2">My availability</SectionHeader>
                 <p className="text-sm text-subtle-foreground mb-5">
@@ -703,9 +708,9 @@ export default async function MySchedulePage({
                         <p className="text-sm text-foreground-soft">{t.legacyNote}</p>
                       </div>
                     )}
-                    {/* Per-department director overrides, shown read-only. A pin on
-                        one department must not lock or shadow the member's editable
-                        availability for their other departments (#26 / #61). */}
+                    {/* Per-department director overrides. A pin on one department
+                        must not shadow the dates shown for the member's other
+                        departments (#26 / #61). */}
                     {t.directorOverrides.length > 0 && (
                       <div className="mb-4 rounded-xl border border-border bg-muted px-3 py-3">
                         <p className="mb-2 text-sm font-medium text-foreground">Set by your director</p>
@@ -721,92 +726,35 @@ export default async function MySchedulePage({
                         </ul>
                         {!t.allDepartmentsOverridden && (
                           <p className="mt-2 text-xs text-subtle-foreground">
-                            Editing below won&apos;t change {t.directorOverrides.length === 1 ? "that department" : "those departments"}; your edits apply to your other departments. Ask a department director to adjust a pinned schedule.
+                            The dates below apply to your other departments.
                           </p>
                         )}
                       </div>
                     )}
 
-                    {/* When every department is director-managed, a self-save would
-                        move nothing, so withhold the editor rather than report a no-op
-                        "saved" (#61). Otherwise the form is always editable. */}
-                    {t.allDepartmentsOverridden ? (
-                      <p className="text-sm text-subtle-foreground">Your availability is managed by your director, so there is nothing to edit here.</p>
-                    ) : t.clinicDates.length === 0 ? (
-                      // No clinic calendar yet: the checkbox grid would be empty and
-                      // an empty save would wipe the application baseline to an empty
-                      // SELF tier (#90). Explain instead of offering a destructive Save.
+                    {t.allDepartmentsOverridden ? null : t.clinicDates.length === 0 ? (
                       <p className="text-sm text-subtle-foreground">Clinic dates for this term haven&apos;t been set yet. Check back once the calendar is published.</p>
-                    ) : t.availabilityLocked ? (
-                      // Clinics have started: the schedule built from this
-                      // availability is live, so a silent edit here would desync
-                      // it from the roster the clinic is working off. Show what
-                      // they submitted, read-only, and point at the flow that
-                      // does notify a director.
-                      <div>
-                        <div className="flex flex-wrap gap-2">
-                          {t.availability.dates.length === 0 ? (
-                            <p className="text-sm text-subtle-foreground">You marked yourself unavailable for every date.</p>
-                          ) : (
-                            t.availability.dates.map((d) => (
-                              <span
-                                key={isoDateKey(d)}
-                                className="flex items-center rounded-full border border-border px-3 py-1.5 text-xs whitespace-nowrap text-muted-foreground"
-                              >
-                                {displayDate(isoDateKey(d))}
-                              </span>
-                            ))
-                          )}
-                        </div>
-                        <p className="mt-4 text-sm text-subtle-foreground">
-                          Availability is locked now that clinics have started. To change a shift you are
-                          already on, use the request options on that shift above.
-                        </p>
-                      </div>
+                    ) : t.availability.dates.length === 0 ? (
+                      <p className="text-sm text-subtle-foreground">You are not marked available for any clinic date.</p>
                     ) : (
-                      <form action={saveAvailabilityAction}>
-                        <input type="hidden" name="termId" value={t.term.id} />
-                        <div className="flex flex-col gap-6">
-                          {/* t.clinicDates is Term.clinicDates, a raw Postgres array
-                              column with no ordering guarantee -- the check-in
-                              feature's seed appends today's date to the end
-                              regardless of where it falls chronologically.
-                              groupByMonth sorts a copy before grouping, so the
-                              month headings below always render chronologically
-                              and never collide (see clinic-date-order.ts). */}
-                          {groupByMonth(t.clinicDates).map((group) => (
-                            <div key={group.key}>
-                              <p className="text-xs font-semibold uppercase tracking-wide text-brand-fg mb-2">{group.month}</p>
-                              <div className="flex flex-wrap gap-2">
-                                {group.dates.map((d) => {
-                                  const key = isoDateKey(d);
-                                  const checked = t.availability!.dates.some((ad) => isoDateKey(ad) === key);
-                                  return (
-                                    // Styling comes from the live checkbox, not from `checked`:
-                                    // `checked` only seeds the initial state, and a pill that
-                                    // never restyled is what made members click a date twice and
-                                    // turn it back off. See availability-pill.ts.
-                                    <label key={key} className={AVAILABILITY_PILL_CLASS}>
-                                      <Checkbox
-                                        name="dates"
-                                        value={key}
-                                        defaultChecked={checked}
-                                      />
-                                      {displayDate(key)}
-                                    </label>
-                                  );
-                                })}
-                              </div>
-                            </div>
+                      <div className="flex flex-wrap gap-2">
+                        {[...t.availability.dates]
+                          .sort((a, b) => a.getTime() - b.getTime())
+                          .map((d) => (
+                            <span
+                              key={isoDateKey(d)}
+                              className="flex items-center rounded-full border border-border px-3 py-1.5 text-xs whitespace-nowrap text-muted-foreground"
+                            >
+                              {displayDate(isoDateKey(d))}
+                            </span>
                           ))}
-                        </div>
-                        <FormActions className="mt-4">
-                          <Button type="submit">
-                            Save availability
-                          </Button>
-                        </FormActions>
-                      </form>
+                      </div>
                     )}
+                    <p className="mt-4 text-sm text-subtle-foreground">
+                      Availability can only be changed by request. Ask your department&apos;s directors, who can
+                      update it for you. If you can no longer make a shift you are already scheduled for, use the
+                      request options on that shift above.
+                    </p>
                   </>
                 )}
               </section>

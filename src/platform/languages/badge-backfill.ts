@@ -13,6 +13,7 @@
  */
 
 import { prisma } from "@/platform/db";
+import { comparePersonName } from "@/platform/person-name";
 import { recordAudit } from "@/platform/audit";
 import { SPANISH, SPANISH_SPEAKER_MIN_SCORE } from "./catalog";
 
@@ -31,6 +32,8 @@ export type BadgeBackfillOutcome =
 export type BadgeBackfillRow = {
   personId: string;
   name: string;
+  legalFirstName: string;
+  lastName: string;
   outcome: BadgeBackfillOutcome;
   score: number | null;
   term: string | null;
@@ -70,17 +73,17 @@ export async function backfillLanguageBadges(
       personId: true,
       score: true,
       term: true,
-      person: { select: { name: true } },
+      person: { select: { name: true, legalFirstName: true, lastName: true } },
     },
   });
 
   // Two facts from one pass: who has any record at all, and each person's most
   // recent record that actually carries a number.
-  const seen = new Map<string, string>();
+  const seen = new Map<string, { name: string; legalFirstName: string; lastName: string }>();
   const latest = new Map<string, { score: number; term: string }>();
   for (const r of records) {
     if (!r.personId || !r.person) continue;
-    if (!seen.has(r.personId)) seen.set(r.personId, r.person.name);
+    if (!seen.has(r.personId)) seen.set(r.personId, r.person);
     if (r.score === null || latest.has(r.personId)) continue;
     latest.set(r.personId, { score: r.score, term: r.term });
   }
@@ -100,16 +103,16 @@ export async function backfillLanguageBadges(
     "no-score": 0,
   };
 
-  for (const [personId, name] of seen) {
+  for (const [personId, person] of seen) {
     const record = latest.get(personId);
     if (!record) {
-      rows.push({ personId, name, outcome: "no-score", score: null, term: null });
+      rows.push({ personId, ...person, outcome: "no-score", score: null, term: null });
       counts["no-score"] += 1;
       continue;
     }
 
     const current = byPerson.get(personId);
-    const base = { personId, name, score: record.score, term: record.term };
+    const base = { personId, ...person, score: record.score, term: record.term };
 
     if (current?.verifiedAt) {
       // A human has ruled. Their verdict stands; only a missing number is
@@ -169,6 +172,6 @@ export async function backfillLanguageBadges(
     }
   }
 
-  rows.sort((a, b) => a.name.localeCompare(b.name));
+  rows.sort(comparePersonName);
   return { rows, counts, unlinkedRecords };
 }

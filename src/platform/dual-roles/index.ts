@@ -1,6 +1,8 @@
+import { cache } from "react";
 import { prisma } from "@/platform/db";
 import { getSetting } from "@/platform/settings/service";
 import { getActiveTerm } from "@/platform/terms/active-term";
+import { getNextTerm } from "@/platform/terms/next-term";
 import { permissionDepartmentIds } from "@/platform/rbac/engine";
 import { peopleWithPermission } from "@/platform/rbac/permission-holders";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
@@ -8,7 +10,7 @@ import { notify } from "@/platform/notifications/notify";
 import { dualRoleRequestedContext, type PendingDualRoleOffer } from "@/platform/email/templates/volunteers";
 import { verifiedLanguagesByPerson, spanishScoresByPerson } from "@/platform/languages";
 import { languageLabel } from "@/platform/languages/catalog";
-import { firstNameOf } from "@/platform/person-name";
+import { firstNameOf, comparePersonName } from "@/platform/person-name";
 import { addMembership } from "@/platform/memberships/add";
 import { recordAudit } from "@/platform/audit";
 import { log, errorAttrs } from "@/platform/logging";
@@ -77,7 +79,7 @@ async function sendDualRoleDigest(
     getSetting<string>("app.baseUrl"),
     prisma.person.findMany({
       where: { id: { in: [...new Set(offers.map((o) => o.personId))] } },
-      select: { id: true, name: true },
+      select: { id: true, name: true, legalFirstName: true, lastName: true },
     }),
     prisma.department.findMany({
       where: { code: { in: codes } },
@@ -87,12 +89,21 @@ async function sendDualRoleDigest(
   if (holders.length === 0) return;
 
   const nameById = new Map(people.map((p) => [p.id, p.name]));
+  const personById = new Map(people.map((p) => [p.id, p]));
   const deptByCode = new Map(departments.map((d) => [d.code, d]));
   const reviewUrl = `${baseUrl}${DUAL_ROLE_QUEUE_PATH}`;
 
   // Group the offers by the department that has to decide on them.
   const byDepartment = new Map<string, PendingDualRoleOffer[]>();
-  for (const offer of offers) {
+  // Ordered ONCE, here, by the person each offer concerns. Every department's
+  // list then comes out in the app's surname order without the row shape having
+  // to carry name parts it does not otherwise need.
+  const orderedOffers = [...offers].sort((a, b) => {
+    const pa = personById.get(a.personId);
+    const pb = personById.get(b.personId);
+    return pa && pb ? comparePersonName(pa, pb) : 0;
+  });
+  for (const offer of orderedOffers) {
     const name = nameById.get(offer.personId);
     if (!name) continue;
     const rows = byDepartment.get(offer.departmentCode) ?? [];
@@ -106,8 +117,6 @@ async function sendDualRoleDigest(
   for (const [departmentCode, rows] of byDepartment) {
     const department = deptByCode.get(departmentCode);
     if (!department) continue;
-    rows.sort((a, b) => a.name.localeCompare(b.name));
-
     // The grant is department-scoped, so the recipients are the holders whose
     // grant actually reaches THIS department -- not everyone who holds the
     // permission. That is what keeps VADM's offers out of INTP's inbox without
@@ -165,15 +174,22 @@ async function sendDualRoleDigest(
  * ever have a queue, so gating the tab on the permission alone would show it to
  * every director in the clinic and lead nearly all of them to an empty page.
  * A capability like this is what ModuleNavItem.dynamicGate is for.
+ *
+ * Request-cached, like everything in rbac/engine.ts, because it has two callers
+ * on the same render: the app shell resolves every module's gated hrefs
+ * (app/(app)/nav-gates.ts) and the volunteers layout resolves this one again for
+ * its own sub-nav. `permissionDepartmentIds` was already cached, so only the
+ * `department.count` was repeating -- one wasted query on every volunteers page
+ * view, for every director who holds the permission.
  */
-export async function directsADualRoleDepartment(personId: string): Promise<boolean> {
+export const directsADualRoleDepartment = cache(async (personId: string): Promise<boolean> => {
   const departmentIds = await permissionDepartmentIds(personId, DUAL_ROLE_PERMISSION);
   if (departmentIds.length === 0) return false;
   const count = await prisma.department.count({
     where: { id: { in: departmentIds }, code: { in: [...DUAL_ROLE_DEPARTMENT_CODES] } },
   });
   return count > 0;
-}
+});
 
 export type DualRoleQueueRow = {
   id: string;
@@ -185,6 +201,9 @@ export type DualRoleQueueRow = {
   /** Where they already serve this term, by name. Empty if they hold nothing. */
   primaryDepartments: string[];
   status: "PENDING" | "ACCEPTED" | "DECLINED";
+  /** The term the offer is for: the live one, or the next one when the cohort
+   *  was promoted ahead of the flip. */
+  termName: string;
   offeredAt: Date;
   decidedAt: Date | null;
   decidedByName: string | null;
@@ -213,13 +232,18 @@ export type DualRoleQueueRow = {
  * Returns [] rather than throwing for someone whose grant reaches no dual
  * department: they can open the page (they hold the permission) and correctly
  * see an empty queue.
+ *
+ * Covers the live term AND the next one (decidableTerms): promotion records an
+ * offer against the cycle's term, and a cohort is promoted ahead of the flip.
  */
 export async function listDualRoleQueue(
   actorPersonId: string,
   opts: { includeDecided?: boolean } = {},
 ): Promise<DualRoleQueueRow[]> {
-  const term = await getActiveTerm();
-  if (!term) return [];
+  const terms = await decidableTerms();
+  if (terms.length === 0) return [];
+  const termIds = terms.map((t) => t.id);
+  const termNameById = new Map(terms.map((t) => [t.id, t.name]));
 
   const departmentIds = await permissionDepartmentIds(actorPersonId, DUAL_ROLE_PERMISSION);
   if (departmentIds.length === 0) return [];
@@ -233,12 +257,12 @@ export async function listDualRoleQueue(
 
   const interests = await prisma.dualRoleInterest.findMany({
     where: {
-      termId: term.id,
+      termId: { in: termIds },
       departmentCode: { in: visibleCodes },
       ...(opts.includeDecided ? {} : { status: "PENDING" }),
     },
     select: {
-      id: true, personId: true, departmentCode: true, status: true, notes: true,
+      id: true, personId: true, termId: true, departmentCode: true, status: true, notes: true,
       createdAt: true, decidedAt: true, applicationId: true,
       person: { select: { name: true } },
       decidedBy: { select: { name: true } },
@@ -254,18 +278,20 @@ export async function listDualRoleQueue(
   // it were the person's home team.
   const [memberships, verified, spanish] = await Promise.all([
     prisma.termMembership.findMany({
-      where: { personId: { in: personIds }, termId: term.id, status: "ACTIVE" },
-      select: { personId: true, department: { select: { code: true, name: true } } },
+      where: { personId: { in: personIds }, termId: { in: termIds }, status: "ACTIVE" },
+      select: { personId: true, termId: true, department: { select: { code: true, name: true } } },
     }),
     verifiedLanguagesByPerson(personIds),
     spanishScoresByPerson(personIds),
   ]);
+  // Keyed by person AND term: "currently serving" means in the offer's own
+  // term, so a returner's live-term department is not shown as the home team
+  // of an offer made for next term.
+  const servingKey = (personId: string, termId: string) => `${personId}:${termId}`;
   const membershipsByPerson = new Map<string, Array<{ code: string; name: string }>>();
   for (const m of memberships) {
-    membershipsByPerson.set(m.personId, [
-      ...(membershipsByPerson.get(m.personId) ?? []),
-      m.department,
-    ]);
+    const key = servingKey(m.personId, m.termId);
+    membershipsByPerson.set(key, [...(membershipsByPerson.get(key) ?? []), m.department]);
   }
 
   return interests.map((i) => ({
@@ -274,11 +300,12 @@ export async function listDualRoleQueue(
     personName: i.person.name,
     departmentCode: i.departmentCode,
     departmentName: deptByCode.get(i.departmentCode)?.name ?? i.departmentCode,
-    primaryDepartments: (membershipsByPerson.get(i.personId) ?? [])
+    primaryDepartments: (membershipsByPerson.get(servingKey(i.personId, i.termId)) ?? [])
       .filter((d) => d.code !== i.departmentCode)
       .map((d) => d.name)
       .sort(),
     status: i.status,
+    termName: termNameById.get(i.termId) ?? "",
     offeredAt: i.createdAt,
     decidedAt: i.decidedAt,
     decidedByName: i.decidedBy?.name ?? null,
@@ -294,18 +321,38 @@ export async function listDualRoleQueue(
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve an interest the actor is actually allowed to decide, in the active
- * term. Shared by both decisions so neither can drift from the other on which
- * rows are reachable.
+ * The terms whose offers can be seen and decided: the live term, plus the next
+ * one when a term is in preparation.
+ *
+ * Live-only used to be the rule, and it made every offer a dead end for the
+ * weeks between promotion and the flip. Promotion records the offer against the
+ * CYCLE's term and mails the receiving directors a digest straight away, and a
+ * cohort is promoted before its term goes live, so the link in that digest
+ * opened an empty queue and a decision was refused as "no longer exists".
+ * An offer against an archived term stays out: that term is over.
+ */
+async function decidableTerms(): Promise<Array<{ id: string; name: string }>> {
+  const live = await getActiveTerm();
+  if (!live) return [];
+  const next = await getNextTerm();
+  return next ? [live, next] : [live];
+}
+
+/**
+ * Resolve an interest the actor is actually allowed to decide, in the live or
+ * next term. Shared by both decisions so neither can drift from the other on
+ * which rows are reachable. The returned term is the OFFER's, which is the term
+ * an acceptance puts the person on.
  */
 async function loadDecidableInterest(actorPersonId: string, interestId: string) {
-  const term = await getActiveTerm();
-  if (!term) throw new DualRoleError("There is no active term.");
+  const terms = await decidableTerms();
+  if (terms.length === 0) throw new DualRoleError("There is no active term.");
   const interest = await prisma.dualRoleInterest.findUnique({
     where: { id: interestId },
     select: { id: true, personId: true, termId: true, departmentCode: true, status: true },
   });
-  if (!interest || interest.termId !== term.id) throw new DualRoleError("That dual-role offer no longer exists.");
+  const term = interest ? terms.find((t) => t.id === interest.termId) : undefined;
+  if (!interest || !term) throw new DualRoleError("That dual-role offer no longer exists.");
   if (interest.status !== "PENDING") throw new DualRoleError("That offer has already been decided.");
 
   const department = await prisma.department.findUnique({

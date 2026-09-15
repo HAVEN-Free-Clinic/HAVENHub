@@ -5,6 +5,8 @@ import {
   legalNameOf,
   splitPersonName,
   sortKeyOf,
+  personNameSearchClauses,
+  comparePersonName,
 } from "./person-name";
 
 describe("firstNameOf", () => {
@@ -19,6 +21,17 @@ describe("firstNameOf", () => {
     expect(firstNameOf("(Jack) Jonathan Carney")).toBe("Jack");
     expect(firstNameOf("Jonathan Carney (Jack)")).toBe("Jack");
     expect(firstNameOf("Carney, Jonathan (Jack)")).toBe("Jack");
+  });
+
+  // From the production roster: "Antonio Bolea (Tony Vega)". Only "Tony" is
+  // lifted, so "Vega" is discarded, and we cannot know whether that was a second
+  // given name or the surname he actually goes by. Dropping part of a name is a
+  // guess like any other.
+  it("flags a parenthetical carrying more than one token", () => {
+    expect(splitPersonName("Antonio Bolea (Tony Vega)")).toMatchObject({
+      preferredFirstName: "Tony",
+      needsReview: true,
+    });
   });
 
   it("takes only the first token inside the parenthetical", () => {
@@ -212,6 +225,16 @@ describe("splitPersonName", () => {
     });
   });
 
+  // From the production roster: "Yasmine Ben Naceur". "ben" sits with bin/ibn,
+  // which were already here; it was simply missed.
+  it("treats ben as a surname particle", () => {
+    expect(splitPersonName("Yasmine Ben Naceur")).toMatchObject({
+      legalFirstName: "Yasmine",
+      lastName: "Ben Naceur",
+      needsReview: true,
+    });
+  });
+
   it("flags a three-token name whose middle is not an initial", () => {
     expect(splitPersonName("Guadalupe Hernandez Zavala")).toEqual({
       legalFirstName: "Guadalupe",
@@ -235,6 +258,30 @@ describe("splitPersonName", () => {
       lastName: "Peng",
       preferredFirstName: "Jack",
       needsReview: true,
+    });
+  });
+
+  // From the attendings contact sheet: "Ponce Terashima, Javier". Everything
+  // before the comma IS the surname; re-tokenising it threw "Ponce" away and
+  // filed him under Terashima.
+  it("keeps a compound surname whole in the Last, First form", () => {
+    expect(splitPersonName("Ponce Terashima, Javier")).toMatchObject({
+      legalFirstName: "Javier",
+      legalMiddleName: null,
+      lastName: "Ponce Terashima",
+      needsReview: true,
+    });
+    expect(splitPersonName("Hernandez Castillo, Carlos")).toMatchObject({
+      legalFirstName: "Carlos",
+      lastName: "Hernandez Castillo",
+    });
+  });
+
+  it("still reads a middle name after the comma", () => {
+    expect(splitPersonName("Doe, Jane Q")).toMatchObject({
+      legalFirstName: "Jane",
+      legalMiddleName: "Q",
+      lastName: "Doe",
     });
   });
 
@@ -377,5 +424,78 @@ describe("sortKeyOf", () => {
         preferredFirstName: null,
       }),
     ).toEqual(["pena", "jose"]);
+  });
+});
+
+describe("personNameSearchClauses", () => {
+  /**
+   * legalMiddleName is NULLABLE, and that makes it dangerous in a clause that
+   * might be negated. `"middle" LIKE '%x%'` is NULL for a row with no middle
+   * name, NULL survives an OR, and NOT(NULL) is NULL, so every person without a
+   * middle name silently disappears from a "does not contain" filter or a NONE
+   * group. Same shape as #224.
+   *
+   * The explicit IS NOT NULL guard turns that NULL into a false, which negates
+   * correctly.
+   */
+  it("guards the nullable middle name so a negated search cannot drop null rows", () => {
+    const clauses = personNameSearchClauses("Rivera");
+    expect(clauses).toContainEqual({
+      AND: [
+        { legalMiddleName: { not: null } },
+        { legalMiddleName: { contains: "Rivera", mode: "insensitive" } },
+      ],
+    });
+    // The NOT NULL columns need no guard.
+    expect(clauses).toContainEqual({ name: { contains: "Rivera", mode: "insensitive" } });
+  });
+
+  it("prefixes every clause, guard included, when searching across a relation", () => {
+    const clauses = personNameSearchClauses("Rivera", "person");
+    expect(clauses).toContainEqual({
+      person: {
+        AND: [
+          { legalMiddleName: { not: null } },
+          { legalMiddleName: { contains: "Rivera", mode: "insensitive" } },
+        ],
+      },
+    });
+  });
+});
+
+describe("comparePersonName", () => {
+  const p = (legalFirstName: string, lastName: string, preferredFirstName: string | null = null) => ({
+    legalFirstName,
+    lastName,
+    preferredFirstName,
+  });
+
+  it("orders by surname, then by the legal given name", () => {
+    const rows = [p("Zoe", "Adams"), p("Al", "Baker"), p("Bea", "Adams")];
+    expect([...rows].sort(comparePersonName).map((r) => `${r.legalFirstName} ${r.lastName}`)).toEqual([
+      "Bea Adams",
+      "Zoe Adams",
+      "Al Baker",
+    ]);
+  });
+
+  // The same reason PERSON_NAME_ORDER keys on the legal name: a list that
+  // reorders itself because somebody set a nickname is a list that moved under
+  // a reader who did nothing.
+  it("ignores the preferred name, so setting one does not reshuffle a list", () => {
+    const before = [p("Al", "Baker"), p("Zoe", "Adams")];
+    const after = [p("Al", "Baker", "Zzz"), p("Zoe", "Adams")];
+    const key = (r: { legalFirstName: string; lastName: string }) => `${r.legalFirstName} ${r.lastName}`;
+    expect([...after].sort(comparePersonName).map(key)).toEqual([...before].sort(comparePersonName).map(key));
+  });
+
+  it("folds accents, so Peña sorts beside Pena", () => {
+    const rows = [p("Ana", "Perez"), p("Ana", "Peña"), p("Ana", "Perry")];
+    expect([...rows].sort(comparePersonName).map((r) => r.lastName)).toEqual(["Peña", "Perez", "Perry"]);
+  });
+
+  it("puts a mononym first, which is the documented wart", () => {
+    const rows = [p("Ada", "Lovelace"), p("Cher", "")];
+    expect([...rows].sort(comparePersonName).map((r) => r.legalFirstName)).toEqual(["Cher", "Ada"]);
   });
 });

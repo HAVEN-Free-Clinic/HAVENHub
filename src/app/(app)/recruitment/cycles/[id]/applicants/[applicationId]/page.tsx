@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { PageBody } from "@/platform/ui/page-body";
 import { getApplication } from "@/modules/recruitment/services/submissions";
 import { isDisplayOnlyNotice, noticeDisplayLabel } from "@/modules/recruitment/engine/notice";
 import { formatAnswer, storedFileRef } from "@/modules/recruitment/engine/answer-display";
@@ -7,12 +8,13 @@ import { getApplicantHistory } from "@/modules/recruitment/services/history";
 import { serviceGapForCycle } from "@/modules/recruitment/services/service-gap";
 import { visibleSections, applicantTypeLabel } from "@/modules/recruitment/engine/visibility";
 import { requirePersonSession } from "@/platform/auth/session";
-import { reviewScope, listAcceptances, canViewApplication } from "@/modules/recruitment/services/review";
+import { reviewScope, listAcceptances, canViewApplication, recordApplicationView } from "@/modules/recruitment/services/review";
 import { can } from "@/platform/rbac/engine";
-import { scheduleInterviewAction, committeeScoreAction, routeAction, decideRoutedAction, reopenDecisionAction, rescindAcceptanceAction, reopenWithdrawnAction, excuseApplicantAbsenceAction, clearApplicantExcuseAction, assessApplicantLanguageAction } from "../actions";
+import { scheduleInterviewAction, committeeScoreAction, routeAction, decideRoutedAction, reopenDecisionAction, rescindAcceptanceAction, reopenWithdrawnAction, excuseApplicantAbsenceAction, clearApplicantExcuseAction, assessApplicantLanguageAction, requestDualAppointmentFromApplicantAction, decideDualAppointmentFromApplicantAction } from "../actions";
+import { listDualAppointments, type DualAppointmentRow } from "@/modules/recruitment/services/dual-appointments";
 import { getApplicantAbsenceExcuse } from "@/modules/recruitment/services/training";
-import { priorLanguageVerdicts } from "@/platform/languages";
-import { SPANISH } from "@/platform/languages/catalog";
+import { languagesToAssessBeforeAcceptance, priorLanguageVerdicts } from "@/platform/languages";
+import { nextDualFallback } from "@/platform/dual-roles/catalog";
 import { LanguageAssessmentCard } from "@/modules/recruitment/components/language-assessment-card";
 import { ExcuseAbsenceButton } from "@/modules/recruitment/components/excuse-absence-button";
 import { listApplicationInterviews } from "@/modules/recruitment/services/interviews";
@@ -20,6 +22,8 @@ import { DateTime } from "@/platform/dates/display";
 import { committeeScoreSummary } from "@/modules/recruitment/services/committee-scoring";
 import { formatScoreSummary } from "@/modules/recruitment/engine/scoring";
 import { scorerQueueScope } from "@/modules/recruitment/services/score-assignment";
+import { reviewerIdentity } from "@/modules/recruitment/services/own-application";
+import { isOwnApplication } from "@/modules/recruitment/engine/own-application";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
@@ -41,6 +45,13 @@ import { TextLink } from "@/platform/ui/text-link";
 import { FormRow, RowField } from "@/platform/ui/form";
 import { DECISION_LABELS } from "@/modules/recruitment/components/status-badge";
 
+
+const DUAL_STATUS: Record<DualAppointmentRow["status"], { label: string; tone: "default" | "success" | "warning" }> = {
+  PENDING: { label: "Waiting for approval", tone: "warning" },
+  APPROVED: { label: "Approved", tone: "success" },
+  DECLINED: { label: "Declined", tone: "default" },
+  CANCELLED: { label: "Cancelled", tone: "default" },
+};
 
 export default async function ApplicationDetailPage({ params }: { params: Promise<{ id: string; applicationId: string }> }) {
   const { id, applicationId } = await params;
@@ -71,6 +82,9 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
   // director's queue on volunteer cycles; ranking on director-track cycles).
   const canView = canViewApplication(app, { scope, managesCycles, canScore: canScorePerm });
   if (!canView) notFound();
+  // Past the access check, so this logs a permitted view. Repeats by the same
+  // person inside ten minutes (every action on this page re-renders it) count once.
+  await recordApplicationView(person.personId, applicationId);
   const eligible = seeAll
     ? app.cycle.departments
     : app.cycle.departments.filter((d) => scope.departmentCodes.includes(d) && app.departmentChoices.includes(d));
@@ -100,7 +114,7 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
   // below to render LanguageAssessmentCard, never to gate anything on this page.
   const laneDepartments = await prisma.department.findMany({
     where: { assessLanguageBeforeAcceptance: true },
-    select: { code: true },
+    select: { code: true, assessSpanishRegardlessOfClaim: true },
   });
   const laneCodes = new Set(laneDepartments.map((d) => d.code));
   const applicationDepartments = [
@@ -124,7 +138,18 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
     ? await prisma.person.findMany({ where: { id: { in: assessorIds } }, select: { id: true, name: true } })
     : [];
   const assessorNames = new Map(assessors.map((a) => [a.id, a.name]));
-  const assessableLanguages = [...new Set([SPANISH, ...app.languagesClaimed])];
+  // What this application is assessed on (the same rule as the review queue),
+  // plus every language that already has a verdict, so a verdict on file is
+  // still shown to the deciding department.
+  const assessableLanguages = inLane
+    ? [...new Set([
+        ...languagesToAssessBeforeAcceptance(
+          app,
+          laneDepartments.filter((d) => d.assessSpanishRegardlessOfClaim).map((d) => d.code),
+        ),
+        ...languageVerdicts.keys(),
+      ])]
+    : [];
   const canAssessLanguages = await can(person.personId, "volunteers.verify_spanish");
 
   const accepted = new Set(acceptances.map((a) => a.departmentCode));
@@ -142,7 +167,40 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
   const emailedAcceptance = app.routedDepartmentCode
     ? acceptances.find((a) => a.departmentCode === app.routedDepartmentCode && a.emailedAt != null)
     : undefined;
+  // Where a REJECT recorded here would send the applicant instead of ending the
+  // application (planDualFallback in services/routing.ts). Stated on the Reject
+  // option, so a director is never surprised that the applicant moved on.
+  const rejectPassesTo = app.routedDepartmentCode
+    ? nextDualFallback({
+        declared: app.dualRoleDepartments,
+        declinedBy: app.dualRoleDeclinedBy,
+        rejectingDepartmentCode: app.routedDepartmentCode,
+        cycleDepartments: app.cycle.departments,
+      })
+    : null;
+  // Dual departments that declined before this one, for the fallback note.
+  const declinedEarlier = app.dualRoleDeclinedBy.filter((c) => c !== app.routedDepartmentCode);
   const interviewedDepts = new Set(existingInterviews.map((i) => i.departmentCode));
+  // Dual appointments (services/dual-appointments.ts). Volunteer cycles only.
+  // Shown to recruitment managers and to directors; the list is already scoped
+  // to what this viewer may see.
+  const dualRows: DualAppointmentRow[] =
+    app.cycle.track === "VOLUNTEER" && (scope.all || scope.departmentCodes.length > 0)
+      ? await listDualAppointments({ cycleId: id, applicationId }, person.personId)
+      : [];
+  const dualInPlay = dualRows.some((r) => r.status === "PENDING" || r.status === "APPROVED");
+  // Where this viewer could put them as a second department: any active
+  // department for a manager, their own for a director, never the routed one.
+  const dualChoices =
+    app.cycle.track === "VOLUNTEER" && app.status === "SUBMITTED" && !dualInPlay && (scope.all || scope.departmentCodes.length > 0)
+      ? (
+          await prisma.department.findMany({
+            where: scope.all ? { isActive: true } : { isActive: true, code: { in: scope.departmentCodes } },
+            select: { code: true, name: true },
+            orderBy: { name: "asc" },
+          })
+        ).filter((d) => d.code !== app.routedDepartmentCode)
+      : [];
   const scheduleChoices = choices.filter((d) => !interviewedDepts.has(d));
   const answers = (app.answers ?? {}) as Record<string, unknown>;
   const sections = visibleSections(app.cycle.sections, {
@@ -161,8 +219,18 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
   // The routed-decision director is told to "decide from the committee score", so
   // they must be able to see it even without recruitment.score (they get the
   // read-only average below; only scorers get the entry form).
-  const scoreSummary = canScore || canDecideRouted ? await committeeScoreSummary(applicationId) : null;
+  //
+  // A reviewer who also applied reads their own application like any other, but
+  // never its scores or who gave them, and is offered no score form
+  // (submitCommitteeScore refuses a self-score regardless).
+  const ownApplication = isOwnApplication(app.applicant, await reviewerIdentity(person.personId));
+  const scoreSummary = !ownApplication && (canScore || canDecideRouted) ? await committeeScoreSummary(applicationId) : null;
   const myScore = scoreSummary?.scores.find((s) => s.scorerId === person.personId) ?? null;
+  // Every reviewer's score and comment, by name, for the people who act on them:
+  // a lead (review_all) and the director deciding a routed application. A scorer
+  // with neither sees the average and their own score, so each score is formed
+  // before reading anyone else's.
+  const showEveryScore = (scope.all || canDecideRouted) && (scoreSummary?.scores.length ?? 0) > 0;
   // Assignment shapes the speed-score QUEUE; it never gates this form. Scoring
   // an application nobody handed you still works and still counts, so the most
   // it does here is say you have wandered off your own pile.
@@ -176,7 +244,7 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
   const canRoute = scope.all && app.cycle.track === "VOLUNTEER"; // recruitment.review_all; routing is volunteer-only
   const routedOffChoice = app.routedDepartmentCode != null && !app.departmentChoices.includes(app.routedDepartmentCode);
   return (
-    <div className="max-w-2xl space-y-6">
+    <PageBody width="full">
       <SetBreadcrumb
         trail={cycleTrail({
           canOpenOverview,
@@ -231,8 +299,6 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
         </Alert>
       )}
 
-      <ApplicantHistory history={history} title="Past applications" pendingApplication />
-
       {app.status === "WITHDRAWN" && (
         <div className="space-y-3">
           <Alert tone="warning">
@@ -249,323 +315,442 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
         </div>
       )}
 
-      {sections.map((section) => {
-        // The ranking is hoisted into its own column at submission (submissions.ts
-        // deletes the answer key), so a rank field here only ever rendered
-        // "(none)". The Subcommittee card below is the authoritative view; drop a
-        // section that held nothing else rather than leaving an empty card.
-        // A display-only notice joins the hoisted ranking in being dropped: it is
-        // policy text the applicant read, not an answer, and it would render as a
-        // wall of prose against "(none)". An ACKNOWLEDGING notice stays -- who
-        // confirmed what is exactly the kind of thing a reviewer needs to see.
-        const fields = section.fields.filter(
-          (f) =>
-            f.type !== "SUBCOMMITTEE_RANK" &&
-            !isDisplayOnlyNotice(f) &&
-            // Never asked and never answered: the applicant did not skip this,
-            // they were not shown it. Keeping the row said "(none)" where the
-            // truthful answer is "not applicable", and a form with a few
-            // branches filled the grid with them.
-            (isFieldVisible(f.visibleWhen, condAnswers) || formatAnswer(f, answers[f.key]) !== ""),
-        );
-        if (fields.length === 0) return null;
-        return (
-        <Card key={section.id}>
-          <SectionHeader>{section.title}</SectionHeader>
-          <DescriptionList className="mt-3">
-            {fields.map((f) => {
-              const val = answers[f.key];
-              const label = f.type === "NOTICE" ? noticeDisplayLabel(f) : f.label;
-              const fileVal = f.type === "FILE" || f.type === "SIGNATURE" ? storedFileRef(val) : null;
-              // Option labels, Yes/No, language names and readable dates all
-              // resolve in formatAnswer -- the same resolution the applicant saw
-              // on the wizard's review step. It returns "" for an unanswered
-              // question, and DetailRow turns that into the house placeholder.
-              const display = formatAnswer(f, val);
-              const fileHref = `/api/recruitment/applications/${applicationId}/files/${encodeURIComponent(f.key)}?inline=1`;
-              return (
-                // An essay gets the full width and keeps its paragraph breaks --
-                // squeezed into one half-width column with the newlines collapsed,
-                // a 300-word answer was the least readable thing on the page.
-                <DetailRow
-                  key={f.id}
-                  label={label}
-                  empty="Not answered"
-                  wide={f.type === "LONG_TEXT"}
-                  wrap
-                >
-                  {f.type === "SIGNATURE" && fileVal?.storedName ? (
-                    // eslint-disable-next-line @next/next/no-img-element -- authenticated same-origin file route, not a remote asset
-                    <img src={fileHref} alt={`${f.label} signature`} className="h-20 max-w-full rounded border border-border-subtle bg-white" />
-                  ) : fileVal?.storedName ? (
-                    <TextLink href={fileHref} external className="font-medium">
-                      {display}
-                    </TextLink>
-                  ) : (
-                    display
-                  )}
-                </DetailRow>
-              );
-            })}
-          </DescriptionList>
-        </Card>
-        );
-      })}
+      {/* Two columns from lg: the application on the left, and the reviewer's
+          own controls (score, routing, the decision) in a rail that stays in
+          view while they read. It was one 672px column with every control below
+          all the answers, about 3,600px down on a real application. The rail is
+          capped to the viewport and scrolls on its own, so its last card is never
+          out of reach under the sticky header. On a phone it stacks in reading
+          order: answers first, then the controls. */}
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_24rem] lg:items-start">
+        <div className="min-w-0 space-y-6">
+          <ApplicantHistory history={history} title="Past applications" pendingApplication />
 
-      {inLane && (
-        <LanguageAssessmentCard
-          applicationId={applicationId}
-          languages={assessableLanguages}
-          verdicts={languageVerdicts}
-          assessorNames={assessorNames}
-          canAssess={canAssessLanguages}
-          action={assessApplicantLanguageAction.bind(null, id, applicationId)}
-        />
-      )}
+          {sections.map((section) => {
+            // The ranking is hoisted into its own column at submission (submissions.ts
+            // deletes the answer key), so a rank field here only ever rendered
+            // "(none)". The Subcommittee card below is the authoritative view; drop a
+            // section that held nothing else rather than leaving an empty card.
+            // A display-only notice joins the hoisted ranking in being dropped: it is
+            // policy text the applicant read, not an answer, and it would render as a
+            // wall of prose against "(none)". An ACKNOWLEDGING notice stays -- who
+            // confirmed what is exactly the kind of thing a reviewer needs to see.
+            const fields = section.fields.filter(
+              (f) =>
+                f.type !== "SUBCOMMITTEE_RANK" &&
+                !isDisplayOnlyNotice(f) &&
+                // Never asked and never answered: the applicant did not skip this,
+                // they were not shown it. Keeping the row said "(none)" where the
+                // truthful answer is "not applicable", and a form with a few
+                // branches filled the grid with them.
+                (isFieldVisible(f.visibleWhen, condAnswers) || formatAnswer(f, answers[f.key]) !== ""),
+            );
+            if (fields.length === 0) return null;
+            return (
+            <Card key={section.id}>
+              <SectionHeader>{section.title}</SectionHeader>
+              <DescriptionList className="mt-3">
+                {fields.map((f) => {
+                  const val = answers[f.key];
+                  const label = f.type === "NOTICE" ? noticeDisplayLabel(f) : f.label;
+                  const fileVal = f.type === "FILE" || f.type === "SIGNATURE" ? storedFileRef(val) : null;
+                  // Option labels, Yes/No, language names and readable dates all
+                  // resolve in formatAnswer -- the same resolution the applicant saw
+                  // on the wizard's review step. It returns "" for an unanswered
+                  // question, and DetailRow turns that into the house placeholder.
+                  const display = formatAnswer(f, val);
+                  const fileHref = `/api/recruitment/applications/${applicationId}/files/${encodeURIComponent(f.key)}?inline=1`;
+                  return (
+                    // An essay gets the full width and keeps its paragraph breaks --
+                    // squeezed into one half-width column with the newlines collapsed,
+                    // a 300-word answer was the least readable thing on the page.
+                    <DetailRow
+                      key={f.id}
+                      label={label}
+                      empty="Not answered"
+                      wide={f.type === "LONG_TEXT"}
+                      wrap
+                    >
+                      {f.type === "SIGNATURE" && fileVal?.storedName ? (
+                        // eslint-disable-next-line @next/next/no-img-element -- authenticated same-origin file route, not a remote asset
+                        <img src={fileHref} alt={`${f.label} signature`} className="h-20 max-w-full rounded border border-border-subtle bg-white" />
+                      ) : fileVal?.storedName ? (
+                        <TextLink href={fileHref} external className="font-medium">
+                          {display}
+                        </TextLink>
+                      ) : (
+                        display
+                      )}
+                    </DetailRow>
+                  );
+                })}
+              </DescriptionList>
+            </Card>
+            );
+          })}
 
-      {(app.subcommitteeRanking.length > 0 || app.assignedSubcommitteeId) && (
-        <Card>
-          <SectionHeader>Subcommittee</SectionHeader>
-          <DescriptionList className="mt-3">
-            <DetailRow label="Ranked preferences" empty="None ranked">
-              {app.subcommitteeRanking
-                .map((sid, i) => `${i + 1}. ${subName.get(sid) ?? "(removed)"}`)
-                .join("  ·  ")}
-            </DetailRow>
-            <DetailRow label="Assigned" empty="Not assigned">
-              {app.assignedSubcommitteeId && (subName.get(app.assignedSubcommitteeId) ?? "(removed)")}
-            </DetailRow>
-          </DescriptionList>
-          <p className="mt-2 text-xs text-subtle-foreground">Assign from the cycle&apos;s Subcommittees view.</p>
-        </Card>
-      )}
-
-      {scoreSummary && (canScore || canDecideRouted) && (
-        <Card>
-          <SectionHeader>Committee score</SectionHeader>
-          <p className="mt-1 text-xs text-subtle-foreground">
-            {formatScoreSummary(scoreSummary, coverageTarget)}
-          </p>
-          {offMyPile && canScore && (
-            <p className="mt-2 text-xs text-subtle-foreground">
-              Not assigned to you. Your score still counts.
-            </p>
+          {assessableLanguages.length > 0 && (
+            <LanguageAssessmentCard
+              applicationId={applicationId}
+              languages={assessableLanguages}
+              verdicts={languageVerdicts}
+              assessorNames={assessorNames}
+              canAssess={canAssessLanguages}
+              action={assessApplicantLanguageAction.bind(null, id, applicationId)}
+            />
           )}
-          {canScore && (
-            <>
-              <form action={committeeScoreAction.bind(null, id, applicationId)}>
-                <FormRow className="mt-3">
-                  <RowField label="Your score" width="numeric">
-                    <Select name="score" required defaultValue={myScore ? String(myScore.score) : ""}>
+
+          {(app.subcommitteeRanking.length > 0 || app.assignedSubcommitteeId) && (
+            <Card>
+              <SectionHeader>Subcommittee</SectionHeader>
+              <DescriptionList className="mt-3">
+                <DetailRow label="Ranked preferences" empty="None ranked">
+                  {app.subcommitteeRanking
+                    .map((sid, i) => `${i + 1}. ${subName.get(sid) ?? "(removed)"}`)
+                    .join("  ·  ")}
+                </DetailRow>
+                <DetailRow label="Assigned" empty="Not assigned">
+                  {app.assignedSubcommitteeId && (subName.get(app.assignedSubcommitteeId) ?? "(removed)")}
+                </DetailRow>
+              </DescriptionList>
+              <p className="mt-2 text-xs text-subtle-foreground">Assign from the cycle&apos;s Subcommittees view.</p>
+            </Card>
+          )}
+
+          {/* Training absence. Rendered for a lead (who records these) and for anyone
+              else only once there is something to read, so the card does not add a
+              row of empty chrome to every reviewer's page. */}
+          {(managesCycles || excuse) && (
+            <Card>
+              <SectionHeader>Training absence</SectionHeader>
+              {excuse ? (
+                <div className="mt-3 space-y-2">
+                  <p className="text-sm text-foreground-soft">
+                    <Badge tone="warning">Excused</Badge> from the in-person training session.
+                  </p>
+                  <p className="text-sm text-foreground">&ldquo;{excuse.reason}&rdquo;</p>
+                  <p className="text-xs text-subtle-foreground">
+                    Recorded {excuse.recordedByName ? `by ${excuse.recordedByName} ` : ""}
+                    on <DateTime value={excuse.recordedAt} />. They still need the makeup quiz.
+                  </p>
+                  {/* The training roster lists people accepted into the cycle, and
+                      excuses arrive well before decisions do. Without this the
+                      excuse simply was not on the roster and the page gave no
+                      reason, which reads as the record having been lost. */}
+                  {acceptances.length === 0 && (
+                    <p className="text-xs text-subtle-foreground">
+                      Not on the training roster yet: they have not been accepted into this cycle.
+                      It appears there as soon as an acceptance is recorded.
+                    </p>
+                  )}
+                  {excuse.unlinked && (
+                    <p className="text-xs text-subtle-foreground">
+                      Held against their email address for now: they have no hub account yet. It
+                      follows them onto the training roster, and stays with them through promotion.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <EmptyState inline className="mt-3">
+                  No absence excused. Record one here when an applicant emails ahead to say they
+                  cannot make the session, so their absence is not read as a no-show.
+                </EmptyState>
+              )}
+              {managesCycles && (
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <ExcuseAbsenceButton
+                    name={`${app.applicant.firstName} ${app.applicant.lastName}`}
+                    currentReason={excuse?.reason ?? null}
+                    action={excuseApplicantAbsenceAction.bind(null, id, applicationId, app.applicant.id)}
+                  />
+                  {excuse && (
+                    <form action={clearApplicantExcuseAction.bind(null, id, applicationId, app.applicant.id)}>
+                      <ConfirmButton label="Clear excuse" confirmLabel="Clear this excuse?" size="sm" />
+                    </form>
+                  )}
+                </div>
+              )}
+            </Card>
+          )}
+        </div>
+
+        {/* p-1/-m-1: the scroll box would otherwise clip the cards' shadows and
+            focus rings at its edges. */}
+        <aside
+          aria-label="Review"
+          className="space-y-6 lg:sticky lg:top-24 lg:-m-1 lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto lg:p-1"
+        >
+          {ownApplication && (canScore || canDecideRouted) && (
+            <Card>
+              <SectionHeader>Committee score</SectionHeader>
+              <p className="mt-1 text-sm text-foreground-soft">
+                This is your application, so its scores and who gave them are hidden from you, and you
+                can&apos;t score it.
+              </p>
+            </Card>
+          )}
+          {scoreSummary && (canScore || canDecideRouted) && (
+            <Card>
+              <SectionHeader>Committee score</SectionHeader>
+              <p className="mt-1 text-xs text-subtle-foreground">
+                {formatScoreSummary(scoreSummary, coverageTarget)}
+              </p>
+              {offMyPile && canScore && (
+                <p className="mt-2 text-xs text-subtle-foreground">
+                  Not assigned to you. Your score still counts.
+                </p>
+              )}
+              {showEveryScore && (
+                <ul className="mt-2 divide-y divide-border-subtle">
+                  {scoreSummary.scores.map((s) => (
+                    <li key={s.id} className="py-2 text-sm text-foreground-soft">
+                      <strong className="text-foreground">{s.scorer.name}</strong>: {s.score}/5
+                      {s.comments && <p className="mt-0.5 break-words [overflow-wrap:anywhere]">{s.comments}</p>}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {canScore && (
+                <>
+                  <form action={committeeScoreAction.bind(null, id, applicationId)}>
+                    <FormRow className={showEveryScore ? "mt-1 border-t border-border-subtle pt-3" : "mt-3"}>
+                      <RowField label="Your score" width="numeric">
+                        <Select name="score" required defaultValue={myScore ? String(myScore.score) : ""}>
+                          <option value="" disabled>Select…</option>
+                          {[1, 2, 3, 4, 5].map((s) => (
+                            <option key={s} value={s}>{s}</option>
+                          ))}
+                        </Select>
+                      </RowField>
+                      <RowField label="Comments" hint="Optional." width="grow">
+                        <Input name="comments" defaultValue={myScore?.comments ?? ""} />
+                      </RowField>
+                      <SubmitButton size="sm" pendingLabel="Saving…">{myScore ? "Update score" : "Submit score"}</SubmitButton>
+                    </FormRow>
+                  </form>
+                </>
+              )}
+            </Card>
+          )}
+
+          {canRoute && (
+            <Card>
+              <SectionHeader>Routing</SectionHeader>
+              {app.routedDepartmentCode ? (
+                <p className="mt-3 text-sm text-foreground-soft">
+                  Routed to <strong className="text-foreground">{app.routedDepartmentCode}</strong>
+                  {routedOffChoice && <Badge tone="warning" className="ml-2">off-choice</Badge>}
+                </p>
+              ) : (
+                <p className="mt-3 text-sm text-muted-foreground">Not routed yet. Applicant ranked: {app.departmentChoices.join(", ") || "(none)"}.</p>
+              )}
+              <form action={routeAction.bind(null, id, applicationId)}>
+                <FormRow className="mt-4 border-t border-border-subtle pt-4">
+                  <RowField label={app.routedDepartmentCode ? "Re-route to" : "Route to"}>
+                    <Select name="departmentCode" required defaultValue={app.routedDepartmentCode ?? ""}>
                       <option value="" disabled>Select…</option>
-                      {[1, 2, 3, 4, 5].map((s) => (
-                        <option key={s} value={s}>{s}</option>
+                      {app.cycle.departments.map((d) => (
+                        <option key={d} value={d}>
+                          {d}{app.departmentChoices.includes(d) ? " (ranked)" : ""}
+                        </option>
                       ))}
                     </Select>
                   </RowField>
-                  <RowField label="Comments" hint="Optional." width="grow">
-                    <Input name="comments" defaultValue={myScore?.comments ?? ""} />
-                  </RowField>
-                  <SubmitButton size="sm" pendingLabel="Saving…">{myScore ? "Update score" : "Submit score"}</SubmitButton>
+                  <SubmitButton size="sm" pendingLabel="Routing…">Route</SubmitButton>
                 </FormRow>
               </form>
-            </>
+            </Card>
           )}
-        </Card>
-      )}
 
-      {canRoute && (
-        <Card>
-          <SectionHeader>Routing</SectionHeader>
-          {app.routedDepartmentCode ? (
-            <p className="mt-3 text-sm text-foreground-soft">
-              Routed to <strong className="text-foreground">{app.routedDepartmentCode}</strong>
-              {routedOffChoice && <Badge tone="warning" className="ml-2">off-choice</Badge>}
-            </p>
-          ) : (
-            <p className="mt-3 text-sm text-muted-foreground">Not routed yet. Applicant ranked: {app.departmentChoices.join(", ") || "(none)"}.</p>
-          )}
-          <form action={routeAction.bind(null, id, applicationId)}>
-            <FormRow className="mt-4 border-t border-border-subtle pt-4">
-              <RowField label={app.routedDepartmentCode ? "Re-route to" : "Route to"}>
-                <Select name="departmentCode" required defaultValue={app.routedDepartmentCode ?? ""}>
-                  <option value="" disabled>Select…</option>
-                  {app.cycle.departments.map((d) => (
-                    <option key={d} value={d}>
-                      {d}{app.departmentChoices.includes(d) ? " (ranked)" : ""}
-                    </option>
+          {app.cycle.track === "DIRECTOR" ? (
+            <Card>
+              <SectionHeader>Interview</SectionHeader>
+              {existingInterviews.length > 0 && (
+                <ul className="mt-3 space-y-1 text-sm">
+                  {existingInterviews.map((iv) => (
+                    <li key={iv.id}>
+                      <TextLink className="font-medium" href={`/recruitment/interviews/${iv.id}`}>
+                        Interview for {iv.departmentCode}
+                      </TextLink>
+                    </li>
                   ))}
-                </Select>
-              </RowField>
-              <SubmitButton size="sm" pendingLabel="Routing…">Route</SubmitButton>
-            </FormRow>
-          </form>
-        </Card>
-      )}
-
-      {app.cycle.track === "DIRECTOR" ? (
-        <Card>
-          <SectionHeader>Interview</SectionHeader>
-          {existingInterviews.length > 0 && (
-            <ul className="mt-3 space-y-1 text-sm">
-              {existingInterviews.map((iv) => (
-                <li key={iv.id}>
-                  <TextLink className="font-medium" href={`/recruitment/interviews/${iv.id}`}>
-                    Interview for {iv.departmentCode}
-                  </TextLink>
-                </li>
-              ))}
-            </ul>
-          )}
-          {scheduleChoices.length > 0 ? (
-            <form action={scheduleInterviewAction.bind(null, id, applicationId)}>
-              <FormRow className="mt-4 border-t border-border-subtle pt-4">
-                <RowField label="Department">
-                  <Select name="departmentCode" required>
-                    {scheduleChoices.map((d) => (<option key={d} value={d}>{d}</option>))}
-                  </Select>
-                </RowField>
-                <SubmitButton size="sm" pendingLabel="Scheduling…">Schedule interview</SubmitButton>
-              </FormRow>
-            </form>
-          ) : existingInterviews.length === 0 ? (
-            <EmptyState inline className="mt-3">No eligible department to interview for in your scope.</EmptyState>
-          ) : null}
-        </Card>
-      ) : (
-        <Card>
-          <SectionHeader>Department decision</SectionHeader>
-          {!app.routedDepartmentCode ? (
-            app.decision !== "PENDING" ? (
-              <div className="mt-3 space-y-2">
-                <p className="text-sm text-foreground-soft">
-                  This applicant was <strong className="text-foreground">{DECISION_LABELS[app.decision as keyof typeof DECISION_LABELS]}</strong> without routing.
-                  {app.decisionNotes ? ` ${app.decisionNotes}` : ""}
-                </p>
-                {scope.all && (
-                  <form action={reopenDecisionAction.bind(null, id, applicationId)}>
-                    <SubmitButton size="sm" variant="outline" pendingLabel="Reopening…">Reopen</SubmitButton>
+                </ul>
+              )}
+              {scheduleChoices.length > 0 ? (
+                <form action={scheduleInterviewAction.bind(null, id, applicationId)}>
+                  <FormRow className="mt-4 border-t border-border-subtle pt-4">
+                    <RowField label="Department">
+                      <Select name="departmentCode" required>
+                        {scheduleChoices.map((d) => (<option key={d} value={d}>{d}</option>))}
+                      </Select>
+                    </RowField>
+                    <SubmitButton size="sm" pendingLabel="Scheduling…">Schedule interview</SubmitButton>
+                  </FormRow>
+                </form>
+              ) : existingInterviews.length === 0 ? (
+                <EmptyState inline className="mt-3">No eligible department to interview for in your scope.</EmptyState>
+              ) : null}
+            </Card>
+          ) : (
+            <Card>
+              <SectionHeader>Department decision</SectionHeader>
+              {!app.routedDepartmentCode ? (
+                app.decision !== "PENDING" ? (
+                  <div className="mt-3 space-y-2">
+                    <p className="text-sm text-foreground-soft">
+                      This applicant was <strong className="text-foreground">{DECISION_LABELS[app.decision as keyof typeof DECISION_LABELS]}</strong> without routing.
+                      {app.decisionNotes ? ` ${app.decisionNotes}` : ""}
+                    </p>
+                    {scope.all && (
+                      <form action={reopenDecisionAction.bind(null, id, applicationId)}>
+                        <SubmitButton size="sm" variant="outline" pendingLabel="Reopening…">Reopen</SubmitButton>
+                      </form>
+                    )}
+                  </div>
+                ) : app.returnedToRoutingAt ? (
+                  // Handed back by a department. The lead re-routes from the routing
+                  // control above; this states who declined and why so that decision
+                  // is not made blind.
+                  <div className="mt-3 space-y-1">
+                    <p className="text-sm text-foreground-soft">
+                      <strong className="text-foreground">{app.returnedFromDepartmentCode}</strong> returned this
+                      applicant for re-routing on <DateTime value={app.returnedToRoutingAt} />.
+                    </p>
+                    {app.returnedReason && (
+                      <p className="text-sm text-foreground-soft">&ldquo;{app.returnedReason}&rdquo;</p>
+                    )}
+                    <p className="text-xs text-subtle-foreground">
+                      Route them to another department above, or reject the application.
+                    </p>
+                  </div>
+                ) : (
+                  <p className="mt-3 text-sm text-muted-foreground">Awaiting committee routing.</p>
+                )
+              ) : canDecideRouted ? (
+                <>
+                  <p className="mt-3 text-sm text-foreground-soft">
+                    Routed to <strong className="text-foreground">{app.routedDepartmentCode}</strong>. Decide directly from the committee score (no interview).
+                  </p>
+                  {app.dualFallbackAt && (
+                    <p className="mt-2 text-sm text-foreground-soft">
+                      <Badge>Dual-role fallback</Badge>{" "}
+                      {app.dualFallbackFromDepartmentCode ?? "The recruitment lead"} did not select this applicant
+                      {declinedEarlier.length > 0 ? `, and neither did ${declinedEarlier.join(" or ")}` : ""}. They ticked
+                      the {app.routedDepartmentCode} dual option, so the decision is now {app.routedDepartmentCode}&apos;s.
+                    </p>
+                  )}
+                  {emailedAcceptance && (
+                    <RescindAcceptanceNotice
+                      departmentCode={app.routedDepartmentCode}
+                      canRescind={scope.all}
+                      action={rescindAcceptanceAction.bind(null, id, applicationId, emailedAcceptance.id)}
+                    />
+                  )}
+                  <form action={decideRoutedAction.bind(null, id, applicationId)}>
+                    <FormRow className="mt-4 border-t border-border-subtle pt-4">
+                      <RowField label="Outcome">
+                        <Select name="outcome" required defaultValue={app.decision === "PENDING" ? "ACCEPT" : app.decision}>
+                          <option value="ACCEPT">Accept</option>
+                          <option value="REJECT">
+                            {rejectPassesTo ? `Reject (passes to ${rejectPassesTo}, their dual option)` : "Reject"}
+                          </option>
+                          <option value="WAITLIST">Waitlist</option>
+                          {/* Not a decision: hands the applicant back to the
+                              recruitment lead with the application still open, for
+                              routing to a different department. */}
+                          <option value="RETURN">Not a fit for us, return for re-routing</option>
+                        </Select>
+                      </RowField>
+                      <RowField label="Notes" hint="Optional. On a return, this tells the recruitment lead what to do differently." width="grow">
+                        <Input name="notes" />
+                      </RowField>
+                      <SubmitButton size="sm" pendingLabel="Recording…">Record decision</SubmitButton>
+                    </FormRow>
                   </form>
-                )}
-              </div>
-            ) : app.returnedToRoutingAt ? (
-              // Handed back by a department. The lead re-routes from the routing
-              // control above; this states who declined and why so that decision
-              // is not made blind.
-              <div className="mt-3 space-y-1">
-                <p className="text-sm text-foreground-soft">
-                  <strong className="text-foreground">{app.returnedFromDepartmentCode}</strong> returned this
-                  applicant for re-routing on <DateTime value={app.returnedToRoutingAt} />.
-                </p>
-                {app.returnedReason && (
-                  <p className="text-sm text-foreground-soft">&ldquo;{app.returnedReason}&rdquo;</p>
-                )}
-                <p className="text-xs text-subtle-foreground">
-                  Route them to another department above, or reject the application.
-                </p>
-              </div>
-            ) : (
-              <p className="mt-3 text-sm text-muted-foreground">Awaiting committee routing.</p>
-            )
-          ) : canDecideRouted ? (
-            <>
-              <p className="mt-3 text-sm text-foreground-soft">
-                Routed to <strong className="text-foreground">{app.routedDepartmentCode}</strong>. Decide directly from the committee score (no interview).
-              </p>
-              {emailedAcceptance && (
-                <RescindAcceptanceNotice
-                  departmentCode={app.routedDepartmentCode}
-                  canRescind={scope.all}
-                  action={rescindAcceptanceAction.bind(null, id, applicationId, emailedAcceptance.id)}
-                />
+                  {app.decision !== "PENDING" && app.decidedAt && (
+                    <p className="mt-2 text-xs text-subtle-foreground">
+                      {DECISION_LABELS[app.decision as keyof typeof DECISION_LABELS]} · recorded <DateTime value={app.decidedAt} />
+                      {app.decisionNotes ? ` · ${app.decisionNotes}` : ""}
+                    </p>
+                  )}
+                </>
+              ) : (
+                <p className="mt-3 text-sm text-muted-foreground">Routed to {app.routedDepartmentCode}. Waiting on the department to decide.</p>
               )}
-              <form action={decideRoutedAction.bind(null, id, applicationId)}>
-                <FormRow className="mt-4 border-t border-border-subtle pt-4">
-                  <RowField label="Outcome">
-                    <Select name="outcome" required defaultValue={app.decision === "PENDING" ? "ACCEPT" : app.decision}>
-                      <option value="ACCEPT">Accept</option>
-                      <option value="REJECT">Reject</option>
-                      <option value="WAITLIST">Waitlist</option>
-                      {/* Not a decision: hands the applicant back to the
-                          recruitment lead with the application still open, for
-                          routing to a different department. */}
-                      <option value="RETURN">Not a fit for us, return for re-routing</option>
-                    </Select>
-                  </RowField>
-                  <RowField label="Notes" hint="Optional. On a return, this tells the recruitment lead what to do differently." width="grow">
-                    <Input name="notes" />
-                  </RowField>
-                  <SubmitButton size="sm" pendingLabel="Recording…">Record decision</SubmitButton>
-                </FormRow>
-              </form>
-              {app.decision !== "PENDING" && app.decidedAt && (
-                <p className="mt-2 text-xs text-subtle-foreground">
-                  {DECISION_LABELS[app.decision as keyof typeof DECISION_LABELS]} · recorded <DateTime value={app.decidedAt} />
-                  {app.decisionNotes ? ` · ${app.decisionNotes}` : ""}
-                </p>
-              )}
-            </>
-          ) : (
-            <p className="mt-3 text-sm text-muted-foreground">Routed to {app.routedDepartmentCode}. Waiting on the department to decide.</p>
+            </Card>
           )}
-        </Card>
-      )}
 
-      {/* Training absence. Rendered for a lead (who records these) and for anyone
-          else only once there is something to read, so the card does not add a
-          row of empty chrome to every reviewer's page. */}
-      {(managesCycles || excuse) && (
-        <Card>
-          <SectionHeader>Training absence</SectionHeader>
-          {excuse ? (
-            <div className="mt-3 space-y-2">
-              <p className="text-sm text-foreground-soft">
-                <Badge tone="warning">Excused</Badge> from the in-person training session.
+          {(dualRows.length > 0 || dualChoices.length > 0) && (
+            <Card>
+              <SectionHeader>Dual appointment</SectionHeader>
+              <p className="mt-2 text-xs text-subtle-foreground">
+                Accepting a strong volunteer into a second department as well. A director asks; a recruitment manager approves.
               </p>
-              <p className="text-sm text-foreground">&ldquo;{excuse.reason}&rdquo;</p>
-              <p className="text-xs text-subtle-foreground">
-                Recorded {excuse.recordedByName ? `by ${excuse.recordedByName} ` : ""}
-                on <DateTime value={excuse.recordedAt} />. They still need the makeup quiz.
-              </p>
-              {/* The training roster lists people accepted into the cycle, and
-                  excuses arrive well before decisions do. Without this the
-                  excuse simply was not on the roster and the page gave no
-                  reason, which reads as the record having been lost. */}
-              {acceptances.length === 0 && (
-                <p className="text-xs text-subtle-foreground">
-                  Not on the training roster yet: they have not been accepted into this cycle.
-                  It appears there as soon as an acceptance is recorded.
-                </p>
+              {dualRows.length > 0 && (
+                <ul className="mt-3 space-y-3 text-sm">
+                  {dualRows.map((r) => (
+                    <li key={r.id} className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <strong className="text-foreground">{r.departmentCode}</strong>
+                        <Badge tone={DUAL_STATUS[r.status].tone}>{DUAL_STATUS[r.status].label}</Badge>
+                      </div>
+                      <p className="text-xs text-subtle-foreground">
+                        Asked by {r.requestedByName} · <DateTime value={r.requestedAt} />
+                      </p>
+                      {r.reason && <p className="whitespace-pre-line text-foreground-soft">&ldquo;{r.reason}&rdquo;</p>}
+                      {r.decidedByName && r.status !== "PENDING" && (
+                        <p className="text-xs text-subtle-foreground">
+                          {DUAL_STATUS[r.status].label} by {r.decidedByName}
+                          {r.decisionNote ? ` · ${r.decisionNote}` : ""}
+                        </p>
+                      )}
+                      {(r.canDecide || r.canCancel) && (
+                        <form action={decideDualAppointmentFromApplicantAction.bind(null, id, applicationId)} className="flex flex-wrap items-center gap-2 pt-1">
+                          <input type="hidden" name="id" value={r.id} />
+                          {r.canDecide && <Input name="note" placeholder="Note (optional)" className="w-40" aria-label="Note" />}
+                          {r.canDecide && (
+                            <SubmitButton size="sm" name="outcome" value="approve" pendingLabel="Approving…">Approve</SubmitButton>
+                          )}
+                          {r.canDecide && (
+                            <SubmitButton size="sm" variant="outline" name="outcome" value="decline" pendingLabel="Declining…">Decline</SubmitButton>
+                          )}
+                          {r.canCancel && !r.canDecide && (
+                            <SubmitButton size="sm" variant="outline" name="outcome" value="cancel" pendingLabel="Cancelling…">
+                              {r.status === "PENDING" ? "Withdraw request" : "Cancel"}
+                            </SubmitButton>
+                          )}
+                        </form>
+                      )}
+                    </li>
+                  ))}
+                </ul>
               )}
-              {excuse.unlinked && (
-                <p className="text-xs text-subtle-foreground">
-                  Held against their email address for now: they have no hub account yet. It
-                  follows them onto the training roster, and stays with them through promotion.
-                </p>
-              )}
-            </div>
-          ) : (
-            <EmptyState inline className="mt-3">
-              No absence excused. Record one here when an applicant emails ahead to say they
-              cannot make the session, so their absence is not read as a no-show.
-            </EmptyState>
-          )}
-          {managesCycles && (
-            <div className="mt-4 flex flex-wrap items-center gap-2">
-              <ExcuseAbsenceButton
-                name={`${app.applicant.firstName} ${app.applicant.lastName}`}
-                currentReason={excuse?.reason ?? null}
-                action={excuseApplicantAbsenceAction.bind(null, id, applicationId, app.applicant.id)}
-              />
-              {excuse && (
-                <form action={clearApplicantExcuseAction.bind(null, id, applicationId, app.applicant.id)}>
-                  <ConfirmButton label="Clear excuse" confirmLabel="Clear this excuse?" size="sm" />
+              {dualChoices.length > 0 && (
+                <form action={requestDualAppointmentFromApplicantAction.bind(null, id, applicationId)}>
+                  <FormRow className="mt-4 border-t border-border-subtle pt-4">
+                    {/* Deliberately NOT name="departmentCode": the Routing card on
+                        this same page already has a select by that name, and a
+                        second one makes every unscoped lookup of it ambiguous --
+                        which is exactly how the e2e routing helper broke. */}
+                    <RowField label="Second department">
+                      <Select name="dualDepartmentCode" required defaultValue={dualChoices.length === 1 ? dualChoices[0].code : ""}>
+                        {dualChoices.length > 1 && <option value="" disabled>Select…</option>}
+                        {dualChoices.map((d) => (
+                          <option key={d.code} value={d.code}>{d.code}</option>
+                        ))}
+                      </Select>
+                    </RowField>
+                    <RowField label="Why" hint={scope.all ? "Optional for a recruitment manager." : "Required. A recruitment manager reads it."} width="grow">
+                      <Input name="dualReason" required={!scope.all} />
+                    </RowField>
+                    <SubmitButton size="sm" pendingLabel="Saving…">{scope.all ? "Add dual appointment" : "Ask"}</SubmitButton>
+                  </FormRow>
                 </form>
               )}
-            </div>
+            </Card>
           )}
-        </Card>
-      )}
-    </div>
+        </aside>
+      </div>
+    </PageBody>
   );
 }

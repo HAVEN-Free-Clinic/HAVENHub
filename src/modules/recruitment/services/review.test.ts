@@ -3,7 +3,8 @@ import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import {
   reviewScope, listApplicantsForReview, awaitingRoutingCount, listReviewableCycles, revokeAcceptance, listAcceptances,
-  canViewApplication, listWaitlisted, RecruitmentAuthError, AcceptanceError,
+  canViewApplication, listWaitlisted, RecruitmentAuthError, AcceptanceError, recordApplicationView,
+  recordSpeedRouteView,
 } from "./review";
 
 async function seed() {
@@ -105,6 +106,27 @@ describe("listApplicantsForReview", () => {
     const scored = apps.find((a) => a.id === appSrhd.id)!;
     expect(scored.committeeScores[0]).toMatchObject({ score: 4, scorerId: scorer.id });
     expect(scored.applicant).toHaveProperty("applicantPersonId");
+  });
+  it("hides the scores on a reviewer's own application and marks it theirs, even when unlinked", async () => {
+    const { scorer, srr, cycle, appSrhd, appMdic } = await seed();
+    // The scorer applied signed out under s@yale.edu, so only the address says
+    // the application is theirs.
+    await prisma.person.update({ where: { id: scorer.id }, data: { contactEmail: "s@yale.edu" } });
+    const colleague = await prisma.person.create({ data: { name: "Colleague", status: "ACTIVE" } });
+    await prisma.committeeScore.create({ data: { applicationId: appSrhd.id, scorerId: colleague.id, score: 2 } });
+    await prisma.committeeScore.create({ data: { applicationId: appMdic.id, scorerId: colleague.id, score: 5 } });
+
+    const apps = await listApplicantsForReview(cycle.id, scorer.id);
+    const own = apps.find((a) => a.id === appSrhd.id)!;
+    expect(own.isOwnApplication).toBe(true);
+    expect(own.committeeScores).toEqual([]);
+    const theirs = apps.find((a) => a.id === appMdic.id)!;
+    expect(theirs.isOwnApplication).toBe(false);
+    expect(theirs.committeeScores).toHaveLength(1);
+
+    // Hidden from the applicant only: everyone else still sees the score.
+    const srrView = await listApplicantsForReview(cycle.id, srr.id);
+    expect(srrView.find((a) => a.id === appSrhd.id)!.committeeScores).toHaveLength(1);
   });
 });
 
@@ -265,5 +287,64 @@ describe("canViewApplication (pure, mirrors listApplicantsForReview)", () => {
   it("director-track cycle: a director sees an app that RANKED their dept", () => {
     expect(canViewApplication(dirApp(["SRHD"]), { scope: dirScope, ...flags() })).toBe(true);
     expect(canViewApplication(dirApp(["MDIC"]), { scope: dirScope, ...flags() })).toBe(false);
+  });
+});
+
+describe("recordApplicationView", () => {
+  const count = (action = "recruitment.application_view") => prisma.auditLog.count({ where: { action } });
+
+  it("logs a reviewer opening a record once, however often the page re-renders", async () => {
+    const { srr, appSrhd } = await seed();
+    await recordApplicationView(srr.id, appSrhd.id);
+    await recordApplicationView(srr.id, appSrhd.id);
+    expect(await count()).toBe(1);
+    const row = await prisma.auditLog.findFirstOrThrow({ where: { action: "recruitment.application_view" } });
+    expect(row).toMatchObject({ actorPersonId: srr.id, entityType: "Application", entityId: appSrhd.id });
+  });
+
+  it("logs another reviewer, and another record, separately", async () => {
+    const { srr, scorer, appSrhd, appMdic } = await seed();
+    await recordApplicationView(srr.id, appSrhd.id);
+    await recordApplicationView(scorer.id, appSrhd.id);
+    await recordApplicationView(srr.id, appMdic.id);
+    expect(await count()).toBe(3);
+  });
+
+  it("logs again once the ten-minute window has passed", async () => {
+    const { srr, appSrhd } = await seed();
+    await recordApplicationView(srr.id, appSrhd.id);
+    await prisma.auditLog.updateMany({
+      where: { action: "recruitment.application_view" },
+      data: { createdAt: new Date(Date.now() - 11 * 60 * 1000) },
+    });
+    await recordApplicationView(srr.id, appSrhd.id);
+    expect(await count()).toBe(2);
+  });
+
+  it("logs each file as its own entry, apart from the page view", async () => {
+    const { srr, appSrhd } = await seed();
+    await recordApplicationView(srr.id, appSrhd.id);
+    await recordApplicationView(srr.id, appSrhd.id, "resume");
+    await recordApplicationView(srr.id, appSrhd.id, "resume");
+    await recordApplicationView(srr.id, appSrhd.id, "cover_letter");
+    expect(await count()).toBe(1);
+    expect(await count("recruitment.application_file_view")).toBe(2);
+  });
+});
+
+describe("recordSpeedRouteView", () => {
+  it("logs one board view per reviewer per cycle inside the window, apart from record views", async () => {
+    const { srr, scorer, cycle, appSrhd } = await seed();
+    await recordSpeedRouteView(srr.id, cycle.id);
+    await recordSpeedRouteView(srr.id, cycle.id); // a re-render after a route or reject
+    await recordSpeedRouteView(scorer.id, cycle.id);
+    await recordApplicationView(srr.id, appSrhd.id);
+
+    const boardViews = await prisma.auditLog.findMany({ where: { action: "recruitment.speed_route_view" } });
+    expect(boardViews).toHaveLength(2);
+    for (const v of boardViews) expect(v).toMatchObject({ entityType: "RecruitmentCycle", entityId: cycle.id });
+    // The shared once-per-window check is keyed on the action, so the board and
+    // a record never swallow each other's entries.
+    expect(await prisma.auditLog.count({ where: { action: "recruitment.application_view" } })).toBe(1);
   });
 });

@@ -66,7 +66,9 @@ export const MODULES: ModuleManifest[] = [
       // Data-driven: only meaningful on a clinic date, and schedule/layout.tsx
       // drops it otherwise. dynamicGate keeps it out of the global dropdown,
       // which cannot resolve "is today a clinic day".
-      { label: "Check in", href: "/schedule/check-in", dynamicGate: true },
+      // Folded under My schedule: a tab that exists about 30 days a year. /schedule
+      // and the dashboard both carry a check-in banner on a clinic day instead.
+      { label: "Check in", href: "/schedule/check-in", dynamicGate: true, underTab: "/schedule" },
       { label: "Full schedule", href: "/schedule/full" },
       // Builder, Approvals and Attendings all gate on a data-driven capability
       // (managing a schedule department / an RHD department / at least one
@@ -107,7 +109,11 @@ export const MODULES: ModuleManifest[] = [
       // (canManageAttendings), so the same dynamicGate treatment. It had no tab,
       // no dropdown entry and no Cmd+K hit, reachable only from a button on
       // /schedule/attendings -- and it is where every new attending is tracked.
-      { label: "Credentialing", href: "/schedule/attendings/credentialing", dynamicGate: true },
+      //
+      // Folded under Attendings (see ModuleNavItem.underTab): it keeps the
+      // dropdown entry and Cmd+K hit that fix gave it, and its button on the
+      // roster, without holding a permanent tab of its own.
+      { label: "Credentialing", href: "/schedule/attendings/credentialing", dynamicGate: true, underTab: "/schedule/attendings" },
       // Reference data for the roster above, so it lives beside it rather than in
       // Admin. Putting it under /admin would have made it unreachable by the one
       // role that owns attendings: Faculty Relations Manager holds
@@ -123,18 +129,28 @@ export const MODULES: ModuleManifest[] = [
         label: "Specialties",
         href: "/schedule/specialties",
         permission: "schedule.manage_attendings",
+        // Reference data for the roster, linked from it: folded under Attendings.
+        underTab: "/schedule/attendings",
       },
       {
         label: "Triage chats",
         href: "/schedule/triage-chats",
         permission: "schedule.manage_triage_chats",
+        // A weekly action rather than a place: folded under Full schedule, which
+        // carries a "Triage chats" button for the people who can use it.
+        underTab: "/schedule/full",
       },
       // Read-only view of the same schedule, for a WIDER audience than the
       // builder: anyone holding clinic-wide schedule rights runs a clinic day
       // and needs to look coverage up without being able to change it. Also
       // data-driven (schedule.edit_all OR schedule.manage_attendings), so the
       // layout resolves it and the global dropdown stays out of it.
-      { label: "Coverage", href: "/schedule/coverage", dynamicGate: true },
+      //
+      // Folded under Attendings: it is the read-only view of the same grid, and
+      // Attendings links to it. (Its wider audience, schedule.edit_all, is held
+      // by no system role today; such a viewer would still reach it from the
+      // dropdown and Cmd+K, just with no tab lit.)
+      { label: "Coverage", href: "/schedule/coverage", dynamicGate: true, underTab: "/schedule/attendings" },
     ],
   },
   {
@@ -206,19 +222,21 @@ export const MODULES: ModuleManifest[] = [
     ],
     status: "active",
     nav: [
-      // Compliance (/volunteers) and Offboarding both enforce requirePermission("volunteers.view"),
-      // so gate their nav items on the same permission -- otherwise a Spanish-review-only
-      // reviewer (admitted via additionalAccessPermissions) sees tabs that bounce to /no-access.
-      { label: "Compliance", href: "/volunteers", permission: "volunteers.view" },
-      // EITHER permission opens these two: both pages are clinic-wide compliance
-      // READS that call requireAnyPermission with this exact pair. A view-only
-      // holder gets the tables without the verify / date-entry / EHS-management
-      // controls, which each page drops for them.
+      // The one compliance roster. ANY of the three opens it, mirroring the page:
+      // the clinic-wide pair sees every member, volunteers.view (a director) sees
+      // the departments they direct. It was two tabs -- "Compliance" for
+      // directors and "Master view" for the clinic-wide pair -- over the same
+      // people, and they disagreed (the directors' copy dropped Learning). The
+      // old /volunteers/master URL now redirects here. A Spanish-review-only
+      // reviewer holds none of the three, so still sees no tab that would bounce.
       {
-        label: "Master view",
-        href: "/volunteers/master",
-        permission: ["volunteers.view_compliance", "volunteers.manage_compliance"],
+        label: "Compliance",
+        href: "/volunteers",
+        permission: ["volunteers.view", "volunteers.view_compliance", "volunteers.manage_compliance"],
       },
+      // EITHER permission opens EHS training: a clinic-wide compliance READ that
+      // calls requireAnyPermission with this exact pair. A view-only holder gets
+      // the table without the verify / date-entry / EHS-management controls.
       // EITHER permission opens it, and the page itself decides how much of the
       // clinic the holder sees. Gating on the clinic-wide permission alone
       // would hide the tab from exactly the directors this scoped grant exists
@@ -234,12 +252,16 @@ export const MODULES: ModuleManifest[] = [
         permission: ["volunteers.view_compliance", "volunteers.manage_compliance"],
       },
       // Maintaining the list of trainings, as opposed to reading who has done
-      // them. It had no tab, no dropdown entry and no Cmd+K hit: a compliance
-      // manager had to remember that the button lives on /volunteers/ehs.
+      // them. It once had no nav entry at all, so a compliance manager had to
+      // remember that the button lives on /volunteers/ehs. The entry keeps it in
+      // the dropdown and Cmd+K; folding it under EHS training keeps it out of
+      // the tab row, where it was a second tab for the same subject. Its
+      // permission implies EHS training's, so the parent is always drawn.
       {
         label: "Manage trainings",
         href: "/volunteers/ehs/manage",
         permission: "volunteers.manage_compliance",
+        underTab: "/volunteers/ehs",
       },
       // Label says Language; the href and permission keep their historical
       // spanish names because renaming a route breaks bookmarks and renaming a
@@ -282,7 +304,11 @@ export const MODULES: ModuleManifest[] = [
       // The form is at /incidents/new, not the module root: the root is where
       // every up-link in the module lands, and landing in a blank concern
       // report is not where a reviewer stepping back from a case wants to be.
-      { label: "Report a concern", href: "/incidents/new" },
+      //
+      // Folded under My reports: filing is an action, not a place, and My reports
+      // carries the "Report a concern" button. It stays in the Incidents
+      // dropdown and Cmd+K, which is where a reviewer reaches it from the queue.
+      { label: "Report a concern", href: "/incidents/new", underTab: "/incidents/mine" },
       { label: "My reports", href: "/incidents/mine" },
       { label: "Review queue", href: "/incidents/review", permission: "incidents.manage" },
       { label: "Strikes", href: "/incidents/strikes", permission: "incidents.view_strikes" },
@@ -322,33 +348,39 @@ export const MODULES: ModuleManifest[] = [
       "admin.manage_email_templates",
       "admin.manage_settings",
       "admin.manage_departments",
-      "admin.manage_subcommittees",
       "admin.manage_roster",
     ],
     status: "active",
     nav: [
-      // Overview gates on admin.access (= module access); the rest each
-      // require a distinct sub-permission, mirrored here from the page gates.
-      // Email and Notifications enforce admin.manage_sync (not the email perms).
-      { label: "Overview", href: "/admin" },
+      // Each tab requires a distinct sub-permission, mirrored here from the page
+      // gates. Email and Notifications enforce admin.manage_sync (not the email
+      // perms). There is no "Overview": /admin opens the viewer's first tab (see
+      // admin/page.tsx). It was six stat cards linking to the tabs above them.
       { label: "People", href: "/admin/people", permission: "admin.manage_people" },
       { label: "Terms", href: "/admin/terms", permission: "admin.manage_terms" },
       { label: "Roles", href: "/admin/roles", permission: "admin.manage_roles" },
       { label: "Departments", href: "/admin/departments", permission: "admin.manage_departments" },
-      { label: "Subcommittees", href: "/admin/subcommittees", permission: "admin.manage_subcommittees" },
-      { label: "Onboarding contract", href: "/admin/contract", permission: "admin.manage_settings" },
+      // Subcommittees and Onboarding contract moved to Recruitment (see there).
       { label: "Audit", href: "/admin/audit", permission: "admin.view_audit" },
       { label: "Email", href: "/admin/email", permission: "admin.manage_sync" },
       // admin.manage_email_templates granted these two pages and no route to
       // them: the only way in was a text link on /admin/email, which is gated
       // on a DIFFERENT permission (admin.manage_sync). A holder of the template
       // permission alone was locked out of the pages it exists to grant.
+      //
+      // Folded under Email, which links to both. ModuleNav draws a folded page
+      // as its own tab whenever its parent is hidden from the viewer, so that
+      // templates-only holder still gets a tab: the lockout cannot come back.
       {
         label: "Email templates",
         href: "/admin/email/templates",
         permission: "admin.manage_email_templates",
+        underTab: "/admin/email",
       },
-      { label: "Notifications", href: "/admin/notifications", permission: "admin.manage_sync" },
+      // The Teams/in-app delivery log, the Email log's twin. Folded under Email,
+      // which also ends the row's "Notifications" reading like the member's own
+      // notification inbox.
+      { label: "Notification log", href: "/admin/notifications", permission: "admin.manage_sync", underTab: "/admin/email" },
       { label: "Settings", href: "/admin/settings", permission: "admin.manage_settings" },
     ],
   },
@@ -380,8 +412,9 @@ export const MODULES: ModuleManifest[] = [
       { label: "Audience scopes", href: "/outreach/scopes", permission: "outreach.manage_scopes" },
       // Same gate as the page (see the comment at the top of identities/page.tsx
       // for why issuing an address reuses manage_scopes rather than minting a
-      // fourth permission).
-      { label: "Sending identities", href: "/outreach/identities", permission: "outreach.manage_scopes" },
+      // fourth permission). Folded under Audience scopes, which links to it: the
+      // two are the same person's sender configuration, behind the same gate.
+      { label: "Sending identities", href: "/outreach/identities", permission: "outreach.manage_scopes", underTab: "/outreach/scopes" },
     ],
   },
   {
@@ -421,6 +454,15 @@ export const MODULES: ModuleManifest[] = [
       // otherwise a score-only reviewer (admitted via additionalAccessPermissions
       // above) sees a tab that bounces to /no-access.
       { label: "History", href: "/recruitment/history", permission: "recruitment.access" },
+      // Recruitment setup that used to sit in Admin: the subcommittees applicants
+      // rank, and the master contract every new cycle's contract starts from.
+      // Moved from /admin/subcommittees and /admin/contract, which redirect here.
+      // Gated on manage_cycles, like the rest of cycle setup: under Admin they
+      // needed admin.manage_subcommittees / admin.manage_settings, which no role
+      // granted, so only full admins could reach them. The latter also governs
+      // every app setting, which is not a recruitment lead's to hold.
+      { label: "Subcommittees", href: "/recruitment/subcommittees", permission: "recruitment.manage_cycles" },
+      { label: "Onboarding contract", href: "/recruitment/contract", permission: "recruitment.manage_cycles" },
     ],
   },
   {
@@ -461,7 +503,10 @@ export const MODULES: ModuleManifest[] = [
     status: "active",
     nav: [
       { label: "My requests", href: "/support" },
-      { label: "Submit a request", href: "/support/new" },
+      // Folded under My requests, which carries a "Submit a request" button: an
+      // action rather than a place (and with Intercom on, a card whose one
+      // button repeats the chat launcher already on every page).
+      { label: "Submit a request", href: "/support/new", underTab: "/support" },
       {
         label: "All requests",
         href: "/support/all",

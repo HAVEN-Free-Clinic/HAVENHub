@@ -282,7 +282,6 @@ describe("checkbox call sites", () => {
    * with it.
    */
   const HAND_ROLLED = new Map<string, { count: number; why: string }>([
-    ["src/app/(app)/schedule/page.tsx", { count: 1, why: "availability pill: geometry is a documented trade in availability-pill.ts" }],
     ["src/modules/schedule/components/attending-portal-section.tsx", { count: 1, why: "availability pill, same shared class" }],
     ["src/modules/schedule/components/builder-availability-view.tsx", { count: 1, why: "builder availability pill, same shared class" }],
     ["src/modules/recruitment/components/field-preview.tsx", { count: 3, why: "already hand-sets min-h-[44px]" }],

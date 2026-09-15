@@ -109,16 +109,9 @@ function GridCell({
   const selectedHighlight = isHighlightDate ? "ring-1 ring-inset ring-brand/40" : "";
   const tdBase = `relative border border-border px-1 py-1 text-center align-middle min-w-[58px] ${closedBg} ${selectedHighlight}`;
 
-  // Non-color cue for a closed date, so the state is not carried by the muted
-  // background alone.
-  const closedMarker = row.isClosed ? (
-    <span
-      aria-hidden="true"
-      className="pointer-events-none absolute bottom-0.5 right-1 text-[10px] leading-none text-subtle-foreground"
-    >
-      &middot;
-    </span>
-  ) : null;
+  // The non-color cue for a closed date is the column header's "closed" label.
+  // Each cell used to carry a 10px corner dot as well, which read as a smudge
+  // rather than a signal, so the muted background is the only per-cell mark.
 
   /** What the cell shows when it is not a button. */
   const readOnly = (extraLabel?: string) => (
@@ -140,9 +133,7 @@ function GridCell({
             </span>
           )}
         </span>
-      )}
-      {closedMarker}
-    </td>
+      )}    </td>
   );
 
   const coveringLabel = covering.map((c) => c.label).join(", ");
@@ -159,9 +150,7 @@ function GridCell({
             label="OC"
             variant="grid-filled"
             ariaLabel={`Clear ${attending.scheduleName} as on-call attending for the week after ${displayD}`}
-          />
-          {closedMarker}
-        </td>
+          />        </td>
       );
     }
     return (
@@ -176,9 +165,7 @@ function GridCell({
               ? `Make ${attending.scheduleName} on-call attending for the week after ${displayD}, replacing ${row.onCallName}`
               : `Make ${attending.scheduleName} on-call attending for the week after ${displayD}`
           }
-        />
-        {closedMarker}
-      </td>
+        />      </td>
     );
   }
 
@@ -199,9 +186,7 @@ function GridCell({
           label={shortSlotLabel(slotLabel)}
           variant="grid-filled"
           ariaLabel={`Remove ${attending.scheduleName} from ${slotLabel} on ${displayD}`}
-        />
-        {closedMarker}
-      </td>
+        />      </td>
     );
   }
 
@@ -227,9 +212,7 @@ function GridCell({
               : `Assign ${attending.scheduleName} to ${slotLabel} on ${displayD}`
           }
         />
-      </div>
-      {closedMarker}
-    </td>
+      </div>    </td>
   );
 }
 

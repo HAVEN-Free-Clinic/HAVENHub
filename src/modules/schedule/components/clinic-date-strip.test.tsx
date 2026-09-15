@@ -175,5 +175,14 @@ describe("ClinicDateStrip", () => {
       expect(withClosed([])).not.toContain("clinic closed");
       expect(withClosed()).not.toContain("clinic closed");
     });
+
+    // The ring used to have no key on screen, so sighted users met an orange
+    // outline with nothing saying what it meant.
+    it("explains the dashed ring beside the strip, only when a closed date is in it", () => {
+      expect(withClosed(["2026-09-20"])).toContain("Dashed outline: the clinic is closed that date.");
+      expect(withClosed([])).not.toContain("Dashed outline");
+      // A closed key for a date outside this strip is not a closed date shown here.
+      expect(withClosed(["2030-01-05"])).not.toContain("Dashed outline");
+    });
   });
 });

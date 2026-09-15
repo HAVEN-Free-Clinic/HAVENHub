@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { PageBody } from "@/platform/ui/page-body";
 import { requirePersonSession } from "@/platform/auth/session";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { listApplicantsForReview, reviewScope, awaitingRoutingCount } from "@/modules/recruitment/services/review";
@@ -17,6 +18,7 @@ import { can } from "@/platform/rbac/engine";
 import { SpeedScoreLauncher } from "@/modules/recruitment/components/speed-score-launcher";
 import { ScoringAssignmentLauncher } from "@/modules/recruitment/components/scoring-assignment-launcher";
 import { scorerQueueScope } from "@/modules/recruitment/services/score-assignment";
+import { myCommitteeComments } from "@/modules/recruitment/services/committee-scoring";
 import { speedScoreAction, loadReviewApplicationAction, loadScoringPanelAction, setCycleScoringAction } from "./actions";
 import type { SpeedScoreItem } from "@/modules/recruitment/engine/speed-score-queue";
 import { rosterDecision, type RosterDecisionStatus } from "@/modules/recruitment/engine/decision-summary";
@@ -93,6 +95,10 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
     scorerQueueScope(id, person.personId),
   ]);
   const canScore = scope.all || canScorePerm;
+  // The viewer's own saved comments, which the speed-score modal starts each
+  // comment box from. Read on its own rather than through the roster query, which
+  // would put every reviewer's comments in front of every scorer.
+  const myComments = canScore ? await myCommitteeComments(id, person.personId) : new Map<string, string | null>();
   // Null on a cycle with no scorer pool. The column default would otherwise
   // read as a target nobody set and mark every under-two row short.
   const coverageTarget = queueScope.pooled ? cycle.scoresPerApplication : null;
@@ -116,7 +122,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
     });
   const speedItems: SpeedScoreItem[] = canScore
     ? apps
-        .filter((a) => a.applicant.applicantPersonId !== person.personId) // never queue your own application
+        .filter((a) => !a.isOwnApplication) // never queue your own application, linked to your account or not
         // Already with a department, in interviews, or decided: a committee score
         // changes nothing for them. Renewals and first-choice auto-route
         // departments are routed AT SUBMISSION and documented as skipping
@@ -133,6 +139,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
           name: `${a.applicant.firstName} ${a.applicant.lastName}`,
           typeLabel: applicantTypeLabel(a.applicantType),
           myScore: a.committeeScores.find((c) => c.scorerId === person.personId)?.score ?? null,
+          myComment: myComments.get(a.id) ?? null,
         }))
     : [];
   const decisionFilter = decisionParam && DECISION_STATUSES.has(decisionParam as RosterDecisionStatus)
@@ -147,7 +154,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
     : null;
   const query = normalizeApplicantQuery(queryParam);
   const byDecision = decisionFilter
-    ? apps.filter((a) => rosterDecision({ acceptances: a.acceptances, applicationDecision: a.decision, interviews: a.interviews }).status === decisionFilter)
+    ? apps.filter((a) => rosterDecision({ acceptances: a.acceptances, applicationDecision: a.decision, interviews: a.interviews, dualAppointments: a.dualAppointments }).status === decisionFilter)
     : apps;
   // Search last in the chain, on the same rows the count and the pager read, so
   // "3 applicants" is always the number of rows the search actually returned.
@@ -169,7 +176,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
       page: null,
     })}`;
   return (
-    <div className="space-y-6">
+    <PageBody>
       <SetBreadcrumb
         trail={cycleTrail({
           canOpenOverview,
@@ -178,9 +185,16 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
           section: { label: "Applicants", slug: "applicants" },
         })}
       />
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <PageHeader title="Applicants" description={cycle.title} />
-        <div className="flex flex-wrap items-center gap-2">
+      {/* Through PageHeader's own action slot rather than a flex row wrapping
+          it. The wrapper made the h1, the description and these launchers three
+          siblings competing for one line, so the description wrapped under a
+          heading that was no longer above it. The slot is what every other page
+          puts its controls in. */}
+      <PageHeader
+        title="Applicants"
+        description={cycle.title}
+        action={
+          <div className="flex flex-wrap items-center gap-2">
           {scope.all && (
             <ScoringAssignmentLauncher
               cycleId={id}
@@ -195,8 +209,9 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
               onLoad={loadReviewApplicationAction}
             />
           )}
-        </div>
-      </div>
+          </div>
+        }
+      />
       <div className="flex flex-wrap items-end justify-between gap-3">
         <FormRow>
           {/* The other filters are selects that navigate on change; a search box
@@ -247,7 +262,9 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
         </THead>
         <tbody>
           {pageApps.map((a) => {
-            const d = rosterDecision({ acceptances: a.acceptances, applicationDecision: a.decision, interviews: a.interviews });
+            const d = rosterDecision({ acceptances: a.acceptances, applicationDecision: a.decision, interviews: a.interviews, dualAppointments: a.dualAppointments });
+            // A dual appointment still in play: asked for (pending) or agreed (approved).
+            const dual = a.dualAppointments.find((x) => x.status === "PENDING" || x.status === "APPROVED");
             const gap = a.applicant.applicantPersonId ? serviceGaps.get(a.applicant.applicantPersonId) : undefined;
             return (
               <TR key={a.id}>
@@ -266,6 +283,14 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
                     {a.invited && (
                       <Badge tone="brand" title="Applied through an invitation link">
                         Invited
+                      </Badge>
+                    )}
+                    {dual && (
+                      <Badge
+                        tone={dual.status === "APPROVED" ? "success" : "warning"}
+                        title={dual.status === "APPROVED" ? `Also accepted into ${dual.departmentCode} as a dual appointment` : `${dual.departmentCode} asked for a dual appointment`}
+                      >
+                        {dual.status === "APPROVED" ? `Dual: ${dual.departmentCode}` : `Dual requested: ${dual.departmentCode}`}
                       </Badge>
                     )}
                   </span>
@@ -291,14 +316,31 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
                     )}
                   </span>
                 </TD>
-                <TD className="text-foreground-soft">
-                  {/* The target turns "3.7 avg" into "3.7 avg · 2 of 3
+                <TD className="whitespace-nowrap text-foreground-soft">
+                  {/* One line: "Not yet scored · 0 of 4" wrapped in every row,
+                      doubling the table's height for a short label.
+                      The target turns "3.7 avg" into "3.7 avg · 2 of 3
                       reviewers" while a row is short, because speed routing
-                      ranks an average over two reads against one over three. */}
-                  {formatScoreSummary(scoreAverage(a.committeeScores.map((c) => c.score)), coverageTarget)}
+                      ranks an average over two reads against one over three.
+                      The viewer's own application arrives with no scores
+                      (listApplicantsForReview), and says so rather than
+                      reading as "Not yet scored". */}
+                  {a.isOwnApplication
+                    ? "Hidden: your application"
+                    : formatScoreSummary(scoreAverage(a.committeeScores.map((c) => c.score)), coverageTarget)}
                 </TD>
                 <TD>
-                  <Badge>{applicationStageLabel[stageOf(a)]}</Badge>
+                  <span className="inline-flex flex-wrap items-center gap-1.5">
+                    <Badge>{applicationStageLabel[stageOf(a)]}</Badge>
+                    {/* A rejection passed this applicant to a dual-role department
+                        they ticked (planDualFallback in services/routing.ts), so
+                        the department now deciding should know why it has them. */}
+                    {a.dualFallbackAt && a.routedDepartmentCode && (
+                      <Badge title={`Passed to ${a.routedDepartmentCode} after a rejection, as their dual option`}>
+                        Dual fallback
+                      </Badge>
+                    )}
+                  </span>
                 </TD>
                 <TD className="text-foreground-soft">
                   <span className="inline-flex flex-wrap items-center gap-1.5">
@@ -316,7 +358,13 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
                   </span>
                 </TD>
                 <TD>
-                  <Badge tone={d.tone}>{d.label}</Badge>
+                  {/* No decision is an absence, not a status: the house "-"
+                      rather than a grey "None" badge in every undecided row. */}
+                  {d.status === "NONE" ? (
+                    <span className="text-subtle-foreground">-</span>
+                  ) : (
+                    <Badge tone={d.tone}>{d.label}</Badge>
+                  )}
                 </TD>
               </TR>
             );
@@ -355,6 +403,6 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
           })}`
         }
       />
-    </div>
+    </PageBody>
   );
 }

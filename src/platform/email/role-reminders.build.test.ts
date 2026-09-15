@@ -1,11 +1,20 @@
 import { describe, expect, it } from "vitest";
+import { splitPersonName } from "@/platform/person-name";
 import { buildRoleReminders, ROLE_REMINDERS, type ReminderAssignment } from "@/platform/email/shift-reminders";
 
 const TARGET = new Date("2026-07-11T12:00:00.000Z"); // a Saturday, noon UTC
 const BASE = "https://hub.example.org";
 
 function person(id: string, name: string, email: string | null = `${id}@x.org`): ReminderAssignment["person"] {
-  return { id, name, contactEmail: email, entraObjectId: null };
+  const parts = splitPersonName(name);
+  return {
+    id,
+    name,
+    legalFirstName: parts.legalFirstName,
+    lastName: parts.lastName,
+    contactEmail: email,
+    entraObjectId: null,
+  };
 }
 
 function row(

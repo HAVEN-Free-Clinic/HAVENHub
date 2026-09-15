@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { PageBody } from "@/platform/ui/page-body";
 import { DateTime } from "@/platform/dates/display";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { zoneLabel } from "@/platform/dates/zone";
@@ -142,7 +143,7 @@ export default async function CycleOverviewPage({ params }: PageProps) {
   }
 
   return (
-    <div className="max-w-2xl space-y-6">
+    <PageBody width="form">
       <SetBreadcrumb trail={cycleTrail({ cycleId: id, cycleTitle: cycle.title })} />
       <PageHeader
         title={cycle.title}
@@ -338,6 +339,6 @@ export default async function CycleOverviewPage({ params }: PageProps) {
           )}
         </Card>
       )}
-    </div>
+    </PageBody>
   );
 }

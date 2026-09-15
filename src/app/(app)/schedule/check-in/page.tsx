@@ -46,12 +46,21 @@ export default async function CheckInPage() {
     // failure reason. This is how the radius and accuracy thresholds get tuned
     // from real data rather than anecdote. captureEvent never throws, so it
     // cannot break a committed check-in.
+    //
+    // The fence reading rides along when the attempt produced one, so near
+    // misses are visible and not only passes. Distance is capped: past a few
+    // kilometres it says nothing about the fence and a good deal about where
+    // someone is.
+    const reading =
+      result.distanceMeters !== undefined
+        ? { distanceMeters: Math.min(result.distanceMeters, 5_000), accuracyMeters: result.accuracyMeters }
+        : {};
     await captureEvent({
       distinctId: actor.personId,
       event: result.ok ? "clinic_check_in_succeeded" : "clinic_check_in_failed",
       properties: result.ok
-        ? { method: result.method, alreadyCheckedIn: result.alreadyCheckedIn }
-        : { reason: result.reason },
+        ? { method: result.method, alreadyCheckedIn: result.alreadyCheckedIn, ...reading }
+        : { reason: result.reason, ...reading },
       groups: termGroup(state.termId),
     });
 

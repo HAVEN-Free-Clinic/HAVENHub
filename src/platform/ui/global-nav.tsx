@@ -11,6 +11,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronDown, Menu, X } from "lucide-react";
 import { isModuleActive, type NavModule } from "@/platform/modules/nav";
+import { SHELL_WIDTH } from "./shell-width";
 
 /** useLayoutEffect on the client, useEffect on the server (SSR-safe). */
 const useIsomorphicLayoutEffect =
@@ -351,7 +352,7 @@ export function GlobalNav({ items }: { items: NavModule[] }) {
             aria-label="Modules (menu)"
             className="absolute left-0 right-0 top-14 z-20 border-b border-border bg-surface shadow-sm"
           >
-            <div className="mx-auto flex max-w-6xl flex-col gap-1 px-6 py-3">
+            <div className={`mx-auto flex ${SHELL_WIDTH} flex-col gap-1 px-6 py-3`}>
               {items.map((m) => {
                 const active = isModuleActive(pathname, m.href);
                 return (

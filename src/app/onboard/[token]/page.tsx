@@ -1,7 +1,8 @@
-import { getContractByToken, lookupStoredEpicId, lookupHasAccount } from "@/modules/recruitment/services/onboarding";
+import { getContractByToken, lookupStoredEpicId, lookupHasAccount, lookupOnFile, contractDepartmentContext } from "@/modules/recruitment/services/onboarding";
+import { resolvePhoto } from "@/platform/photos";
+import { formatCalendarDate } from "@/platform/dates/format";
 import { parseContractLayout } from "@/modules/recruitment/contract/layout";
 import { DEFAULT_CONTRACT_LAYOUT } from "@/modules/recruitment/contract/system-fields";
-import { epicRequirementFor } from "@/modules/recruitment/contract/epic-requirement";
 import { buildOnboardingNextSteps } from "@/modules/recruitment/onboarding-next-steps";
 import { getSetting } from "@/platform/settings/service";
 import { getSupportContact } from "@/platform/branding/support";
@@ -13,6 +14,7 @@ import { OnboardForm } from "./onboard-form";
 import { NextStepsScreen } from "./next-steps-screen";
 import { CopyrightNotice } from "@/platform/ui/app-footer";
 import { formatTrainingDate, formatTrainingLocation } from "@/modules/recruitment/training-date";
+import { applicationAvailabilityLabels } from "@/modules/recruitment/contract/application-availability";
 
 export default async function OnboardPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
@@ -106,11 +108,14 @@ export default async function OnboardPage({ params }: { params: Promise<{ token:
 
   const prefill = {
     firstName: contract.firstName,
+    legalMiddleName: contract.legalMiddleName ?? "",
     lastName: contract.lastName,
     preferredFirstName: contract.preferredFirstName ?? "",
     email: contract.email,
     netId: contract.netId ?? "",
     phone: contract.phone ?? "",
+    pronouns: contract.pronouns ?? "",
+    staffTitle: contract.staffTitle ?? "",
     yaleAffiliation: contract.yaleAffiliation ?? "",
     gradYear: contract.gradYear ?? "",
   };
@@ -129,20 +134,38 @@ export default async function OnboardPage({ params }: { params: Promise<{ token:
   // Department (deleted/renamed) falls through epicRequirementFor's null
   // branch to NONE, matching its documented "no basis to provision Epic"
   // contract.
-  const departmentCode = contract.acceptance?.departmentCode ?? null;
+  //
+  // A dual appointment adds the second department it was approved for: that
+  // department's blocks show too, and the Epic requirement is the stricter of
+  // the two (contractDepartmentContext, the same resolution submit runs).
   const track = cycle?.track ?? "VOLUNTEER";
-  const dept = departmentCode
-    ? await prisma.department.findUnique({
-        where: { code: departmentCode },
-        select: { requiresEpicDirector: true, requiresEpicVolunteer: true },
-      })
-    : null;
-  const epicRequirement = epicRequirementFor(dept, track);
+  const { department: departmentCode, additionalDepartments, epicRequirement } =
+    await contractDepartmentContext(contract.acceptance, track);
   // The Epic ID already on file for this applicant (a returning member), matched
   // the same way promotion and submitContract match. When set, the Epic section
   // confirms it instead of re-collecting. Same lookup on both sides keeps the
   // section's client/server visibility in agreement.
   const storedEpicId = await lookupStoredEpicId(contract.netId, contract.email);
+
+  // What a returning member already has on file: a HIPAA certificate that covers
+  // this term, and a profile photo. The form shows them instead of asking again,
+  // and submitContract runs the same lookup, so both agree on what is optional.
+  const onFile = await lookupOnFile(contract.netId, contract.email, cycle?.term?.endDate ?? null);
+  const hipaaOnFile = onFile.hipaa
+    ? {
+        completionDate: formatCalendarDate(onFile.hipaa.completionDate),
+        expiresAt: formatCalendarDate(onFile.hipaa.expiresAt),
+        pendingVerification: onFile.hipaa.pendingVerification,
+      }
+    : null;
+  // Stored photos only: an unauthenticated page must never trigger a Yale
+  // directory pull on someone's behalf.
+  const storedPhoto = onFile.photoPersonId
+    ? await resolvePhoto(onFile.photoPersonId, new Date(), { allowPull: false })
+    : null;
+  const photoOnFile = storedPhoto
+    ? `data:${storedPhoto.contentType};base64,${storedPhoto.bytes.toString("base64")}`
+    : null;
 
   // The director default's second_department_name question is a
   // DEPARTMENT_CHOICE custom question (contract/defaults/director.ts); its
@@ -168,6 +191,12 @@ export default async function OnboardPage({ params }: { params: Promise<{ token:
   // identically on the client.
   const todayIso = new Date().toISOString().slice(0, 10);
 
+  // The dates they chose on the application, for the availability check.
+  const applicationAvailability = applicationAvailabilityLabels(
+    contract.acceptance?.application?.answers,
+    cycle?.term?.clinicDates ?? [],
+  );
+
   return (
     <main className="mx-auto max-w-2xl px-6 py-10">
       <h1 className="text-2xl font-bold tracking-tight">{orgName} onboarding</h1>
@@ -178,7 +207,8 @@ export default async function OnboardPage({ params }: { params: Promise<{ token:
         ctx={{
           firstName: contract.firstName, orgName, todayIso,
           trainingDate, trainingLocation,
-          department: departmentCode, track, epicRequirement, storedEpicId,
+          department: departmentCode, additionalDepartments, track, epicRequirement, storedEpicId,
+          applicationAvailability, hipaaOnFile, photoOnFile,
         }}
         departments={departments}
         maxUploadMb={maxUploadMb}

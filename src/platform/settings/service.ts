@@ -181,12 +181,8 @@ export async function getCategory(category: string): Promise<ResolvedSetting[]> 
   });
 }
 
-/** Validate, persist an override, invalidate cache, and audit. */
-export async function setSetting(
-  key: string,
-  rawValue: unknown,
-  actorPersonId: string | null
-): Promise<void> {
+/** Check a submitted value against its schema and cross-field guard; write nothing. */
+async function checkSetting(key: string, rawValue: unknown): Promise<unknown> {
   const def = getSettingDef(key);
   const parsed = def.schema.safeParse(rawValue);
   if (!parsed.success) {
@@ -200,9 +196,39 @@ export async function setSetting(
     const problem = await def.validate(parsed.data, { config, getSetting });
     if (problem) throw new SettingValidationError(key, problem);
   }
+  return parsed.data;
+}
 
+/** Validate, persist an override, invalidate cache, and audit. */
+export async function setSetting(
+  key: string,
+  rawValue: unknown,
+  actorPersonId: string | null
+): Promise<void> {
+  await writeSetting(key, await checkSetting(key, rawValue), actorPersonId);
+}
+
+/**
+ * Save several settings from one form: /admin/settings saves a whole category
+ * with one button. Every value is checked before any is written, so a save that
+ * fails on one field does not leave the fields before it applied. Each written
+ * value still gets its own audit row, exactly as setSetting writes.
+ *
+ * The cross-field guards read STORED values, as they do when saving one at a
+ * time: a guard never sees a sibling's pending value from the same save.
+ */
+export async function setSettings(
+  entries: { key: string; value: unknown }[],
+  actorPersonId: string | null
+): Promise<void> {
+  const checked: { key: string; value: unknown }[] = [];
+  for (const e of entries) checked.push({ key: e.key, value: await checkSetting(e.key, e.value) });
+  for (const c of checked) await writeSetting(c.key, c.value, actorPersonId);
+}
+
+async function writeSetting(key: string, parsedValue: unknown, actorPersonId: string | null): Promise<void> {
   const before = await getSetting(key);
-  const value = parsed.data as Prisma.InputJsonValue;
+  const value = parsedValue as Prisma.InputJsonValue;
 
   await prisma.setting.upsert({
     where: { key },

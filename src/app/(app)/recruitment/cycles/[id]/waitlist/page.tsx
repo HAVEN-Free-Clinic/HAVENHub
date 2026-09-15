@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { PageBody } from "@/platform/ui/page-body";
 import { requirePermission, requirePersonSession } from "@/platform/auth/session";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { listWaitlisted } from "@/modules/recruitment/services/review";
@@ -23,7 +24,7 @@ export default async function WaitlistPage({ params }: PageProps) {
   const entries = await listWaitlisted(id, person.personId);
 
   return (
-    <div className="space-y-6">
+    <PageBody>
       <SetBreadcrumb
         trail={cycleTrail({
           cycleId: id,
@@ -86,6 +87,6 @@ export default async function WaitlistPage({ params }: PageProps) {
           )}
         </tbody>
       </Table>
-    </div>
+    </PageBody>
   );
 }

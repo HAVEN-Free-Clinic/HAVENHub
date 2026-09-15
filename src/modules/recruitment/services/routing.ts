@@ -1,11 +1,108 @@
-import type { Application } from "@prisma/client";
+import type { Application, Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { recordAudit } from "@/platform/audit";
+import { log, errorAttrs } from "@/platform/logging";
+import { isDualRoleDepartment, nextDualFallback } from "@/platform/dual-roles/catalog";
 import { reviewScope, RecruitmentAuthError, AcceptanceError } from "./review";
+import { assignReturnedApplication } from "./score-assignment";
 
 export class RoutingError extends Error {
   constructor(message: string) { super(message); this.name = "RoutingError"; }
+}
+
+/** The application fields the dual-role fallback reads. */
+type DualFallbackSource = {
+  dualRoleDepartments: string[];
+  dualRoleDeclinedBy: string[];
+  dualFallbackAt: Date | null;
+  dualFallbackFromDepartmentCode: string | null;
+  cycle: { departments: string[] };
+  /** A department already asking for them as a dual appointment is not a fallback. */
+  dualAppointments?: { departmentCode: string; status: string }[];
+};
+
+/** Departments holding this application's dual appointment, pending or approved. */
+function dualAppointmentCodes(app: { dualAppointments?: { departmentCode: string; status: string }[] }, statuses: readonly string[] = ["PENDING", "APPROVED"]): string[] {
+  return (app.dualAppointments ?? []).filter((d) => statuses.includes(d.status)).map((d) => d.departmentCode);
+}
+
+/**
+ * What a rejection means for an applicant who may have ticked a dual box (see
+ * nextDualFallback). `declinedBy` is the list to store either way: the rejecting
+ * department joins it when it is itself a dual department, so a VADM "no" is
+ * remembered whether VADM was their primary department or a fallback. `next` is
+ * the department to pass them to, or null when the rejection stands.
+ */
+function planDualFallback(
+  app: DualFallbackSource,
+  rejectingDepartmentCode: string | null,
+): { declinedBy: string[]; next: string | null } {
+  const declinedBy =
+    rejectingDepartmentCode && isDualRoleDepartment(rejectingDepartmentCode)
+      ? [...new Set([...app.dualRoleDeclinedBy, rejectingDepartmentCode])].sort()
+      : app.dualRoleDeclinedBy;
+  const appointed = new Set(dualAppointmentCodes(app));
+  const next = nextDualFallback({
+    declared: app.dualRoleDepartments.filter((code) => !appointed.has(code)),
+    declinedBy,
+    rejectingDepartmentCode,
+    cycleDepartments: app.cycle.departments,
+  });
+  return { declinedBy, next };
+}
+
+/**
+ * The write that replaces a REJECT when the applicant falls through: routed to
+ * the dual department, undecided, and marked as a fallback. It clears the
+ * returned marker for the same reason routeApplication does, since this IS a
+ * routing.
+ */
+function dualFallbackWrite(
+  app: DualFallbackSource,
+  rejectingDepartmentCode: string | null,
+  plan: { declinedBy: string[]; next: string },
+  actorId: string,
+) {
+  const now = new Date();
+  return {
+    routedDepartmentCode: plan.next,
+    routedById: actorId,
+    routedAt: now,
+    decision: "PENDING",
+    decidedById: null,
+    decidedAt: null,
+    decisionNotes: null,
+    returnedToRoutingAt: null,
+    returnedFromDepartmentCode: null,
+    returnedById: null,
+    returnedReason: null,
+    dualRoleDeclinedBy: plan.declinedBy,
+    dualFallbackAt: now,
+    // Where the fallback STARTED. A second hop (VADM declining and passing to
+    // INTP) keeps naming the department that said no first, which is the
+    // context the next director needs; dualRoleDeclinedBy carries the rest.
+    dualFallbackFromDepartmentCode: app.dualFallbackAt ? app.dualFallbackFromDepartmentCode : rejectingDepartmentCode,
+  } satisfies Prisma.ApplicationUncheckedUpdateManyInput;
+}
+
+/** Audit a fallback in place of the decision it replaced. The rejecting
+ *  department's notes are kept here, not shown to the next director. */
+async function auditDualFallback(
+  actorId: string,
+  applicationId: string,
+  rejectingDepartmentCode: string | null,
+  notes: string | null,
+  plan: { declinedBy: string[]; next: string },
+): Promise<void> {
+  await recordAudit({
+    actorPersonId: actorId,
+    action: "recruitment.dual_fallback",
+    entityType: "Application",
+    entityId: applicationId,
+    before: { rejectedBy: rejectingDepartmentCode, notes },
+    after: { routedDepartmentCode: plan.next, dualRoleDeclinedBy: plan.declinedBy },
+  });
 }
 
 /** A recruitment lead assigns the committee's best-fit department. Routing may
@@ -21,7 +118,10 @@ export async function routeApplication(
   }
   const app = await prisma.application.findUnique({
     where: { id: applicationId },
-    include: { cycle: { select: { departments: true, track: true } } },
+    include: {
+      cycle: { select: { departments: true, track: true } },
+      dualAppointments: { select: { departmentCode: true, status: true } },
+    },
   });
   if (!app) throw new RoutingError("Application not found.");
   if (app.status !== "SUBMITTED") throw new RoutingError("This application hasn't been submitted yet.");
@@ -39,6 +139,15 @@ export async function routeApplication(
   if (app.returnedFromDepartmentCode === departmentCode) {
     throw new RoutingError(
       `${departmentCode} declined this applicant and handed them back. Route them to a different department, or reject the application.`,
+    );
+  }
+
+  // A department asking for this applicant as their SECOND department cannot
+  // also be the first. Routing them there would leave one department holding
+  // both the routed decision and the dual appointment.
+  if (dualAppointmentCodes(app).includes(departmentCode)) {
+    throw new RoutingError(
+      `${departmentCode} is this applicant's dual appointment. Cancel that on the Dual appointments page before routing them there.`,
     );
   }
 
@@ -102,6 +211,9 @@ export async function routeApplication(
         returnedById: null,
         returnedReason: null,
         ...(clearDecision ? { decision: "PENDING", decidedById: null, decidedAt: null, decisionNotes: null } : {}),
+        // A lead moving a fallback applicant to a different department ends the
+        // fallback. The declines it collected (dualRoleDeclinedBy) still stand.
+        ...(departmentCode !== previous ? { dualFallbackAt: null, dualFallbackFromDepartmentCode: null } : {}),
       },
     });
   });
@@ -112,7 +224,11 @@ export async function routeApplication(
 /** A department director (or SRR) records the final decision on a VOLUNTEER
  *  application routed to their department -- no interview. ACCEPT mints an
  *  Acceptance (feeding release/onboarding); the outcome is stored on
- *  Application.decision. Mirrors decideInterview's acceptance sync. */
+ *  Application.decision. Mirrors decideInterview's acceptance sync.
+ *
+ *  A REJECT is not always final. When the applicant ticked a dual box for a
+ *  department that has not had its say yet (planDualFallback), the application
+ *  passes to that department still PENDING, and the returned row says so. */
 export async function decideRoutedApplication(
   applicationId: string,
   outcome: "ACCEPT" | "REJECT" | "WAITLIST",
@@ -125,8 +241,13 @@ export async function decideRoutedApplication(
       status: true,
       decision: true,
       routedDepartmentCode: true,
-      cycle: { select: { track: true } },
+      dualRoleDepartments: true,
+      dualRoleDeclinedBy: true,
+      dualFallbackAt: true,
+      dualFallbackFromDepartmentCode: true,
+      cycle: { select: { track: true, departments: true } },
       applicant: { select: { applicantPersonId: true } },
+      dualAppointments: { select: { departmentCode: true, status: true } },
     },
   });
   if (!app) throw new RoutingError("Application not found.");
@@ -144,6 +265,8 @@ export async function decideRoutedApplication(
     throw new RecruitmentAuthError("You can't decide applications for that department.");
   }
   const key = { applicationId_departmentCode: { applicationId, departmentCode } };
+  const plan = outcome === "REJECT" ? planDualFallback(app, departmentCode) : null;
+  const fallsThrough = plan?.next ? { declinedBy: plan.declinedBy, next: plan.next } : null;
   const updated = await prisma.$transaction(async (tx) => {
     if (outcome === "ACCEPT") {
       // Idempotent + race-safe, like decideInterview: keep any existing acceptance.
@@ -167,16 +290,32 @@ export async function decideRoutedApplication(
     }
     // #106: gate on the decision we read, mirroring decideInterview -- a concurrent
     // ACCEPT/REJECT must not leave the decision disagreeing with the Acceptance row.
+    // A fallback also moves the application, so it gates on the routing we read
+    // as well: a concurrent re-route by the lead must not be undone by it.
     const claimed = await tx.application.updateMany({
-      where: { id: applicationId, decision: app.decision },
-      data: { decision: outcome, decidedById: deciderId, decidedAt: new Date(), decisionNotes: notes },
+      where: fallsThrough
+        ? { id: applicationId, decision: app.decision, routedDepartmentCode: departmentCode }
+        : { id: applicationId, decision: app.decision },
+      data: fallsThrough
+        ? dualFallbackWrite(app, departmentCode, fallsThrough, deciderId)
+        : {
+            decision: outcome,
+            decidedById: deciderId,
+            decidedAt: new Date(),
+            decisionNotes: notes,
+            ...(plan ? { dualRoleDeclinedBy: plan.declinedBy } : {}),
+          },
     });
     if (claimed.count === 0) {
       throw new RoutingError("This application was just decided by someone else. Refresh and try again.");
     }
     return tx.application.findUniqueOrThrow({ where: { id: applicationId } });
   });
-  await recordAudit({ actorPersonId: deciderId, action: "recruitment.application_decide", entityType: "Application", entityId: applicationId, after: { decision: outcome, departmentCode } });
+  if (fallsThrough) {
+    await auditDualFallback(deciderId, applicationId, departmentCode, notes, fallsThrough);
+  } else {
+    await recordAudit({ actorPersonId: deciderId, action: "recruitment.application_decide", entityType: "Application", entityId: applicationId, after: { decision: outcome, departmentCode } });
+  }
   return updated;
 }
 
@@ -289,6 +428,19 @@ export async function returnToRouting(
     before: { routedDepartmentCode: departmentCode },
     after: { returnedFromDepartmentCode: departmentCode, reason: reason?.trim() || null },
   });
+
+  // Back with the committee, so back in the speed-score queue. On a pooled cycle
+  // that needs someone assigned to it (assignReturnedApplication). Best-effort:
+  // the return has already committed, and pressing Save on the scoring panel
+  // tops up anything this misses.
+  try {
+    await assignReturnedApplication(updated.cycleId, applicationId);
+  } catch (err) {
+    log.error(
+      "[recruitment] failed to assign scorers to a returned application",
+      errorAttrs(err, { applicationId }),
+    );
+  }
   return updated;
 }
 
@@ -296,7 +448,13 @@ export async function returnToRouting(
  *  a standalone SRR reject). Sets Application.decision = REJECT with no Acceptance
  *  and leaves routedDepartmentCode as-is. A prior not-emailed acceptance is torn
  *  down so releaseDecisions can't still email it. No email fires here; reversible
- *  via reopenDecision until an acceptance is emailed or decisions are released. */
+ *  via reopenDecision until an acceptance is emailed or decisions are released.
+ *
+ *  Like a department's REJECT, this falls through to a dual department the
+ *  applicant ticked when one has not had its say (planDualFallback), routing the
+ *  application there still PENDING instead. The rejecting department is the one
+ *  it is routed to, or else the one that last handed it back, so a fallback never
+ *  lands on a department that has just said no. */
 export async function rejectApplication(
   applicationId: string,
   actorId: string,
@@ -308,9 +466,10 @@ export async function rejectApplication(
   const app = await prisma.application.findUnique({
     where: { id: applicationId },
     include: {
-      cycle: { select: { track: true } },
+      cycle: { select: { track: true, departments: true } },
       applicant: { select: { applicantPersonId: true } },
-      acceptances: { select: { emailedAt: true, contract: { select: { id: true } } } },
+      acceptances: { select: { departmentCode: true, emailedAt: true, contract: { select: { id: true } } } },
+      dualAppointments: { select: { departmentCode: true, status: true } },
     },
   });
   if (!app) throw new RoutingError("Application not found.");
@@ -323,25 +482,43 @@ export async function rejectApplication(
   // An emailed acceptance or an onboarding contract must be torn down first (mirrors
   // decideRoutedApplication / revokeAcceptance): rejecting under it would leave the
   // applicant emailed-accepted-yet-rejected, or destroy onboarding data on cascade.
-  if (app.acceptances.some((a) => a.emailedAt != null || a.contract != null)) {
+  // An approved dual appointment's acceptance is its own department's decision,
+  // made through the dual appointment, and survives this one: the applicant is
+  // still accepted there. Everything below reads only the other acceptances.
+  const keep = dualAppointmentCodes(app, ["APPROVED"]);
+  const decidedHere = { applicationId, ...(keep.length > 0 ? { departmentCode: { notIn: keep } } : {}) };
+  if (app.acceptances.some((a) => !keep.includes(a.departmentCode) && (a.emailedAt != null || a.contract != null))) {
     throw new AcceptanceError("This applicant has an emailed acceptance or onboarding contract. Resolve that before rejecting.");
   }
+  const rejectingDepartmentCode = app.routedDepartmentCode ?? app.returnedFromDepartmentCode;
+  const plan = planDualFallback(app, rejectingDepartmentCode);
+  const fallsThrough = plan.next ? { declinedBy: plan.declinedBy, next: plan.next } : null;
   const updated = await prisma.$transaction(async (tx) => {
     // Drop not-emailed acceptances so a stale ACCEPT can't survive a REJECT. The guard
     // above read acceptances OUTSIDE this tx, so a concurrent releaseDecisions could
     // have stamped emailedAt in the gap -- which the deleteMany (emailedAt: null) won't
     // remove. Re-check inside the tx: any surviving acceptance is a live emailed one,
     // so abort instead of flipping decision to REJECT under an emailed acceptance.
-    await tx.acceptance.deleteMany({ where: { applicationId, emailedAt: null } });
-    if ((await tx.acceptance.count({ where: { applicationId } })) > 0) {
+    await tx.acceptance.deleteMany({ where: { ...decidedHere, emailedAt: null } });
+    if ((await tx.acceptance.count({ where: decidedHere })) > 0) {
       throw new AcceptanceError("This applicant has an emailed acceptance or onboarding contract. Resolve that before rejecting.");
+    }
+    if (fallsThrough) {
+      return tx.application.update({
+        where: { id: applicationId },
+        data: dualFallbackWrite(app, rejectingDepartmentCode, fallsThrough, actorId),
+      });
     }
     return tx.application.update({
       where: { id: applicationId },
-      data: { decision: "REJECT", decidedById: actorId, decidedAt: new Date(), decisionNotes: notes },
+      data: { decision: "REJECT", decidedById: actorId, decidedAt: new Date(), decisionNotes: notes, dualRoleDeclinedBy: plan.declinedBy },
     });
   });
-  await recordAudit({ actorPersonId: actorId, action: "recruitment.application_reject", entityType: "Application", entityId: applicationId, after: { decision: "REJECT" } });
+  if (fallsThrough) {
+    await auditDualFallback(actorId, applicationId, rejectingDepartmentCode, notes, fallsThrough);
+  } else {
+    await recordAudit({ actorPersonId: actorId, action: "recruitment.application_reject", entityType: "Application", entityId: applicationId, after: { decision: "REJECT" } });
+  }
   return updated;
 }
 
@@ -356,7 +533,8 @@ export async function reopenDecision(applicationId: string, actorId: string): Pr
     where: { id: applicationId },
     include: {
       cycle: { select: { decisionsReleasedAt: true, track: true } },
-      acceptances: { select: { emailedAt: true, contract: { select: { id: true } } } },
+      acceptances: { select: { departmentCode: true, emailedAt: true, contract: { select: { id: true } } } },
+      dualAppointments: { select: { departmentCode: true, status: true } },
     },
   });
   if (!app) throw new RoutingError("Application not found.");
@@ -367,7 +545,11 @@ export async function reopenDecision(applicationId: string, actorId: string): Pr
   // An emailed acceptance or an onboarding contract must be torn down first (mirrors
   // rejectApplication): reopening under it would leave the applicant emailed-accepted,
   // or cascade-destroy onboarding data.
-  if (app.acceptances.some((a) => a.emailedAt != null || a.contract != null)) {
+  // As in rejectApplication: an approved dual appointment's acceptance is not this
+  // decision's to reopen.
+  const keep = dualAppointmentCodes(app, ["APPROVED"]);
+  const decidedHere = { applicationId, ...(keep.length > 0 ? { departmentCode: { notIn: keep } } : {}) };
+  if (app.acceptances.some((a) => !keep.includes(a.departmentCode) && (a.emailedAt != null || a.contract != null))) {
     throw new AcceptanceError("This applicant has an emailed acceptance or onboarding contract. Resolve that before reopening.");
   }
   const updated = await prisma.$transaction(async (tx) => {
@@ -375,8 +557,8 @@ export async function reopenDecision(applicationId: string, actorId: string): Pr
     // would later email it. The guard above read acceptances outside this tx; re-check
     // inside after dropping the not-emailed ones so a concurrently-emailed acceptance
     // aborts the reopen instead of coexisting with a PENDING decision.
-    await tx.acceptance.deleteMany({ where: { applicationId, emailedAt: null } });
-    if ((await tx.acceptance.count({ where: { applicationId } })) > 0) {
+    await tx.acceptance.deleteMany({ where: { ...decidedHere, emailedAt: null } });
+    if ((await tx.acceptance.count({ where: decidedHere })) > 0) {
       throw new AcceptanceError("This applicant has an emailed acceptance or onboarding contract. Resolve that before reopening.");
     }
     return tx.application.update({
@@ -388,7 +570,13 @@ export async function reopenDecision(applicationId: string, actorId: string): Pr
   return updated;
 }
 
-export type BatchResult = { applied: number; skipped: { applicationId: string; reason: string }[] };
+export type BatchResult = {
+  applied: number;
+  skipped: { applicationId: string; reason: string }[];
+  /** Rejects only: how many of `applied` passed to a dual department instead of
+   *  being rejected (see planDualFallback). */
+  passedToDual?: number;
+};
 
 /** Batch-route a set of applications (speed-route "apply top tier"). Reuses
  *  routeApplication per row so guards never drift; a row that fails a guard is
@@ -428,15 +616,18 @@ export async function applyTierRejects(
   }
   const skipped: { applicationId: string; reason: string }[] = [];
   let applied = 0;
+  let passedToDual = 0;
   for (const id of applicationIds) {
     try {
-      await rejectApplication(id, actorId, notes);
+      const updated = await rejectApplication(id, actorId, notes);
       applied += 1;
+      // rejectApplication only leaves a decision PENDING when it fell through.
+      if (updated.decision === "PENDING") passedToDual += 1;
     } catch (err) {
       if (err instanceof RoutingError || err instanceof AcceptanceError || err instanceof RecruitmentAuthError) {
         skipped.push({ applicationId: id, reason: err.message });
       } else throw err;
     }
   }
-  return { applied, skipped };
+  return { applied, skipped, passedToDual };
 }

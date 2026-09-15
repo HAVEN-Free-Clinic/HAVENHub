@@ -6,6 +6,7 @@ import {
   getSetting,
   getCategory,
   setSetting,
+  setSettings,
   resetSetting,
   SettingValidationError,
   _resetSettingsCache,
@@ -207,6 +208,31 @@ describe("setSetting", () => {
       after: 9,
       actorPersonId: "person-1",
     });
+  });
+});
+
+describe("setSettings", () => {
+  it("writes every value, each with its own audit row", async () => {
+    await setSettings(
+      [{ key: "rhd.maxProcedures", value: 9 }, { key: "uploads.maxMb", value: 4 }],
+      "person-1",
+    );
+    expect(await getSetting<number>("rhd.maxProcedures")).toBe(9);
+    expect(await getSetting<number>("uploads.maxMb")).toBe(4);
+    expect(await prisma.auditLog.count({ where: { action: "setting.update" } })).toBe(2);
+  });
+
+  it("writes nothing when any one value in the save is invalid", async () => {
+    // /admin/settings saves a category together. The valid field listed first
+    // must not land while the invalid one after it is refused.
+    await expect(
+      setSettings(
+        [{ key: "rhd.maxProcedures", value: 9 }, { key: "uploads.maxMb", value: 20 }],
+        "person-1",
+      ),
+    ).rejects.toBeInstanceOf(SettingValidationError);
+    expect(await prisma.setting.findUnique({ where: { key: "rhd.maxProcedures" } })).toBeNull();
+    expect(await prisma.auditLog.count({ where: { action: "setting.update" } })).toBe(0);
   });
 });
 

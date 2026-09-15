@@ -111,6 +111,65 @@ export function draftReminderContext(p: DraftReminderParams): Record<string, unk
 
 export const recruitmentDescriptors: TemplateDescriptor[] = [
   {
+    // To every recruitment manager (recruitment.review_all) when a director asks
+    // for a volunteer as a dual appointment. Says who asked, for whom, where the
+    // volunteer is already headed, and why, since that is what approval weighs.
+    key: "recruitment.dual_appointment_requested",
+    name: "Recruitment: dual appointment requested",
+    category: "transactional",
+    group: "recruitment",
+    variables: [
+      { name: "firstName", label: "Recruitment manager first name", sampleValue: "Alex" },
+      { name: "requesterName", label: "Who asked", sampleValue: "Jordan Lee" },
+      { name: "applicantName", label: "The volunteer", sampleValue: "Sam Rivera" },
+      { name: "departmentName", label: "The department asking for them", sampleValue: "Quality Improvement" },
+      { name: "primaryDepartmentName", label: "The department their application is routed to", sampleValue: "Food Pantry" },
+      { name: "cycleTitle", label: "Cycle title", sampleValue: "Volunteer Fall 2026 Recruitment" },
+      { name: "reason", label: "Why the department wants them", sampleValue: "Sam has led our intake audits for two terms." },
+      { name: "reviewLink", label: "Link to the cycle's dual appointments", sampleValue: "https://hub.havenfreeclinic.org/recruitment/cycles/abc/dual-appointments" },
+    ],
+    defaultSubject: "[HAVEN] Dual appointment requested: {{ applicantName }} for {{ departmentName }}",
+    defaultBody: `<p>Hi {{ firstName }},</p>
+
+<p>{{ requesterName }} asked to accept <strong>{{ applicantName }}</strong> into {{ departmentName }} as a dual appointment for {{ cycleTitle }}{{#if primaryDepartmentName}}, alongside {{ primaryDepartmentName }}{{/if}}.</p>
+
+{{#if reason}}<p>Their reason: {{ reason }}</p>{{/if}}
+
+<p><a href="{{ reviewLink }}">Review dual appointments</a></p>
+
+<p>Thank you,<br>HAVEN Free Clinic</p>`,
+  },
+  {
+    // To the director who asked, once a recruitment manager approves, declines,
+    // or cancels their dual appointment request.
+    key: "recruitment.dual_appointment_decided",
+    name: "Recruitment: dual appointment decision",
+    category: "transactional",
+    group: "recruitment",
+    variables: [
+      { name: "firstName", label: "Requesting director first name", sampleValue: "Jordan" },
+      { name: "applicantName", label: "The volunteer", sampleValue: "Sam Rivera" },
+      { name: "departmentName", label: "The department that asked for them", sampleValue: "Quality Improvement" },
+      { name: "cycleTitle", label: "Cycle title", sampleValue: "Volunteer Fall 2026 Recruitment" },
+      { name: "outcome", label: "approved, declined, or cancelled", sampleValue: "approved" },
+      { name: "isApproved", label: "True when the request was approved", sampleValue: "true" },
+      { name: "note", label: "The recruitment manager's note", sampleValue: "" },
+      { name: "reviewLink", label: "Link to the cycle's dual appointments", sampleValue: "https://hub.havenfreeclinic.org/recruitment/cycles/abc/dual-appointments" },
+    ],
+    defaultSubject: "[HAVEN] Dual appointment {{ outcome }}: {{ applicantName }}",
+    defaultBody: `<p>Hi {{ firstName }},</p>
+
+<p>The dual appointment for <strong>{{ applicantName }}</strong> in {{ departmentName }} ({{ cycleTitle }}) was {{ outcome }}.</p>
+
+{{#if isApproved}}<p>They are accepted into {{ departmentName }} as well as their other department. One onboarding form covers both, and they join both rosters when it is processed.</p>{{/if}}
+
+{{#if note}}<p>Note: {{ note }}</p>{{/if}}
+
+<p><a href="{{ reviewLink }}">Open dual appointments</a></p>
+
+<p>Thank you,<br>HAVEN Free Clinic</p>`,
+  },
+  {
     key: "recruitment.acceptance",
     name: "Recruitment: acceptance",
     category: "transactional",
@@ -252,6 +311,31 @@ export const recruitmentDescriptors: TemplateDescriptor[] = [
     defaultSubject: "Your HAVEN {{ cycleTitle }} onboarding is complete",
     defaultBody:
       '<p>Congratulations {{ firstName }},</p><p>You\'ve completed your HAVEN onboarding for {{ cycleTitle }}. Here is what happens next:</p><ul><li>{{ signInText }}</li>{{#if training}}<li>{{ training }}</li>{{/if}}{{#if epic}}<li>{{ epic }}</li>{{/if}}<li>{{ review }}</li></ul><p><a href="{{ loginUrl }}">HAVEN Hub sign-in page</a></p>',
+  },
+  {
+    key: "recruitment.roster_welcome",
+    name: "Recruitment: added to the roster",
+    category: "transactional",
+    group: "recruitment",
+    // Sent by promoteContracts once a recruitment lead adds someone to the roster,
+    // which is the moment they can sign in. isNew and isReturning are both passed
+    // (exactly one is true) so the body uses two plain {{#if}} blocks instead of
+    // nesting. A reactivated alum counts as new: they get the introduction.
+    // signInText is the next-steps module's sign-in sentence for someone who now
+    // has an account. training is empty once the in-person training date passed.
+    variables: [
+      { name: "firstName", label: "First name", sampleValue: "Sam" },
+      { name: "cycleTitle", label: "Cycle title", sampleValue: "Volunteer Fall 2026 Recruitment" },
+      { name: "departmentName", label: "Department name", sampleValue: "Patient Services" },
+      { name: "isNew", label: "New to HAVEN Hub (true or empty)", sampleValue: "true" },
+      { name: "isReturning", label: "Already a HAVEN Hub member (true or empty)", sampleValue: "" },
+      { name: "signInText", label: "How to sign in", sampleValue: "Sign in with your Yale NetID." },
+      { name: "training", label: "In-person training line, empty once the date has passed", sampleValue: "Attend in-person training on Saturday, September 19 in the HAVEN clinic." },
+      { name: "hubUrl", label: "HAVEN Hub URL", sampleValue: "https://hub.havenfreeclinic.com" },
+    ],
+    defaultSubject: "{{#if isReturning}}You are on the {{ cycleTitle }} roster{{else}}Welcome to HAVEN Hub, {{ firstName }}{{/if}}",
+    defaultBody:
+      '{{#if isNew}}<p>Hi {{ firstName }},</p><p>Welcome to HAVEN! You are officially on the {{ cycleTitle }} roster for <strong>{{ departmentName }}</strong>, and your HAVEN Hub account is ready.</p><p><strong>What is HAVEN Hub?</strong> HAVEN Hub is HAVEN Free Clinic\'s volunteer platform. It is where you will see your clinic shifts and request swaps, keep your HIPAA certificate and required trainings up to date, and get updates from HAVEN.</p>{{/if}}{{#if isReturning}}<p>Hi {{ firstName }},</p><p>Welcome back! You are on the {{ cycleTitle }} roster for <strong>{{ departmentName }}</strong>.</p>{{/if}}<p><strong>Sign in:</strong> {{ signInText }}</p><p>Finish these before your first shift.{{#if isNew}} When you sign in, HAVEN Hub walks you through each one.{{/if}}{{#if isReturning}} Your dashboard shows what is left for the new term.{{/if}}</p><ul><li>Confirm your profile and contact details.</li><li>Make sure your HIPAA certificate is on file and valid for the term.</li>{{#if training}}<li>{{ training }}</li>{{/if}}<li>Complete the Yale EHS trainings listed in HAVEN Hub.</li></ul><p><a href="{{ hubUrl }}">Open HAVEN Hub</a></p>',
   },
   {
     key: "recruitment.application_received",

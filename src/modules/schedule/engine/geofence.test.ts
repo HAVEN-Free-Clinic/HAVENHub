@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { haversineMeters, evaluateFence } from "./geofence";
+import { haversineMeters, evaluateFence, isPlausibleFix } from "./geofence";
 
 // Yale Physicians Building, 800 Howard Avenue, New Haven CT.
 const CLINIC = { latitude: 41.3025, longitude: -72.937 };
@@ -116,5 +116,24 @@ describe("evaluateFence", () => {
       accuracyMeters: 10,
     });
     expect(Number.isInteger(v.distanceMeters)).toBe(true);
+  });
+});
+
+describe("isPlausibleFix", () => {
+  it("accepts a real reading, including the edges of the globe", () => {
+    expect(isPlausibleFix(CLINIC, 12)).toBe(true);
+    expect(isPlausibleFix({ latitude: -90, longitude: 180 }, 0)).toBe(true);
+  });
+
+  it.each([
+    ["a NaN accuracy", CLINIC, NaN],
+    ["a negative accuracy", CLINIC, -1],
+    ["an infinite accuracy", CLINIC, Infinity],
+    ["a NaN latitude", { ...CLINIC, latitude: NaN }, 10],
+    ["a latitude past a pole", { ...CLINIC, latitude: 90.0001 }, 10],
+    ["a longitude past the antimeridian", { ...CLINIC, longitude: -180.5 }, 10],
+    ["a coordinate sent as a string", { ...CLINIC, latitude: "41.3" as unknown as number }, 10],
+  ])("rejects %s", (_label, position, accuracy) => {
+    expect(isPlausibleFix(position, accuracy)).toBe(false);
   });
 });

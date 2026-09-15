@@ -7,10 +7,12 @@ test("dev login reaches the permission-gated hub at the root", async ({ page }) 
   await page.waitForURL((url) => url.pathname === "/");
   // Hub h1 is a time-of-day greeting: "Good morning, Jack." (no "Welcome" heading)
   await expect(page.getByRole("heading", { name: /Good (morning|afternoon|evening)/ })).toBeVisible();
-  // Use the module tile link's unique aria-label to avoid a strict-mode violation
-  // (plain text matches the nav link, the hidden measurement span, and the tile).
-  await expect(page.getByRole("link", { name: "Open Schedule" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Open Volunteers" })).toBeVisible();
+  // The module links live in the toolbar only (the dashboard's tile grid is gone).
+  // Scoped to the "Modules" nav and matched exactly, or "Schedule" would also match
+  // "Full schedule" and friends in an open dropdown.
+  const modules = page.getByRole("navigation", { name: "Modules", exact: true });
+  await expect(modules.getByRole("link", { name: "Schedule", exact: true })).toBeVisible();
+  await expect(modules.getByRole("link", { name: "Volunteers", exact: true })).toBeVisible();
 });
 
 test("unknown routes render the branded 404 page", async ({ page }) => {

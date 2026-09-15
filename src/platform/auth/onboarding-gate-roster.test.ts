@@ -19,6 +19,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const perms = vi.hoisted(() => ({ current: new Set<string>() }));
 const membership = vi.hoisted(() => ({ found: null as { id: string } | null }));
 const onboarding = vi.hoisted(() => ({ status: { hasActiveTerm: true, onboarded: false } }));
+const access = vi.hoisted(() => ({ term: { id: "term-1", name: "Summer 2026" } as { id: string; name: string } | null }));
 const findFirst = vi.hoisted(() => vi.fn(async () => membership.found));
 const redirect = vi.hoisted(() =>
   vi.fn((path: string) => {
@@ -51,6 +52,9 @@ vi.mock("@/platform/rbac/engine", () => ({
 vi.mock("@/platform/terms/active-term", () => ({
   getActiveTerm: async () => ({ id: "term-1", name: "Summer 2026" }),
 }));
+vi.mock("@/platform/terms/access-term", () => ({
+  getAccessTerm: async () => access.term,
+}));
 vi.mock("@/modules/onboarding/services/onboarding", () => ({
   getOnboardingStatus: async () => onboarding.status,
   EXEMPT_PERMISSION: "admin.access",
@@ -64,6 +68,7 @@ beforeEach(() => {
   perms.current = new Set<string>();
   membership.found = null;
   onboarding.status = { hasActiveTerm: true, onboarded: false };
+  access.term = { id: "term-1", name: "Summer 2026" };
   _resetOnboardingGateCache();
   vi.clearAllMocks();
 });
@@ -112,5 +117,20 @@ describe("enforceOnboarding roster check", () => {
     membership.found = { id: "tm-1" };
     onboarding.status = { hasActiveTerm: true, onboarded: true };
     await expect(requirePersonSession()).resolves.toMatchObject({ personId: "person-1" });
+  });
+
+  /**
+   * A new member added to the next term's roster ahead of the switch is onboarding
+   * onto that term, so the gate checks that roster and gates them on its tasks.
+   */
+  it("checks the roster of the term the person is onboarding onto, which can be the next one", async () => {
+    access.term = { id: "term-next", name: "Fall 2026" };
+    membership.found = { id: "tm-next" };
+    await expect(requirePersonSession()).rejects.toThrow("NEXT_REDIRECT:/get-started");
+    expect(findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { personId: "person-1", termId: "term-next", status: "ACTIVE" },
+      }),
+    );
   });
 });

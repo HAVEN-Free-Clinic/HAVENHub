@@ -1,32 +1,32 @@
 /**
  * Schedule service for HAVEN Hub.
  *
- * Exposes three operations:
- *   - mySchedule: the caller's shifts, availability, and term context.
+ * Exposes two read operations:
+ *   - mySchedule: the caller's shifts, availability (read-only), and term context.
  *   - fullSchedule: the clinic-wide schedule view for a selected date.
- *   - updateMyAvailability: structured self-update for a given live or next term.
  *
- * Design note: this service trusts callers for permissions (pages gate). The
- * only invariant enforced here is data validity inside updateMyAvailability.
+ * Members do not edit their own availability here: a change is a request, and a
+ * director applies it from the schedule builder.
+ *
+ * Design note: this service trusts callers for permissions (pages gate).
  */
 
 import type { Department, Term, ShiftRole, ShiftRequest } from "@prisma/client";
 import type { ResolvedAvailability } from "../engine/availability";
 import { prisma } from "@/platform/db";
-import { recordAudit } from "@/platform/audit";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { getPersonTerms } from "@/platform/terms/person-terms";
-import { resolveAvailability, isAvailabilityLocked } from "../engine/availability";
+import { resolveAvailability } from "../engine/availability";
 import { isoDateKey, toScheduleEntries } from "../engine/map";
 import { formatForDateInput } from "@/platform/dates/format";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
-import { displayTodayKey } from "@/platform/dates/today";
 import { spanishScoresByPerson, verifiedLanguagesByPerson } from "@/platform/languages";
 import { computeConflicts } from "../engine/conflicts";
 import { publishedDepartmentIds } from "./publication";
 import { departmentAttendingsForDates } from "@/platform/attendings/coverage";
 import { closedClinicDates } from "@/platform/attendings/open-clinic-date";
 import { attendanceForDate, type AttendanceRow } from "./attendance";
+import { comparePersonName } from "@/platform/person-name";
 
 /** A pending ShiftRequest with the swap target's name included (null for drops). */
 export type PendingRequest = ShiftRequest & { target: { name: string } | null };
@@ -75,14 +75,6 @@ async function attendingsForShifts(
 // ---------------------------------------------------------------------------
 // Typed error
 // ---------------------------------------------------------------------------
-
-/** Thrown when updateMyAvailability receives invalid input. */
-export class AvailabilityValidationError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "AvailabilityValidationError";
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Shared types
@@ -137,7 +129,10 @@ export type MyShift = {
   attendings: ShiftAttending[];
 };
 
-export type PersonLite = { id: string; name: string };
+/** `legalFirstName`/`lastName` are the sort key: every list of people in this
+ *  app orders by surname, and doing that needs the parts, not the rendered
+ *  string. See comparePersonName. */
+export type PersonLite = { id: string; name: string; legalFirstName: string; lastName: string };
 
 /** Per-assignment shift flags. Set on EVERY role, not just volunteers: a
  *  director can hold the triage post or work the day remotely just as a
@@ -199,21 +194,17 @@ export type MyTermSchedule = {
   term: Term;
   isLive: boolean;
   shifts: MyShift[];
-  /** The member's own (self- or baseline-tier) editable availability. Director
-   *  overrides are reported separately in directorOverrides and never fold into
-   *  this value, so a per-department pin cannot read-only-lock the editable form. */
+  /** The member's own (self- or baseline-tier) availability, shown read-only:
+   *  members do not edit it themselves. Director overrides are reported
+   *  separately in directorOverrides and never fold into this value. */
   availability: ResolvedAvailability | null;
   /** Departments in this term where a director has pinned the member's
    *  availability, in department-code order. Empty when none. */
   directorOverrides: DirectorOverride[];
   /** True when the member holds >= 1 ACTIVE membership and EVERY one is
-   *  director-overridden, i.e. nothing they self-enter affects any department's
-   *  scheduling. The editable form is withheld in that case. */
+   *  director-overridden, i.e. the self/baseline dates affect no department's
+   *  scheduling. The page shows only the overrides in that case. */
   allDepartmentsOverridden: boolean;
-  /** True once this term's clinics have started, after which availability is
-   *  read-only and changes go through swap/drop requests. See
-   *  isAvailabilityLocked. */
-  availabilityLocked: boolean;
   legacyNote: string | null;
   clinicDates: Date[];
   pendingRequests: Map<string, PendingRequest>;
@@ -314,8 +305,9 @@ async function myScheduleForTerm(personId: string, term: Term, isLive: boolean):
     // director override is NOT folded in here (it is reported separately below),
     // so a pin on one of a multi-department member's memberships can no longer
     // make the whole form read-only (#26) or silently shadow the self-save on
-    // their other department (#61). Self dates are mirrored across every
-    // membership by updateMyAvailability, so memberships[0] is representative.
+    // their other department (#61). Self dates (from when members could still
+    // edit their own) were mirrored across every membership, so memberships[0]
+    // is representative.
     const first = memberships[0];
     availability = resolveAvailability({
       baseline: first.baselineAvailability,
@@ -336,7 +328,7 @@ async function myScheduleForTerm(personId: string, term: Term, isLive: boolean):
         });
       }
     }
-    // Every membership overridden => a self-save would move nothing.
+    // Every membership overridden => the self/baseline dates drive no department.
     allDepartmentsOverridden = directorOverrides.length === memberships.length;
 
     // Legacy free-text note: first non-null across all memberships (dept-code order).
@@ -348,12 +340,7 @@ async function myScheduleForTerm(personId: string, term: Term, isLive: boolean):
     }
   }
 
-  const availabilityLocked = isAvailabilityLocked({
-    clinicDateKeys: term.clinicDates.map(isoDateKey),
-    todayKey: await displayTodayKey(),
-  });
-
-  return { term, isLive, shifts, availability, directorOverrides, allDepartmentsOverridden, availabilityLocked, legacyNote, clinicDates: term.clinicDates, pendingRequests };
+  return { term, isLive, shifts, availability, directorOverrides, allDepartmentsOverridden, legacyNote, clinicDates: term.clinicDates, pendingRequests };
 }
 
 /**
@@ -478,7 +465,7 @@ export async function fullSchedule(
         cc: true,
         remote: true,
         specialty: true,
-        person: { select: { id: true, name: true, licensedRN: true } },
+        person: { select: { id: true, name: true, legalFirstName: true, lastName: true, licensedRN: true } },
         department: { select: { id: true, name: true, code: true, minInterpreterScore: true } },
       },
     }),
@@ -548,6 +535,8 @@ export async function fullSchedule(
     const person: TaggedPerson = {
       id: a.person.id,
       name: a.person.name,
+      legalFirstName: a.person.legalFirstName,
+      lastName: a.person.lastName,
       tags: { triage: a.triage, walkin: a.walkin, cc: a.cc, remote: a.remote, specialty: a.specialty },
       verifiedLanguages: scheduleLanguages.get(a.personId) ?? [],
       spanishScore: spanishScores.get(a.personId) ?? null,
@@ -562,11 +551,11 @@ export async function fullSchedule(
     }
   }
 
-  // Sort people by name within each group.
+  // Surname order within each group, like every other list of people.
   for (const bucket of byDept.values()) {
-    bucket.directors.sort((a, b) => a.name.localeCompare(b.name));
-    bucket.volunteers.sort((a, b) => a.name.localeCompare(b.name));
-    bucket.shadows.sort((a, b) => a.name.localeCompare(b.name));
+    bucket.directors.sort(comparePersonName);
+    bucket.volunteers.sort(comparePersonName);
+    bucket.shadows.sort(comparePersonName);
   }
 
   // Compute per-department conflict maps for the selected date.
@@ -612,127 +601,3 @@ export async function fullSchedule(
   return { term, clinicDates, closedDates, selectedDate, departments, attendance };
 }
 
-/**
- * Updates the actor's self-availability for a given term (their live term or
- * a next term they are already an active member of).
- *
- * Validates that:
- *   - `input.termId` is one of the terms getPersonTerms returns for the actor
- *     (live or next, and the actor holds >= 1 ACTIVE membership in it).
- *   - Every supplied date matches that term's clinicDate by UTC day key.
- *
- * Deduplicates by day key and stores the canonical noon-UTC clinic date
- * objects (from Term.clinicDates) rather than caller-supplied Dates. Updates
- * ALL the actor's ACTIVE memberships in the term atomically. Writes one audit
- * entry with entityType "TermMembership", entityId = first membership id.
- *
- * An empty array is a valid "available never" submission.
- */
-export async function updateMyAvailability(
-  actorPersonId: string,
-  input: { termId: string; dates: Date[]; now?: Date },
-): Promise<void> {
-  const now = input.now ?? new Date();
-
-  // The term must be one the member is currently an active member of (live or next).
-  const terms = await getPersonTerms(actorPersonId);
-  const term = terms.find((t) => t.id === input.termId);
-  if (!term) {
-    throw new AvailabilityValidationError("You are not on that term's roster.");
-  }
-
-  const memberships = await prisma.termMembership.findMany({
-    where: { termId: term.id, personId: actorPersonId, status: "ACTIVE" },
-    orderBy: { id: "asc" },
-  });
-  if (memberships.length === 0) {
-    throw new AvailabilityValidationError("You are not on that term's roster.");
-  }
-
-  // A term with no clinic dates has no availability to record. Refuse rather than
-  // accept the empty submission the page would post from an empty checkbox grid:
-  // writing selfAvailabilityDates: [] + availabilityUpdatedAt promotes an empty
-  // SELF tier over the application BASELINE, so once the calendar is repopulated
-  // the member reads as available on no date and their application answers are
-  // unrecoverable (#90). The page suppresses the form in this state; this is the
-  // server-side backstop against a stale tab or crafted post.
-  if (term.clinicDates.length === 0) {
-    throw new AvailabilityValidationError("Clinic dates for this term have not been set yet.");
-  }
-
-  // Availability closes when the term's clinics start. After that the published
-  // schedule is live, so changes must go through the swap/drop request flow
-  // (director approval, partner notified) rather than a silent edit here. The
-  // page hides the form once locked; this is the server-side backstop against a
-  // stale tab or a crafted post.
-  if (
-    isAvailabilityLocked({
-      clinicDateKeys: term.clinicDates.map(isoDateKey),
-      todayKey: await displayTodayKey(now),
-    })
-  ) {
-    throw new AvailabilityValidationError(
-      "Availability is locked for this term because clinics have started. Submit a swap or drop request for the shift you need to change.",
-    );
-  }
-
-  // Build a map from day key -> canonical clinic date.
-  const canonicalByKey = new Map<string, Date>();
-  for (const cd of term.clinicDates) {
-    canonicalByKey.set(isoDateKey(cd), cd);
-  }
-
-  // Deduplicate input by day key.
-  const seenKeys = new Set<string>();
-  const deduped: string[] = [];
-  for (const d of input.dates) {
-    const key = isoDateKey(d);
-    if (!seenKeys.has(key)) {
-      seenKeys.add(key);
-      deduped.push(key);
-    }
-  }
-
-  // Validate: all day keys must be clinic dates.
-  const badKeys = deduped.filter((k) => !canonicalByKey.has(k));
-  if (badKeys.length > 0) {
-    throw new AvailabilityValidationError(
-      `The following dates are not clinic dates: ${badKeys.join(", ")}`
-    );
-  }
-
-  // Resolve canonical dates, sorted ascending. Plain string comparison is
-  // correct for zero-padded ISO day keys.
-  const canonicalDates = deduped
-    .map((k) => canonicalByKey.get(k)!)
-    .sort((a, b) => (isoDateKey(a) < isoDateKey(b) ? -1 : 1));
-
-  // Capture before state (ISO day keys from the first membership as representative).
-  const beforeDates = memberships[0].selfAvailabilityDates.map(isoDateKey);
-  const afterDateKeys = canonicalDates.map(isoDateKey);
-  const membershipIds = memberships.map((m) => m.id);
-
-  // Update all ACTIVE memberships atomically.
-  await prisma.$transaction(
-    memberships.map((m) =>
-      prisma.termMembership.update({
-        where: { id: m.id },
-        data: {
-          selfAvailabilityDates: canonicalDates,
-          availabilityUpdatedAt: now,
-          availabilityAcknowledgedAt: null,
-        },
-      })
-    )
-  );
-
-  // One audit entry for the update, entityId = first membership id.
-  await recordAudit({
-    actorPersonId,
-    action: "schedule.availability_update",
-    entityType: "TermMembership",
-    entityId: memberships[0].id,
-    before: { dates: beforeDates },
-    after: { dates: afterDateKeys, membershipIds },
-  });
-}

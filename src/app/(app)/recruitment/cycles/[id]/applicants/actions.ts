@@ -2,9 +2,10 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requirePersonSession, requirePermission } from "@/platform/auth/session";
+import { prisma } from "@/platform/db";
 import { captureEvent, GROUP_DEPARTMENT } from "@/platform/posthog/capture";
 import { termGroupForCycle } from "@/platform/posthog/groups";
-import { RecruitmentAuthError, AcceptanceError, revokeAcceptance, canViewerOpenApplication } from "@/modules/recruitment/services/review";
+import { RecruitmentAuthError, AcceptanceError, revokeAcceptance, canViewerOpenApplication, recordApplicationView } from "@/modules/recruitment/services/review";
 import { createInterview, InterviewError } from "@/modules/recruitment/services/interviews";
 import { submitCommitteeScore, CommitteeScoreError } from "@/modules/recruitment/services/committee-scoring";
 import { routeApplication, decideRoutedApplication, returnToRouting, reopenDecision, RoutingError } from "@/modules/recruitment/services/routing";
@@ -24,6 +25,13 @@ import {
 import { recordApplicationLanguageAssessment } from "@/platform/languages";
 import { LanguageValidationError } from "@/platform/languages/catalog";
 import { normalizeScore } from "@/platform/languages/spanish-assessments";
+import {
+  DualAppointmentError,
+  approveDualAppointment,
+  cancelDualAppointment,
+  declineDualAppointment,
+  requestDualAppointment,
+} from "@/modules/recruitment/services/dual-appointments";
 
 // Each form on the applicant page carries its own error param so a failure renders
 // in the card that produced it. A single shared `error` used to dump routing and
@@ -123,10 +131,13 @@ export async function decideRoutedAction(cycleId: string, applicationId: string,
   if (!["ACCEPT", "REJECT", "WAITLIST", "RETURN"].includes(outcome)) {
     redirect(bounce(cycleId, applicationId, { error: "Invalid outcome." }));
   }
-  // Set only on a RETURN whose actor can no longer open the application they just
-  // returned -- see below. Resolved inside the try but acted on after it, so
-  // redirect()'s NEXT_REDIRECT throw is never swallowed by the catch.
-  let returnedOutOfView = false;
+  // Set only when the actor can no longer open the application they just acted on
+  // -- see below. Resolved inside the try but acted on after it, so redirect()'s
+  // NEXT_REDIRECT throw is never swallowed by the catch.
+  let outOfView = false;
+  // Set when a REJECT fell through to a dual-role department instead of standing
+  // (planDualFallback in services/routing.ts).
+  let passedToDual = false;
   try {
     if (outcome === "RETURN") {
       const updated = await returnToRouting(applicationId, person.personId, notes);
@@ -137,19 +148,26 @@ export async function decideRoutedAction(cycleId: string, applicationId: string,
       // its notFound(), and their confirmation was a 404. The recruitment lead sees
       // every application and stays put -- re-routing is their next move and the
       // Routing card is right there.
-      returnedOutOfView = !(await canViewerOpenApplication(
+      outOfView = !(await canViewerOpenApplication(
         // returnToRouting refuses any cycle that is not VOLUNTEER, so a returned
         // application's track is known without re-reading the cycle.
         { ...updated, cycle: { track: "VOLUNTEER" } },
         person.personId,
       ));
     } else {
-      await decideRoutedApplication(applicationId, outcome as "ACCEPT" | "REJECT" | "WAITLIST", person.personId, notes);
+      const updated = await decideRoutedApplication(applicationId, outcome as "ACCEPT" | "REJECT" | "WAITLIST", person.personId, notes);
+      // decideRoutedApplication only leaves a REJECT undecided when it fell
+      // through. That re-routes the application, so the director can lose the page
+      // exactly as on a return.
+      if (outcome === "REJECT" && updated.decision === "PENDING") {
+        passedToDual = true;
+        outOfView = !(await canViewerOpenApplication({ ...updated, cycle: { track: "VOLUNTEER" } }, person.personId));
+      }
     }
     await captureEvent({
       distinctId: person.personId,
       event: outcome === "RETURN" ? "application_returned_to_routing" : "application_decided",
-      properties: { cycle_id: cycleId, application_id: applicationId, outcome },
+      properties: { cycle_id: cycleId, application_id: applicationId, outcome, dual_fallback: passedToDual },
       groups: await termGroupForCycle(cycleId),
     });
   } catch (err) {
@@ -158,13 +176,14 @@ export async function decideRoutedAction(cycleId: string, applicationId: string,
     }
     throw err;
   }
-  // A return is deliberately not "Decision recorded.": it records no decision, it
-  // hands the applicant back still PENDING. Both landing pages resolve
-  // saved=returned to wording that says so (platform/ui/toast/flash.ts).
-  if (returnedOutOfView) {
-    redirect(`/recruitment/cycles/${cycleId}/applicants?saved=returned`);
+  // Neither a return nor a fallback is "Decision recorded.": both leave the
+  // application PENDING. Both landing pages resolve saved=returned and
+  // saved=dual_fallback to wording that says so (platform/ui/toast/flash.ts).
+  const saved = outcome === "RETURN" ? "returned" : passedToDual ? "dual_fallback" : "decision";
+  if (outOfView) {
+    redirect(`/recruitment/cycles/${cycleId}/applicants?saved=${saved}`);
   }
-  redirect(bounce(cycleId, applicationId, { saved: outcome === "RETURN" ? "returned" : "decision" }));
+  redirect(bounce(cycleId, applicationId, { saved }));
 }
 
 export async function scheduleInterviewAction(cycleId: string, applicationId: string, formData: FormData) {
@@ -253,7 +272,12 @@ export async function loadReviewApplicationAction(
   applicationId: string,
 ): Promise<{ view: ReviewApplicationView } | { error: string }> {
   const person = await requirePersonSession();
-  return loadReviewApplication(applicationId, person.personId);
+  const result = await loadReviewApplication(applicationId, person.personId);
+  // Speed scoring shows this applicant's answers, so it is a view of the record
+  // like opening the detail page. Logged only when the load succeeded, i.e. the
+  // access check inside loadReviewApplication passed; a refusal returns an error.
+  if ("view" in result) await recordApplicationView(person.personId, applicationId);
+  return result;
 }
 
 export async function reopenDecisionAction(cycleId: string, applicationId: string) {
@@ -348,4 +372,78 @@ export async function clearApplicantExcuseAction(cycleId: string, applicationId:
     throw err;
   }
   redirect(bounce(cycleId, applicationId, { saved: "excuse-cleared" }));
+}
+
+/**
+ * The Dual appointment card on the applicant page: a director's request, or a
+ * recruitment manager's add, approval, decline, or cancel. Every rule is in
+ * services/dual-appointments.ts; a refusal lands in the page's error toast.
+ */
+export async function requestDualAppointmentFromApplicantAction(cycleId: string, applicationId: string, formData: FormData) {
+  const person = await requirePersonSession();
+  let saved: "dual_requested" | "dual_approved";
+  try {
+    const result = await requestDualAppointment(person.personId, {
+      applicationId,
+      cycleId,
+      // Named apart from the Routing card's own departmentCode field, which
+      // shares this page. See the comment beside the select.
+      departmentCode: String(formData.get("dualDepartmentCode") ?? ""),
+      reason: String(formData.get("dualReason") ?? ""),
+    });
+    saved = result.status === "PENDING" ? "dual_requested" : "dual_approved";
+  } catch (err) {
+    if (err instanceof DualAppointmentError || err instanceof RecruitmentAuthError) {
+      redirect(bounce(cycleId, applicationId, { error: err.message }));
+    }
+    throw err;
+  }
+  redirect(bounce(cycleId, applicationId, { saved }));
+}
+
+export async function decideDualAppointmentFromApplicantAction(cycleId: string, applicationId: string, formData: FormData) {
+  const person = await requirePersonSession();
+  const id = String(formData.get("id") ?? "");
+  const note = String(formData.get("note") ?? "");
+  const outcome = String(formData.get("outcome") ?? "");
+  let saved: "dual_approved" | "dual_declined" | "dual_cancelled";
+  try {
+    if (outcome === "approve") {
+      await approveDualAppointment(person.personId, id, note);
+      saved = "dual_approved";
+    } else if (outcome === "decline") {
+      await declineDualAppointment(person.personId, id, note);
+      saved = "dual_declined";
+    } else if (outcome === "cancel") {
+      await cancelDualAppointment(person.personId, id, note);
+      saved = "dual_cancelled";
+    } else {
+      throw new DualAppointmentError("Invalid action.");
+    }
+  } catch (err) {
+    if (err instanceof DualAppointmentError || err instanceof RecruitmentAuthError) {
+      redirect(bounce(cycleId, applicationId, { error: err.message }));
+    }
+    throw err;
+  }
+  revalidatePath(bounce(cycleId, applicationId));
+  // Cancelling an approval can take away the only thing that let a director of
+  // that department open this record, so land them somewhere they can still see.
+  if (saved === "dual_cancelled" && !(await canViewerOpenApplication(await dualViewable(applicationId), person.personId))) {
+    redirect(`/recruitment/cycles/${cycleId}/dual-appointments?ok=${encodeURIComponent("Dual appointment cancelled.")}`);
+  }
+  redirect(bounce(cycleId, applicationId, { saved }));
+}
+
+async function dualViewable(applicationId: string) {
+  const app = await prisma.application.findUniqueOrThrow({
+    where: { id: applicationId },
+    select: {
+      departmentChoices: true,
+      routedDepartmentCode: true,
+      cycle: { select: { track: true } },
+      dualAppointments: { select: { departmentCode: true, status: true } },
+    },
+  });
+  return app;
 }

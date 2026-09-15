@@ -41,7 +41,7 @@ const questions = [
   { key: "q2", label: "Question two", options: [{ value: "x", label: "Option X" }, { value: "y", label: "Option Y" }] },
 ];
 
-const intake = { additionalShiftAvailability: null, minShiftsWanted: null, feedback: null };
+const intake = { feedback: null };
 
 let mounted: { container: HTMLDivElement; root: Root } | null = null;
 

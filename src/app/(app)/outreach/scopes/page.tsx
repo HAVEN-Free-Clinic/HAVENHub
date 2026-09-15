@@ -1,9 +1,10 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requirePermission } from "@/platform/auth/session";
 import { listScopes, createScope } from "@/platform/email/audience/scopes";
 import { EMPTY_AUDIENCE } from "@/platform/email/audience/types";
 import { PageHeader } from "@/platform/ui/page-header";
-import { Button } from "@/platform/ui/button";
+import { Button, buttonClasses } from "@/platform/ui/button";
 import { Input, Field } from "@/platform/ui/input";
 import { Card } from "@/platform/ui/card";
 import { FormActions } from "@/platform/ui/form";
@@ -34,6 +35,14 @@ export default async function ScopesPage() {
       <PageHeader
         title="Audience scopes"
         description="Named audiences you can grant to a person or role. A campaign sent under a scope can only narrow it."
+        // Sending identities folded under this tab (same gate, same person's
+        // sender setup), so this is its way in. Outline: Create is this page's
+        // own action.
+        action={
+          <Link href="/outreach/identities" className={buttonClasses("outline", "sm")}>
+            Sending identities
+          </Link>
+        }
       />
 
       <form action={createAction} className="max-w-md">

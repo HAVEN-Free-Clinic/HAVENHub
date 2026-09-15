@@ -220,3 +220,30 @@ describe("dark brand-fg, resolved through its color-mix", () => {
     }
   });
 });
+
+/**
+ * The schedule builder's availability cells. Their ground sits under the cell's
+ * subtle-foreground glyphs ("+" to assign, "-" on a read-only cell), so that ink
+ * owes AA on both grounds in both themes. This is the pair a "just make the grey
+ * darker" edit breaks: subtle-foreground on dark muted-strong is only 3.4:1.
+ */
+describe("builder availability cells", () => {
+  const CELL_GROUNDS = ["available", "unavailable"] as const;
+
+  for (const [themeName, tokens] of [["light", light], ["dark", dark]] as const) {
+    it(`${themeName}: subtle-foreground clears AA on both grounds`, () => {
+      for (const bg of CELL_GROUNDS) {
+        expect(tokens[bg], `${themeName} --color-${bg}`).toMatch(/^#[0-9a-fA-F]{6}$/);
+        expect(
+          contrastRatio(tokens["subtle-foreground"], tokens[bg]),
+          `${themeName}: text-subtle-foreground on bg-${bg}`,
+        ).toBeGreaterThanOrEqual(AA_BODY_TEXT);
+      }
+    });
+  }
+
+  it("gives dark its own grounds rather than inheriting the light ones", () => {
+    expect(dark.available).not.toBe(light.available);
+    expect(dark.unavailable).not.toBe(light.unavailable);
+  });
+});

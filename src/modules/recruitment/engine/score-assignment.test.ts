@@ -38,6 +38,20 @@ describe("allocateAssignments", () => {
     expect(keys(add)).toEqual(["a1:s2"]);
   });
 
+  it("takes back an unscored assignment that hands a scorer their own application", () => {
+    // Made before the application could be recognised as theirs (it had no
+    // account link). Left in place it counted as one of the application's reads.
+    const { add, remove } = allocateAssignments({
+      ...base,
+      applications: [app("a1", "s1")],
+      scorerIds: ["s1", "s2"],
+      target: 2,
+      existing: [pair("a1", "s1")],
+    });
+    expect(keys(remove)).toEqual(["a1:s1"]);
+    expect(keys(add)).toEqual(["a1:s2"]);
+  });
+
   it("clamps the target to the number of eligible scorers", () => {
     const { add } = allocateAssignments({
       ...base,
@@ -119,6 +133,50 @@ describe("allocateAssignments", () => {
     });
     // The score stands, so a1 is covered and nothing moves.
     expect(remove).toEqual([]);
+    expect(add).toEqual([]);
+  });
+
+  it("takes back unscored work when the target drops", () => {
+    // Dealt at three, then lowered to two. Every application is one read over
+    // and nobody has started, so each gives one assignment back. Before this,
+    // lowering the target saved the number and left every pile exactly as big.
+    const existing = ["a1", "a2", "a3"].flatMap((id) => ["s1", "s2", "s3"].map((s) => pair(id, s)));
+    const { add, remove } = allocateAssignments({
+      ...base,
+      applications: [app("a1"), app("a2"), app("a3")],
+      scorerIds: ["s1", "s2", "s3"],
+      target: 2,
+      existing,
+    });
+    expect(add).toEqual([]);
+    expect(remove.map((r) => r.applicationId).sort()).toEqual(["a1", "a2", "a3"]);
+  });
+
+  it("takes the surplus back evenly, so the piles stay level", () => {
+    const applications = ["a1", "a2", "a3", "a4", "a5", "a6"].map((id) => app(id));
+    const existing = applications.flatMap((a) => ["s1", "s2", "s3"].map((s) => pair(a.id, s)));
+    const { remove } = allocateAssignments({
+      ...base,
+      applications,
+      scorerIds: ["s1", "s2", "s3"],
+      target: 2,
+      existing,
+    });
+    expect(loads(remove)).toEqual({ s1: 2, s2: 2, s3: 2 });
+  });
+
+  it("never takes back an assignment that has been scored, even over the target", () => {
+    const { add, remove } = allocateAssignments({
+      ...base,
+      applications: [app("a1")],
+      scorerIds: ["s1", "s2", "s3"],
+      target: 1,
+      existing: [pair("a1", "s1"), pair("a1", "s2"), pair("a1", "s3")],
+      scored: [pair("a1", "s1"), pair("a1", "s2")],
+    });
+    // Two scores already stand against a target of one. They cannot be undone,
+    // so only the unstarted third read comes back.
+    expect(keys(remove)).toEqual(["a1:s3"]);
     expect(add).toEqual([]);
   });
 

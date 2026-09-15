@@ -21,14 +21,6 @@
  *   - Departments sorted by code (only departments with assignments on selected date appear).
  *   - Department with assignments only on a different date does not appear for the selected date.
  *   - Unrecognized dateKey falls back to the default selection.
- *
- * updateMyAvailability:
- *   - Happy path updates BOTH memberships of a two-dept person, clears
- *     acknowledgedAt, stores canonical noon-UTC dates, writes one audit row.
- *   - Non-clinic date rejected listing the bad ISO day key.
- *   - No active membership rejects with AvailabilityValidationError.
- *   - Dedupe: same day passed twice stored once.
- *   - Empty array clears availability (stores [], sets availabilityUpdatedAt, clears acknowledge).
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -37,8 +29,6 @@ import { resetDb } from "@/platform/test/db";
 import {
   mySchedule,
   fullSchedule,
-  updateMyAvailability,
-  AvailabilityValidationError,
 } from "./schedule";
 import { publishSchedule } from "./publication";
 import { isoDateKey } from "../engine/map";
@@ -527,7 +517,7 @@ describe("mySchedule", () => {
     const deptS = await createDepartment("SRR");
     const person = await createPerson("Dan");
 
-    // Self dates are mirrored across both memberships (updateMyAvailability writes all rows).
+    // Self dates are mirrored across both memberships (the retired self-edit wrote all rows).
     const self = [dates[0], dates[1]];
     const memC = await createMembership(person.id, term.id, deptC.id, "VOLUNTEER", {
       selfAvailabilityDates: self,
@@ -1157,224 +1147,5 @@ describe("fullSchedule", () => {
     } finally {
       findMany.mockRestore();
     }
-  });
-});
-
-describe("updateMyAvailability", () => {
-  // Availability closes on the term's first clinic date, so every test that
-  // expects a SUCCESSFUL save has to run before it. These fixtures use
-  // saturdays("2026-05-30", ...), which is in the past in real time, so `now`
-  // has to be pinned rather than left to the wall clock.
-  const BEFORE_CLINICS = utc(2026, 5, 1);
-
-  it("happy path: updates both memberships of a two-dept person, clears acknowledgedAt, stores canonical noon-UTC dates, writes one audit row", async () => {
-    const dates = saturdays("2026-05-30", 4);
-    const term = await createTerm("ACTIVE", "SU26", dates);
-    const deptA = await createDepartment("ITCM");
-    const deptB = await createDepartment("SRR");
-    const person = await createPerson("Alice");
-
-    const memA = await createMembership(person.id, term.id, deptA.id, "VOLUNTEER", {
-      availabilityAcknowledgedAt: utc(2026, 5, 1),
-    });
-    const memB = await createMembership(person.id, term.id, deptB.id, "VOLUNTEER", {
-      availabilityAcknowledgedAt: utc(2026, 5, 1),
-    });
-
-    // Pass midnight UTC dates - service must store noon-UTC.
-    const callerDates = [
-      new Date(Date.UTC(2026, dates[0].getUTCMonth(), dates[0].getUTCDate(), 0, 0, 0)),
-      new Date(Date.UTC(2026, dates[2].getUTCMonth(), dates[2].getUTCDate(), 0, 0, 0)),
-    ];
-
-    await updateMyAvailability(person.id, { termId: term.id, dates: callerDates, now: BEFORE_CLINICS });
-
-    const updatedA = await prisma.termMembership.findUniqueOrThrow({ where: { id: memA.id } });
-    const updatedB = await prisma.termMembership.findUniqueOrThrow({ where: { id: memB.id } });
-
-    // Both memberships updated.
-    expect(updatedA.selfAvailabilityDates).toHaveLength(2);
-    expect(updatedB.selfAvailabilityDates).toHaveLength(2);
-
-    // Stored as noon-UTC canonical dates.
-    for (const d of updatedA.selfAvailabilityDates) {
-      expect(d.getUTCHours()).toBe(12);
-    }
-    for (const d of updatedB.selfAvailabilityDates) {
-      expect(d.getUTCHours()).toBe(12);
-    }
-
-    // acknowledgedAt cleared.
-    expect(updatedA.availabilityAcknowledgedAt).toBeNull();
-    expect(updatedB.availabilityAcknowledgedAt).toBeNull();
-
-    // updatedAt set.
-    expect(updatedA.availabilityUpdatedAt).not.toBeNull();
-    expect(updatedB.availabilityUpdatedAt).not.toBeNull();
-
-    // One audit row.
-    const auditRows = await prisma.auditLog.findMany({
-      where: { action: "schedule.availability_update" },
-    });
-    expect(auditRows).toHaveLength(1);
-
-    const auditRow = auditRows[0];
-    expect(auditRow.entityType).toBe("TermMembership");
-    expect(auditRow.entityId).toBe(memA.id);
-
-    const after = auditRow.after as Record<string, unknown>;
-    // membershipIds in after.
-    expect(Array.isArray(after.membershipIds)).toBe(true);
-    expect((after.membershipIds as string[]).sort()).toEqual([memA.id, memB.id].sort());
-
-    // before/after as ISO day-key arrays.
-    expect(Array.isArray(after.dates)).toBe(true);
-    const before = auditRow.before as Record<string, unknown>;
-    expect(Array.isArray(before.dates)).toBe(true);
-  });
-
-  it("rejects non-clinic date and lists the bad ISO day key", async () => {
-    const dates = saturdays("2026-05-30", 2);
-    const term = await createTerm("ACTIVE", "SU26", dates);
-    const dept = await createDepartment("ITCM");
-    const person = await createPerson("Bob");
-    await createMembership(person.id, term.id, dept.id, "VOLUNTEER");
-
-    // A Wednesday that is not a clinic date.
-    const badDate = new Date(Date.UTC(2026, 6, 1, 0, 0, 0)); // 2026-07-01
-
-    await expect(
-      updateMyAvailability(person.id, { termId: term.id, dates: [badDate], now: BEFORE_CLINICS }),
-    ).rejects.toThrow("2026-07-01");
-    await expect(
-      updateMyAvailability(person.id, { termId: term.id, dates: [badDate], now: BEFORE_CLINICS }),
-    ).rejects.toBeInstanceOf(AvailabilityValidationError);
-  });
-
-  it("rejects with AvailabilityValidationError when person has no active membership in active term", async () => {
-    const dates = saturdays("2026-05-30", 2);
-    const term = await createTerm("ACTIVE", "SU26", dates);
-    const person = await createPerson("Carol");
-    // No membership created.
-
-    await expect(
-      updateMyAvailability(person.id, { termId: term.id, dates: [dates[0]] }),
-    ).rejects.toBeInstanceOf(AvailabilityValidationError);
-    await expect(
-      updateMyAvailability(person.id, { termId: term.id, dates: [dates[0]] }),
-    ).rejects.toThrow("not on that term's roster");
-  });
-
-  it("deduplicates: same day passed twice is stored once", async () => {
-    const dates = saturdays("2026-05-30", 2);
-    const term = await createTerm("ACTIVE", "SU26", dates);
-    const dept = await createDepartment("ITCM");
-    const person = await createPerson("Dave");
-    const mem = await createMembership(person.id, term.id, dept.id, "VOLUNTEER");
-
-    // Pass dates[0] twice (one at midnight, one at noon - same UTC day).
-    const midnight = new Date(Date.UTC(2026, dates[0].getUTCMonth(), dates[0].getUTCDate(), 0));
-    const noon = new Date(Date.UTC(2026, dates[0].getUTCMonth(), dates[0].getUTCDate(), 12));
-
-    await updateMyAvailability(person.id, { termId: term.id, dates: [midnight, noon], now: BEFORE_CLINICS });
-
-    const updated = await prisma.termMembership.findUniqueOrThrow({ where: { id: mem.id } });
-    expect(updated.selfAvailabilityDates).toHaveLength(1);
-  });
-
-  it("empty array clears availability: stores [], sets availabilityUpdatedAt, clears acknowledgedAt, no error", async () => {
-    const dates = saturdays("2026-05-30", 2);
-    const term = await createTerm("ACTIVE", "SU26", dates);
-    const dept = await createDepartment("ITCM");
-    const person = await createPerson("Eve");
-    const mem = await createMembership(person.id, term.id, dept.id, "VOLUNTEER", {
-      selfAvailabilityDates: [dates[0]],
-      availabilityUpdatedAt: utc(2026, 5, 1),
-      availabilityAcknowledgedAt: utc(2026, 5, 2),
-    });
-
-    await expect(
-      updateMyAvailability(person.id, { termId: term.id, dates: [], now: BEFORE_CLINICS }),
-    ).resolves.toBeUndefined();
-
-    const updated = await prisma.termMembership.findUniqueOrThrow({ where: { id: mem.id } });
-    expect(updated.selfAvailabilityDates).toHaveLength(0);
-    expect(updated.availabilityUpdatedAt).not.toBeNull();
-    expect(updated.availabilityAcknowledgedAt).toBeNull();
-  });
-
-  // Availability is the INPUT to building the schedule. Once clinics start the
-  // schedule is live and published, so a silent self-edit would desync the
-  // roster from what the clinic is working off; changes have to go through
-  // swap/drop, where a director approves and the partner is told.
-  it("refuses a save once the term's first clinic date has arrived", async () => {
-    const dates = saturdays("2026-05-30", 3);
-    const term = await createTerm("ACTIVE", "SU26", dates);
-    const dept = await createDepartment("ITCM");
-    const person = await createPerson("Late Larry");
-    const mem = await createMembership(person.id, term.id, dept.id, "VOLUNTEER", {
-      selfAvailabilityDates: [dates[0]],
-      availabilityUpdatedAt: utc(2026, 5, 1),
-    });
-
-    // The first clinic day itself, not the day after: the lock takes effect the
-    // moment the clinic is running.
-    const onFirstClinicDay = utc(2026, 5, 30);
-
-    await expect(
-      updateMyAvailability(person.id, { termId: term.id, dates: [dates[2]], now: onFirstClinicDay }),
-    ).rejects.toBeInstanceOf(AvailabilityValidationError);
-    await expect(
-      updateMyAvailability(person.id, { termId: term.id, dates: [dates[2]], now: onFirstClinicDay }),
-    ).rejects.toThrow(/locked/i);
-
-    // The rejected save wrote nothing: their original availability survives.
-    const after = await prisma.termMembership.findUniqueOrThrow({ where: { id: mem.id } });
-    expect(after.selfAvailabilityDates).toHaveLength(1);
-    expect(isoDateKey(after.selfAvailabilityDates[0])).toBe(isoDateKey(dates[0]));
-  });
-
-  it("rejects an availability save for a term with no clinic dates, so an empty grid can't wipe the baseline (#90)", async () => {
-    const term = await createTerm("ACTIVE", "SU26", []); // calendar not set yet
-    const dept = await createDepartment("ITCM");
-    const person = await createPerson("Zoe");
-    const mem = await createMembership(person.id, term.id, dept.id, "VOLUNTEER");
-
-    await expect(
-      updateMyAvailability(person.id, { termId: term.id, dates: [] }),
-    ).rejects.toBeInstanceOf(AvailabilityValidationError);
-
-    // No SELF tier written: availabilityUpdatedAt stays null so resolveAvailability
-    // keeps returning BASELINE (the application answers), not an empty SELF tier.
-    const after = await prisma.termMembership.findUniqueOrThrow({ where: { id: mem.id } });
-    expect(after.availabilityUpdatedAt).toBeNull();
-  });
-
-  it("updateMyAvailability writes the passed (next) term while a different term is live", async () => {
-    // live term + next term, member active in BOTH; next term has clinic dates
-    const live = await prisma.term.create({ data: { code: "SU26", name: "Summer", startDate: new Date("2026-05-30"), endDate: new Date("2026-09-26"), status: "ACTIVE", clinicDates: [] } });
-    const nextDates = [new Date(Date.UTC(2026, 8, 5, 12))];
-    const next = await prisma.term.create({ data: { code: "FA26", name: "Fall", startDate: new Date("2026-09-01"), endDate: new Date("2027-01-01"), status: "PLANNING", clinicDates: nextDates } });
-    const dept = await prisma.department.create({ data: { code: "SRHD", name: "SRHD" } });
-    const vol = await prisma.person.create({ data: { name: "Vol", status: "ACTIVE" } });
-    await prisma.termMembership.create({ data: { personId: vol.id, termId: live.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" } });
-    const m = await prisma.termMembership.create({ data: { personId: vol.id, termId: next.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" } });
-
-    // Pinned, like every other successful-save case in this describe. This one
-    // was left on the wall clock and passed only while its own fixture date was
-    // still in the future; on 2026-09-05 it started failing everywhere, on a
-    // clean tree, with a lock error that pointed at innocent code.
-    await updateMyAvailability(vol.id, { termId: next.id, dates: nextDates, now: BEFORE_CLINICS });
-    const updated = await prisma.termMembership.findUniqueOrThrow({ where: { id: m.id } });
-    expect(updated.selfAvailabilityDates.map((d) => d.getTime())).toEqual(nextDates.map((d) => d.getTime()));
-    // the live-term membership is untouched
-    const liveM = await prisma.termMembership.findFirstOrThrow({ where: { personId: vol.id, termId: live.id } });
-    expect(liveM.selfAvailabilityDates).toEqual([]);
-  });
-
-  it("updateMyAvailability rejects a term the member is not an active member of", async () => {
-    const other = await prisma.term.create({ data: { code: "XX26", name: "Other", startDate: new Date("2026-01-01"), endDate: new Date("2026-02-01"), status: "PLANNING", clinicDates: [] } });
-    const vol = await prisma.person.create({ data: { name: "Vol", status: "ACTIVE" } });
-    await expect(updateMyAvailability(vol.id, { termId: other.id, dates: [] })).rejects.toBeInstanceOf(AvailabilityValidationError);
   });
 });

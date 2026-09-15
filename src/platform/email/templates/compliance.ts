@@ -233,8 +233,8 @@ export const complianceDescriptors: TemplateDescriptor[] = [
       { name: "volunteerName", label: "Volunteer name", sampleValue: "Jane Doe" },
       {
         name: "reviewLink",
-        label: "Link to the compliance master view",
-        sampleValue: "https://hub.havenfreeclinic.org/volunteers/master",
+        label: "Link to the compliance roster",
+        sampleValue: "https://hub.havenfreeclinic.org/volunteers",
       },
     ],
     defaultSubject: "[HAVEN] HIPAA certificate needs a completion date",
@@ -255,8 +255,8 @@ export const complianceDescriptors: TemplateDescriptor[] = [
       { name: "volunteerName", label: "Volunteer name", sampleValue: "Jane Doe" },
       {
         name: "reviewLink",
-        label: "Link to the compliance master view",
-        sampleValue: "https://hub.havenfreeclinic.org/volunteers/master",
+        label: "Link to the compliance roster",
+        sampleValue: "https://hub.havenfreeclinic.org/volunteers",
       },
     ],
     defaultSubject: "[HAVEN] HIPAA certificate awaiting verification",

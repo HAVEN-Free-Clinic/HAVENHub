@@ -12,34 +12,22 @@ import type { OnboardingTaskKey, OnboardingTaskState } from "@/platform/complian
 import type { MemberCompliance } from "@/modules/volunteers/services/compliance";
 
 /**
- * The compliance columns shared by the two staff rosters.
+ * The compliance columns of the staff roster at /volunteers.
  *
- * /volunteers (a director's own departments) and /volunteers/master (the
- * clinic-wide view) answer the same question about the same people and were
- * built twice, cell for cell. The copies had already drifted: the department
- * roster shipped without the Learning column, so a director could read "Not
- * cleared" with no way to see that Learning was the thing blocking it. Both
- * pages compute `cleared` from the same loadClearanceMap, so the verdict was
- * never wrong; what was missing was the diagnostic beside it.
- *
- * The two pages still differ where they should: /volunteers shows a Role badge
- * (its rows are scoped to one department, so the useful fact is whether this
- * person directs it), /volunteers/master shows Departments (its rows span the
- * clinic). Those cells stay with their pages; everything between the name and
- * the actions comes from here.
+ * There were two rosters of the same people, a director's per-department cards
+ * and the clinic-wide /volunteers/master, built twice cell for cell. The copies
+ * drifted: the department roster shipped without the Learning column, so a
+ * director could read "Not cleared" with no way to see Learning was the
+ * blocker. They are one table now (scoped by viewer, see volunteers/page.tsx),
+ * and everything between its Name/Departments columns and its actions comes
+ * from here.
  */
 
-/** What both rosters carry. MasterComplianceRow already satisfies it; a
- *  MemberCompliance needs only its `kind` mapped to `isVolunteer`. */
+/** A roster row. MasterComplianceRow satisfies it; `isVolunteer` stands in for
+ *  a membership `kind`, which a one-row-per-person roster does not carry. */
 export type ComplianceRowData = Omit<MemberCompliance, "kind"> & {
   isVolunteer: boolean;
 };
-
-/** Adapt a department-roster row to the shared shape. */
-export function asComplianceRow(m: MemberCompliance): ComplianceRowData {
-  const { kind, ...rest } = m;
-  return { ...rest, isVolunteer: kind === "VOLUNTEER" };
-}
 
 export function taskState(
   clearance: { tasks: { key: OnboardingTaskKey; state: OnboardingTaskState }[] },
@@ -48,22 +36,37 @@ export function taskState(
   return clearance.tasks.find((t) => t.key === key)?.state ?? null;
 }
 
-/** Header cells for everything between the name/second column and Actions. */
-/** How many <TH>s ComplianceHeaderCells emits. Exported so a caller computing a
- *  colSpan for an empty row cannot drift from the header it has to span. */
-export const COMPLIANCE_COLUMN_COUNT = 8;
+/**
+ * The compliance block's column headings, in order: everything between the
+ * name/second column and Actions.
+ *
+ * Exported as data, not just rendered, because two other things must agree with
+ * it and cannot read JSX: a caller computing an empty row's colSpan, and
+ * volunteers/roster-skeleton.tsx, whose whole job is to reserve these
+ * exact column widths so the Suspense swap does not shift the layout (that page
+ * has measured CLS). The skeleton used to retype all eight.
+ */
+export const COMPLIANCE_COLUMN_LABELS = [
+  "Status",
+  "Training",
+  "Learning",
+  "EHS",
+  "Cleared",
+  "Completed",
+  "Expires",
+  "Verified",
+] as const;
 
+/** How many <TH>s ComplianceHeaderCells emits. */
+export const COMPLIANCE_COLUMN_COUNT = COMPLIANCE_COLUMN_LABELS.length;
+
+/** Header cells for everything between the name/second column and Actions. */
 export function ComplianceHeaderCells() {
   return (
     <>
-      <TH>Status</TH>
-      <TH>Training</TH>
-      <TH>Learning</TH>
-      <TH>EHS</TH>
-      <TH>Cleared</TH>
-      <TH>Completed</TH>
-      <TH>Expires</TH>
-      <TH>Verified</TH>
+      {COMPLIANCE_COLUMN_LABELS.map((label) => (
+        <TH key={label}>{label}</TH>
+      ))}
     </>
   );
 }
@@ -107,17 +110,25 @@ export function ComplianceCells({ row }: { row: ComplianceRowData }) {
       <TD>
         <StatusBadge {...clearanceLabel(row.clearance.cleared ? "CLEARED" : "NOT_CLEARED")} />
       </TD>
-      <TD className="text-foreground-soft tabular-nums">
+      {/* One line each: on production every Expires date and most Completed
+          dates wrapped to "Sep 11, / 2025" in 104px columns, doubling each
+          row's height for a date. */}
+      <TD className="whitespace-nowrap text-foreground-soft tabular-nums">
         <CalendarDate value={row.cert?.completionDate} />
       </TD>
-      <TD className="text-foreground-soft tabular-nums">
+      <TD className="whitespace-nowrap text-foreground-soft tabular-nums">
         <CalendarDate value={expiresAt} />
       </TD>
       <TD className="text-foreground-soft text-xs">
+        {/* The date always, on its own line, and the verifier under it only when
+            known. Name-then-date made an unknown verifier (an imported or
+            system-verified certificate) read as a different column: sometimes
+            "name date", sometimes a bare date. */}
         {row.cert?.verifiedAt ? (
-          <span>
-            {row.verifiedByName} <DateOnly value={row.cert.verifiedAt} />
-          </span>
+          <>
+            <span className="whitespace-nowrap"><DateOnly value={row.cert.verifiedAt} /></span>
+            {row.verifiedByName && <span className="block text-subtle-foreground">by {row.verifiedByName}</span>}
+          </>
         ) : (
           "-"
         )}

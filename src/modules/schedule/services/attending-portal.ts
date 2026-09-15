@@ -306,8 +306,7 @@ export async function myAttendingSchedule(personId: string): Promise<MyAttending
 /**
  * True once the term's first clinic date has arrived.
  *
- * Same rule and same reason as the volunteer side (isAvailabilityLocked): once
- * clinics are running the grid is live, and a change has to go through a request
+ * Once clinics are running the grid is live, and a change has to go through a request
  * Faculty Relations sees, not a silent edit to a form.
  */
 async function availabilityLocked(clinicDates: Date[]): Promise<boolean> {
@@ -510,6 +509,9 @@ export async function eligibleAttendingSwapPartners(
       slotId: r.slot.id,
       slotLabel: r.slot.label,
     }))
+    // Not comparePersonName: an Attending has no legal name parts, only
+    // fullName and the scheduleName shown here ("Dr. Ponce"), so the display
+    // string is the only key there is.
     .sort(
       (a, b) =>
         a.clinicDate.getTime() - b.clinicDate.getTime() || a.name.localeCompare(b.name),

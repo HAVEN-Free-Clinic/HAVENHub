@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { buildBreadcrumbs, type BreadcrumbModule } from "./breadcrumb-trail";
 import { useBreadcrumbLeaf, useBreadcrumbOverride } from "./breadcrumb-context";
+import { SHELL_WIDTH } from "./shell-width";
 
 /** Compare two app paths ignoring a trailing slash (buildBreadcrumbs strips one). */
 function samePath(href: string, pathname: string) {
@@ -28,7 +29,7 @@ export function Breadcrumbs({ modules }: { modules: BreadcrumbModule[] }) {
     // No solid band or border: the breadcrumb rides directly on the canvas as a
     // quiet label beneath the floating glass nav (a full-width white strip would
     // read as an orphaned band wedged between the pill and the content).
-    <nav aria-label="Breadcrumb" className="mx-auto w-full max-w-6xl px-6 pt-4 pb-1">
+    <nav aria-label="Breadcrumb" className={`mx-auto w-full ${SHELL_WIDTH} px-6 pt-4 pb-1`}>
       <ol className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
         {crumbs.map((crumb, i) => {
           const isLast = i === crumbs.length - 1;

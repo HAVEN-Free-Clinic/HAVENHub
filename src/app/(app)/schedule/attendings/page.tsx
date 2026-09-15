@@ -43,6 +43,7 @@ import { Card } from "@/platform/ui/card";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { TextLink } from "@/platform/ui/text-link";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
+import { formatPhone } from "@/platform/phone";
 
 /**
  * The attending roster and the clinic-wide attending schedule builder.
@@ -485,6 +486,11 @@ export default async function AttendingsPage({ searchParams }: PageProps) {
                 Enable Hub access for all
               </Button>
             </form>
+            {/* Both folded under this tab (registry underTab), so the roster is
+                where they are reached from, alongside the dropdown and Cmd+K. */}
+            <Link href="/schedule/specialties" className={buttonClasses("outline", "sm")}>
+              Specialties
+            </Link>
             <Link
               href="/schedule/attendings/credentialing"
               className={buttonClasses("outline", "sm")}
@@ -529,7 +535,7 @@ export default async function AttendingsPage({ searchParams }: PageProps) {
                     </TD>
                     <TD className="text-xs text-muted-foreground">
                       {a.email && <span className="block">{a.email}</span>}
-                      {a.phone && <span className="block">{a.phone}</span>}
+                      {a.phone && <span className="block">{formatPhone(a.phone)}</span>}
                     </TD>
                     {capabilities.map((c) => (
                       <TD key={c.id} className="text-xs text-muted-foreground">

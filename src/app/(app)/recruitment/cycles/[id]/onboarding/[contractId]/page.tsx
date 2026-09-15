@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { PageBody } from "@/platform/ui/page-body";
 import { requirePermission } from "@/platform/auth/session";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { getContractForReview } from "@/modules/recruitment/services/onboarding";
@@ -6,6 +7,7 @@ import { parseContractLayout, type ContractLayout } from "@/modules/recruitment/
 import { DEFAULT_CONTRACT_LAYOUT } from "@/modules/recruitment/contract/system-fields";
 import { buildContractReview } from "@/modules/recruitment/contract/review";
 import { getObject } from "@/platform/storage";
+import { PHOTO_CONTENT_TYPE } from "@/platform/photos/shared";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
@@ -28,6 +30,13 @@ async function inlineSignature(imageKey: string): Promise<string | null> {
   return bytes ? `data:image/png;base64,${bytes.toString("base64")}` : null;
 }
 
+/** Same as inlineSignature, for the applicant's profile photo, which submit
+ *  stored already normalized to WebP. */
+async function inlinePhoto(key: string): Promise<string | null> {
+  const bytes = await getObject(key);
+  return bytes ? `data:${PHOTO_CONTENT_TYPE};base64,${bytes.toString("base64")}` : null;
+}
+
 export default async function SignedContractPage({ params }: { params: Promise<{ id: string; contractId: string }> }) {
   const { id, contractId } = await params;
   await requirePermission("recruitment.access");
@@ -36,16 +45,20 @@ export default async function SignedContractPage({ params }: { params: Promise<{
   if (!cycle) notFound();
   const found = await getContractForReview(contractId);
   if (!found || found.cycleId !== id) notFound();
-  const { contract, ctx } = found;
+  const { contract, ctx, onFile } = found;
 
   const layout = safeLayout(contract.templateSnapshot);
-  const review = buildContractReview(contract, layout, ctx);
+  const review = buildContractReview(contract, layout, ctx, onFile);
+  const photoRow = review.responses.find((r) => r.photo);
+  const photoSrc = photoRow?.photo
+    ? await inlinePhoto(`onboarding/${contract.id}/${photoRow.photo.storedName}`)
+    : null;
   const images = await Promise.all(
     review.signatureRows.map((r) => (r.imageKey ? inlineSignature(r.imageKey) : Promise.resolve(null))),
   );
 
   return (
-    <div className="max-w-2xl space-y-6">
+    <PageBody width="form">
       <SetBreadcrumb
         trail={cycleTrail({
           cycleId: id,
@@ -65,8 +78,21 @@ export default async function SignedContractPage({ params }: { params: Promise<{
           {review.responses.map((f, i) => (
             <div key={`${f.label}-${i}`} className="grid grid-cols-1 gap-x-4 gap-y-0.5 py-2 first:pt-0 last:pb-0 sm:grid-cols-[11rem_1fr]">
               <dt className="text-xs text-subtle-foreground">{f.label}</dt>
-              <dd className="text-sm text-foreground">
-                {f.cert ? (
+              {/* pre-line: a response can be a paragraph (the availability change
+                  request), and collapsing its line breaks runs it together. */}
+              <dd className="whitespace-pre-line break-words text-sm text-foreground [overflow-wrap:anywhere]">
+                {f.photo ? (
+                  photoSrc ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- inline photo data URI from a private blob, not a remote asset
+                    <img
+                      src={photoSrc}
+                      alt={`Profile photo of ${contract.firstName} ${contract.lastName}`}
+                      className="h-32 w-32 rounded-lg border border-border-subtle object-cover"
+                    />
+                  ) : (
+                    <span className="italic text-subtle-foreground">Photo file is missing</span>
+                  )
+                ) : f.cert ? (
                   <TextLink href={`/api/recruitment/onboarding/${contract.id}/hipaa?inline=1`} external>
                     {f.value}
                   </TextLink>
@@ -137,6 +163,6 @@ export default async function SignedContractPage({ params }: { params: Promise<{
           {review.signatureRows.length === 0 && <p className="text-sm text-muted-foreground">This contract has no signature blocks.</p>}
         </dl>
       </Card>
-    </div>
+    </PageBody>
   );
 }

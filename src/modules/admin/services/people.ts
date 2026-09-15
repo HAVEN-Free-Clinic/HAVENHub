@@ -27,7 +27,7 @@ import {
   setPersonStatusField,
 } from "@/platform/people";
 import type { PersonInput, SetPersonStatusOptions } from "@/platform/people";
-import { PERSON_NAME_ORDER } from "@/platform/person-name";
+import { PERSON_NAME_ORDER, personNameSearchClauses } from "@/platform/person-name";
 
 // Re-export the mutation-core types/errors so callers that import from this
 // module (the historical home of these symbols) keep working unchanged.
@@ -64,12 +64,11 @@ export async function searchPeople(q: PeopleQuery): Promise<{
   const term = q.search?.trim();
   if (term) {
     where.OR = [
-      { name: { contains: term, mode: "insensitive" } },
       // `name` holds the PREFERRED display name, so a legal first name is no
-      // longer a substring of it: without this clause, searching the name on
-      // somebody's Epic request or transcript finds nobody.
-      { legalFirstName: { contains: term, mode: "insensitive" } },
-      { lastName: { contains: term, mode: "insensitive" } },
+      // longer a substring of it: the shared helper covers the display name,
+      // both legal names and the surname, which is one column more than this
+      // was hand-rolling. The middle name is the part nothing else can find.
+      ...personNameSearchClauses(term),
       { netId: { contains: term, mode: "insensitive" } },
       { contactEmail: { contains: term, mode: "insensitive" } },
     ];

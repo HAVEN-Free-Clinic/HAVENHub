@@ -140,8 +140,9 @@ export function ServiceRecordCard({
 
   return (
     <Card>
-      <h2 className="text-lg font-semibold">Service record</h2>
-      <p className="mt-1 text-sm text-muted-foreground">
+      {/* The "Service record" heading is the host page's SectionHeader, like
+          every other section on /my-info (the only page that renders this). */}
+      <p className="text-sm text-muted-foreground">
         A dated certificate of your terms, departments, roles, and clinic shifts, suitable for
         residency and fellowship applications.
       </p>

@@ -23,6 +23,7 @@
 import type { FieldType } from "@prisma/client";
 import { formatCalendarDate } from "@/platform/dates/format";
 import { LANGUAGES_FIELD_KEY, languageLabel } from "@/platform/languages/catalog";
+import { formatPhone } from "@/platform/phone";
 import type { Choice } from "./options";
 
 /** The field metadata display needs: enough to resolve a value, nothing more. */
@@ -123,6 +124,8 @@ export function formatAnswer(field: DisplayField, value: unknown): string {
   if (file) return file.fileName ?? "(file)";
 
   if (field.type === "DATE" && typeof value === "string") return formatDateAnswer(value);
+  // Stored as typed, so reviewers saw "3126473228" beside a roster's "(312) 647-3228".
+  if (field.type === "PHONE" && typeof value === "string") return formatPhone(value) ?? "";
 
   const options = parseOptions(field.options);
   if (Array.isArray(value)) {

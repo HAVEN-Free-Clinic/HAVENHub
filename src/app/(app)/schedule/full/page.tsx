@@ -6,7 +6,7 @@ import { viewableMemberIds } from "@/platform/member-profile";
 import { revalidatePath } from "next/cache";
 import { Alert } from "@/platform/ui/alert";
 import { Badge } from "@/platform/ui/badge";
-import { Button } from "@/platform/ui/button";
+import { Button, buttonClasses } from "@/platform/ui/button";
 import { cardClasses } from "@/platform/ui/card";
 import { PageHeader } from "@/platform/ui/page-header";
 import { SectionHeader } from "@/platform/ui/section-header";
@@ -35,6 +35,9 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
   // is today: no column, no badges, no indication of who has or hasn't checked
   // in. Only holders of schedule.manage_attendance see attendance state at all.
   const canMarkAttendance = await can(session.personId, "schedule.manage_attendance");
+  // Triage chats is folded under this tab (see the registry), so its entry point
+  // is a button here for the people who can create them.
+  const canTriageChats = await can(session.personId, "schedule.manage_triage_chats");
 
   const { term, clinicDates, closedDates, selectedDate, departments, attendance } = await fullSchedule(sp.date);
   const selectedKey = selectedDate ? isoDateKey(selectedDate) : null;
@@ -194,6 +197,13 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
                     : ""
                 }`
               : undefined
+          }
+          action={
+            canTriageChats ? (
+              <Link href="/schedule/triage-chats" className={buttonClasses("outline", "sm")}>
+                Triage chats
+              </Link>
+            ) : undefined
           }
         />
       </div>

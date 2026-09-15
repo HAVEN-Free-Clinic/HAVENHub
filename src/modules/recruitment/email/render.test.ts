@@ -79,5 +79,6 @@ it("exposes exactly the cycle-scoped keys", () => {
     "recruitment.onboarding",
     "recruitment.onboarding_confirmation",
     "recruitment.rejection",
+    "recruitment.roster_welcome",
   ]);
 });

@@ -24,12 +24,14 @@ const ROUTES: RouteCase[] = [
   // Admin module: requireModuleAccess("admin") = admin.access on the layout.
   // All sub-pages additionally check a finer permission; admin (*) passes both.
   // Volunteer has no admin.* grants and is denied at the layout.
-  { path: "/admin", allowed: "admin", denied: "volunteer" },
+  // /admin opens the viewer's first admin tab rather than a page of its own.
+  { path: "/admin", allowed: "admin", denied: "volunteer", finalPath: "/admin/people" },
   { path: "/admin/people", allowed: "admin", denied: "volunteer" },
   { path: "/admin/roles", allowed: "admin", denied: "volunteer" },
   { path: "/admin/terms", allowed: "admin", denied: "volunteer" },
   { path: "/admin/departments", allowed: "admin", denied: "volunteer" },
-  { path: "/admin/subcommittees", allowed: "admin", denied: "volunteer" },
+  // Moved to Recruitment; the old URL redirects (rows for the new ones below).
+  { path: "/admin/subcommittees", allowed: "admin", denied: "volunteer", finalPath: "/recruitment/subcommittees" },
   { path: "/admin/audit", allowed: "admin", denied: "volunteer" },
   { path: "/admin/settings", allowed: "admin", denied: "volunteer" },
   { path: "/admin/email", allowed: "admin", denied: "volunteer" },
@@ -72,6 +74,10 @@ const ROUTES: RouteCase[] = [
   // Recruitment: requireModuleAccess("recruitment") = recruitment.access.
   // Neither the Volunteer nor Director system role carries recruitment.access.
   { path: "/recruitment", allowed: "admin", denied: "volunteer" },
+  // Recruitment setup moved in from Admin. The layout admits a bare session;
+  // each page gates on recruitment.manage_cycles, which denies the volunteer.
+  { path: "/recruitment/subcommittees", allowed: "admin", denied: "volunteer" },
+  { path: "/recruitment/contract", allowed: "admin", denied: "volunteer" },
   // The event create form, moved off the list page onto its own route.
   // `director` rather than `volunteer` is the denial with teeth here: the
   // recruitment layout gates on a bare session, and resolveAttendanceAuthority
@@ -103,8 +109,8 @@ const ROUTES: RouteCase[] = [
   // Volunteers: requireModuleAccess("volunteers") = volunteers.view on the layout.
   // The Volunteer system role does NOT include volunteers.view; Director does.
   // All sub-pages are denied to volunteer at the layout level.
+  // /volunteers/master is now a redirect to /volunteers (volunteers.spec covers it).
   { path: "/volunteers", allowed: "admin", denied: "volunteer" },
-  { path: "/volunteers/master", allowed: "admin", denied: "volunteer" },
   { path: "/volunteers/offboarding", allowed: "admin", denied: "volunteer" },
   { path: "/volunteers/spanish-review", allowed: "admin", denied: "volunteer" },
 ];
@@ -138,7 +144,13 @@ for (const r of ROUTES) {
     await loginAs(page, r.allowed);
     const resp = await page.goto(r.path);
     expect(resp?.status(), `${r.path} HTTP status`).toBeLessThan(400);
-    await expect(page).toHaveURL((url) => url.pathname === (r.finalPath ?? r.path));
+    // A finalPath route redirects, and a page redirect under a loading.tsx
+    // streams and runs in the browser after goto resolves (/admin picks the
+    // viewer's first tab, so it cannot be a config redirect). On a loaded CI
+    // runner that took longer than the default 5s, so give it room.
+    await expect(page).toHaveURL((url) => url.pathname === (r.finalPath ?? r.path), {
+      timeout: r.finalPath ? 15_000 : undefined,
+    });
 
     // Positive first: wait for the page body to actually paint something. This
     // is also what makes the negative assertion below meaningful -- checking for
@@ -163,14 +175,18 @@ for (const r of ROUTES) {
       // spots: /no-access (permission denied), /get-started (onboarding gate),
       // or / (hub fallback). The important invariant is that the user is NOT
       // left on the protected route.
-      await page.waitForURL((url) => url.pathname !== r.path, { timeout: 10_000 });
-      const deflected = new URL(page.url()).pathname;
-      expect(
-        deflected === "/no-access" ||
-          deflected === "/" ||
-          deflected.startsWith("/get-started"),
-        `expected denial from ${r.path}, but landed on ${deflected}`,
-      ).toBe(true);
+      //
+      // Waits for a DENIAL landing, not merely for the URL to leave r.path. A
+      // path that redirects before render (/clinic -> /clinic/avs, a config
+      // redirect) leaves r.path at once, and the layout's denial of the
+      // destination then streams in client-side a moment later; "left r.path"
+      // read the URL in between and saw /clinic/avs.
+      await expect
+        .poll(() => new URL(page.url()).pathname, {
+          timeout: 15_000,
+          message: `expected denial from ${r.path} (to /no-access, /get-started or /)`,
+        })
+        .toMatch(/^\/(?:no-access|get-started.*)?$/);
     });
   }
 }

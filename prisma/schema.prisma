@@ -280,6 +280,8 @@ model Person {
   dualRoleInterests              DualRoleInterest[]         @relation("dualRoleInterestPerson")
   /// Dual-role offers this person accepted or declined as a receiving director.
   dualRoleDecisions              DualRoleInterest[]         @relation("dualRoleInterestDecider")
+  dualAppointmentsRequested      DualAppointment[]          @relation("dualAppointmentRequestedBy")
+  dualAppointmentsDecided        DualAppointment[]          @relation("dualAppointmentDecidedBy")
   applicantSubmissions           Applicant[]                @relation("ApplicantPerson")
   contractsPromoted              OnboardingContract[]       @relation("contractPromotedBy")
   contractsPromotedTo            OnboardingContract[]       @relation("contractPromotedPerson")
@@ -414,6 +416,7 @@ model Term {
   /// Offboard flags raised for this term.
   offboardFlags         OffboardFlag[]
   shiftAssignments      ShiftAssignment[]
+  incomingShifts        IncomingShiftAssignment[]
   triageChats           TriageChat[]
   clinicAttendances     ClinicAttendance[]
   shiftRequests         ShiftRequest[]
@@ -471,6 +474,7 @@ model Department {
   /// Delegations where this department is MANAGED BY another department.
   managedByDelegations       DepartmentDelegation[]       @relation("delegationManaged")
   shiftAssignments           ShiftAssignment[]
+  incomingShifts             IncomingShiftAssignment[]
   shiftRequests              ShiftRequest[]
   scheduleDays               ScheduleDay[]
   schedulePublications       SchedulePublication[]
@@ -535,6 +539,12 @@ model Department {
   /// minInterpreterScore). Defaults false so no existing department is dragged
   /// into the lane by the migration.
   assessLanguageBeforeAcceptance Boolean @default(false)
+  /// Within that lane, assess this department's applicants on Spanish even when
+  /// they did not claim it. True for PATS, where speaking Spanish with patients
+  /// is the job. False for INTP: an interpreting applicant may work in another
+  /// language, so they are assessed only on the languages they ticked.
+  /// Meaningless without assessLanguageBeforeAcceptance.
+  assessSpanishRegardlessOfClaim Boolean @default(false)
   /// Whether members may raise a DROP request against this department's shifts.
   /// False makes the department swap-only: the drop form disappears from
   /// /schedule and createRequest refuses a drop, so a member who cannot find a
@@ -1373,7 +1383,15 @@ model EmailCampaign {
   excludePersonIds  String[]            @default([])
   /// Raw addresses pasted by the sender, resolved to people at send time and
   /// then subject to exactly the same scope intersection as includePersonIds.
+  /// On an unscoped campaign, an address matching no Person is emailed as a
+  /// bare address instead of being dropped.
   pastedEmails      String[]            @default([])
+  /// Recruitment cycles whose applicants this campaign also emails, at the
+  /// address each applied with, whether or not they have a HAVEN Hub account.
+  /// Resolved live at send time. Honoured only on an UNSCOPED campaign: an
+  /// applicant with no Person cannot be tested against a scope, so a scoped
+  /// campaign ignores this entirely. See resolveCampaignAudience.
+  applicantCycleIds String[]            @default([])
   /// The sending identity CHOSEN for this campaign, or null to take whatever the
   /// resolution order yields (the scope identity, then an address issued to the
   /// sender; there is no third layer, and sender-identity.ts records at length
@@ -1676,6 +1694,43 @@ model ShiftAssignment {
   @@index([personId, termId])
 }
 
+/// A draft shift for someone accepted into a department who has no Person yet:
+/// a first-time applicant, whose Hub account is created at roster build.
+///
+/// ShiftAssignment is keyed on a person, so these are keyed on the ACCEPTANCE
+/// instead. promoteContracts moves them onto ShiftAssignment in the same
+/// transaction that creates the person and their membership, so there is no
+/// moment where someone is on the roster but their drafted Saturdays are not.
+///
+/// Inert by construction until then: shift reminders, check-in invites, the
+/// clinic-wide schedule, and the calendar feed all read ShiftAssignment and
+/// never this table. Only the schedule builder does.
+///
+/// Cascade on every relation: a draft is scaffolding, not history. A rescinded
+/// acceptance takes its drafts with it, which is the behavior a director wants.
+model IncomingShiftAssignment {
+  id           String     @id @default(cuid())
+  acceptanceId String
+  termId       String
+  departmentId String
+  /// Same anchoring as ShiftAssignment.clinicDate: 12:00 UTC, compare by day key.
+  clinicDate   DateTime
+  role         ShiftRole
+  triage       Boolean    @default(false)
+  walkin       Boolean    @default(false)
+  cc           Boolean    @default(false)
+  remote       Boolean    @default(false)
+  specialty    Boolean    @default(false)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  acceptance   Acceptance @relation(fields: [acceptanceId], references: [id], onDelete: Cascade)
+  term         Term       @relation(fields: [termId], references: [id], onDelete: Cascade)
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  @@unique([acceptanceId, clinicDate])
+  @@index([termId, departmentId])
+}
+
 /// Swap/drop requests against the schedule. Drop when targetId/targetDate are
 /// null; named swap otherwise. Approval re-validates and applies transactionally.
 /// DB-LEVEL GUARDS LIVE IN RAW SQL (see migrations): a partial unique index
@@ -1868,6 +1923,8 @@ model PersonLanguage {
   updatedAt    DateTime  @updatedAt
   /// Cascade: the claim belongs to the person.
   person       Person    @relation("personLanguages", fields: [personId], references: [id], onDelete: Cascade)
+  /// Set while a reviewer has this claim parked on the Review later tab.
+  reviewLater  LanguageReviewDeferral?
 
   @@unique([personId, language])
   @@index([language])
@@ -1912,6 +1969,37 @@ model ApplicationLanguageAssessment {
 
   @@unique([applicationId, language])
   @@index([language])
+}
+
+/// A reviewer's "review later" on one row of the language review queue.
+///
+/// Parks the row on the queue page's Review later tab WITHOUT recording a
+/// verdict: the person is still owed an assessment, and PersonLanguage.verifiedAt
+/// (member) or the absence of an ApplicationLanguageAssessment (applicant) still
+/// says so. Deleting the row puts them back in the queue, and recording a
+/// verdict deletes it too.
+///
+/// Two shapes, because the queue has two sources and only one of them has a row
+/// to point at. A member deferral points at its PersonLanguage claim. An
+/// applicant deferral names the application and the language, because the
+/// applicant half of the queue is derived and stores nothing until a verdict.
+/// A CHECK in the migration holds each row to exactly one shape.
+model LanguageReviewDeferral {
+  id               String   @id @default(cuid())
+  /// Member rows. Unique: a claim is either set aside or it is not.
+  personLanguageId String?  @unique
+  /// Applicant rows, always together with `language`.
+  applicationId    String?
+  language         String?
+  /// Bare id (no FK), mirroring PersonLanguage.verifiedById.
+  deferredById     String
+  createdAt        DateTime @default(now())
+
+  /// Cascade: the deferral belongs to the queue row it parks.
+  personLanguage PersonLanguage? @relation(fields: [personLanguageId], references: [id], onDelete: Cascade)
+  application    Application?    @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@unique([applicationId, language])
 }
 
 /// One INTP Spanish proficiency assessment, of one person, in one term. Covers
@@ -2632,6 +2720,19 @@ model Application {
   returnedFromDepartmentCode String?
   returnedById               String?
   returnedReason             String?
+  /// Dual-role fallback (see nextDualFallback in platform/dual-roles). A
+  /// rejection on an application whose applicant ticked a dual box passes it to
+  /// that department instead of ending it. These are the dual department CODES
+  /// that have since rejected the applicant too: the fallback never returns to
+  /// one, and promotion never offers the person to one. Kept when the lead
+  /// re-routes, because the declines still happened.
+  dualRoleDeclinedBy             String[]          @default([])
+  /// Set while the application sits with a dual department because of a
+  /// fallback, and where the fallback started: the department whose rejection
+  /// began it, or null when the recruitment lead rejected before routing. Both
+  /// cleared when the lead routes the application to a different department.
+  dualFallbackAt                 DateTime?
+  dualFallbackFromDepartmentCode String?
   // The routed department's decision on a VOLUNTEER application (no interview).
   // Director-track decisions live on Interview.decision instead.
   decision                   InterviewDecision @default(PENDING)
@@ -2679,8 +2780,10 @@ model Application {
   applicant              Applicant          @relation(fields: [applicantId], references: [id], onDelete: Cascade)
   acceptances            Acceptance[]
   dualRoleInterests      DualRoleInterest[]
+  dualAppointments       DualAppointment[]
   interviews             Interview[]
   languageAssessments    ApplicationLanguageAssessment[]
+  languageReviewLater    LanguageReviewDeferral[]
   committeeScores        CommitteeScore[]
   scoreAssignments       ScoreAssignment[]
   assignedSubcommittee   Subcommittee?      @relation("applicationAssignedSubcommittee", fields: [assignedSubcommitteeId], references: [id], onDelete: SetNull)
@@ -2710,6 +2813,8 @@ model Acceptance {
   application Application         @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   approvedBy  Person              @relation("recruitmentAcceptanceApprover", fields: [approvedById], references: [id], onDelete: Restrict)
   contract    OnboardingContract?
+  /// Draft shifts placed before roster build, for an applicant with no Person yet.
+  incomingShifts IncomingShiftAssignment[]
 
   @@unique([applicationId, departmentCode])
   @@index([applicationId])
@@ -2722,6 +2827,50 @@ model Acceptance {
 /// PENDING row there would surface as a real member in all of them. Someone
 /// waiting on a dual role is not a member of that department yet, and this enum
 /// is only ever read by the queue that decides.
+/// Where a request to accept a volunteer into a SECOND department stands.
+enum DualAppointmentStatus {
+  PENDING
+  APPROVED
+  DECLINED
+  CANCELLED
+}
+
+/// A volunteer accepted into two departments in one recruitment cycle: the one
+/// their application routes to, plus this one.
+///
+/// Exceptional by design. A director asks for a volunteer they want (PENDING) and
+/// a recruitment manager, meaning a holder of recruitment.review_all, approves or
+/// declines it; a manager may also add one directly, already APPROVED. Approval
+/// mints the second Acceptance, and an APPROVED row is what tells the acceptance
+/// conflict guard that two departments on one application is intended rather
+/// than two departments each believing they won the same person.
+///
+/// Not a DualRoleInterest. That is the VADM/INTP checkbox offer recorded at
+/// promotion and decided by the receiving department alone; this is a full
+/// second acceptance that goes through release, onboarding and promotion.
+model DualAppointment {
+  id             String                @id @default(cuid())
+  applicationId  String
+  /// The SECOND department, by code, like Acceptance.departmentCode.
+  departmentCode String
+  status         DualAppointmentStatus @default(PENDING)
+  /// Why the department wants them. Required from a director, optional from a manager.
+  reason         String?
+  requestedById  String
+  decidedById    String?
+  decidedAt      DateTime?
+  decisionNote   String?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  requestedBy Person      @relation("dualAppointmentRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
+  decidedBy   Person?     @relation("dualAppointmentDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+
+  @@unique([applicationId, departmentCode])
+  @@index([status])
+}
+
 enum DualRoleStatus {
   PENDING
   ACCEPTED
@@ -2843,6 +2992,9 @@ model OnboardingContract {
   /// Seeded from the Applicant and editable on the contract form, like the legal
   /// name beside it. Becomes Person.preferredFirstName at promotion.
   preferredFirstName       String?
+  /// Name of record, like firstName and lastName. Optional, since most people
+  /// have none. Becomes Person.legalMiddleName at promotion.
+  legalMiddleName          String?
   email                    String
   netId                    String?
   phone                    String?
@@ -2853,6 +3005,17 @@ model OnboardingContract {
   staffTitle               String?
   epicIdExpiration         DateTime?
   gradYear                 String?
+  /// "1".."7" or "8+" (SHIFTS_WANTED_OPTIONS): how many shifts the volunteer
+  /// would like this term. A preference the schedule builder shows directors,
+  /// never capacity math.
+  shiftsWanted             String?
+  /// Whether the volunteer asked to change the availability they gave on their
+  /// application. Null when the contract never asked (no availabilityChange
+  /// block in its layout).
+  availabilityChangeNeeded Boolean?
+  /// Which dates change and why, in the volunteer's words. A REQUEST for the
+  /// department's directors; nothing applies it to TermMembership.
+  availabilityChangeRequest String?
   agreementSignature       String?
   professionalismSignature String?
   trainingSignature        String?
@@ -2869,6 +3032,10 @@ model OnboardingContract {
   hipaaMimeType            String?
   hipaaSize                Int?
   hipaaCompletedAt         DateTime?
+  /// The applicant's profile photo, already normalized to a square WebP, at
+  /// onboarding/<contractId>/<photoStoredName>. Copied onto Person as their own
+  /// upload at promotion.
+  photoStoredName          String?
   sentAt                   DateTime?
   /// When the onboarding link stops being usable. Set (and refreshed) on every
   /// send/resend. Null on contracts created before this field existed: those are

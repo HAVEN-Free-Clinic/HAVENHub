@@ -15,11 +15,7 @@ import {
   BUILDER_AVAILABILITY_PILL_CLASS,
   builderReadOnlyPillClass,
 } from "./availability-pill";
-import {
-  PROVISIONAL_BADGE_LABEL,
-  PROVISIONAL_STAGE_LABEL,
-  provisionalBlockedReason,
-} from "./provisional-labels";
+import { PROVISIONAL_BADGE_LABEL, PROVISIONAL_STAGE_LABEL } from "./provisional-labels";
 
 // ---------------------------------------------------------------------------
 // Availability mode sub-view
@@ -94,9 +90,6 @@ export function BuilderAvailabilityView({
         // what a MEMBER told them, and there is nothing yet to correct. What they
         // put on their application is the whole of what is known.
         const readOnly = !editable || member.provisional !== null;
-        const blockedReason = member.provisional
-          ? provisionalBlockedReason(member.provisional)
-          : null;
 
         return (
           <Card key={member.membershipId ?? member.person.id} pad={false} className="px-4 py-4">
@@ -115,9 +108,6 @@ export function BuilderAvailabilityView({
               )}
               {member.acknowledgePending && <Badge tone="warning">Availability updated</Badge>}
             </div>
-            {blockedReason && (
-              <p className="mb-3 text-xs text-subtle-foreground">{blockedReason}</p>
-            )}
             {member.legacyNote && (
               <p className="mb-3 text-xs text-subtle-foreground italic">{member.legacyNote}</p>
             )}

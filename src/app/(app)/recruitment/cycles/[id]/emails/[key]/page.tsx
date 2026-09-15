@@ -1,5 +1,6 @@
 import { revalidatePath } from "next/cache";
 import { redirect, notFound } from "next/navigation";
+import { PageBody } from "@/platform/ui/page-body";
 import { requirePermission } from "@/platform/auth/session";
 import {
   getCycleEmailForEdit,
@@ -51,7 +52,10 @@ export default async function EditCycleEmailPage({ params }: Props) {
       throw err;
     }
     revalidatePath(base);
-    redirect(base);
+    // ?saved=1, not a bare redirect: this route re-renders the editor with the
+    // same text in it, so a save that landed and a save that never ran looked
+    // identical. FlashReader toasts the param and strips it from the URL.
+    redirect(`${base}?saved=1`);
   }
 
   async function resetAction() {
@@ -59,11 +63,11 @@ export default async function EditCycleEmailPage({ params }: Props) {
     const actor = await requirePermission("recruitment.manage_cycles");
     await resetCycleEmail(id, decodedKey as CycleEmailKey, actor.personId);
     revalidatePath(base);
-    redirect(base);
+    redirect(`${base}?saved=reset`);
   }
 
   return (
-    <div className="space-y-6">
+    <PageBody>
       <SetBreadcrumb
         trail={cycleTrail({
           cycleId: id,
@@ -88,6 +92,6 @@ export default async function EditCycleEmailPage({ params }: Props) {
         layoutSource={t.layoutSource}
         brandColor={brandColor}
       />
-    </div>
+    </PageBody>
   );
 }

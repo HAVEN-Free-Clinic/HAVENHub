@@ -65,8 +65,13 @@ export function TabRow({
   if (items.length === 0) return null;
 
   if (variant === "segmented") {
+    // The track hugs its labels (w-fit) and only fills the width when they
+    // overflow it (max-w-full, then the strip scrolls). As a block it ran the
+    // grey track across the whole page: the cycle workspace's four stages sat in
+    // 307px of a 1232px bar. The hug goes on the ScrollFade wrapper, not the
+    // strip, so the fade mask still spans exactly the scrolling window.
     return (
-      <ScrollFade>
+      <ScrollFade className="w-fit max-w-full">
       <nav
         ref={navRef}
         aria-label={label}

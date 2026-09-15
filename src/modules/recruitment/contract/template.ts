@@ -67,7 +67,7 @@ export async function resetCycleContractLayout(cycleId: string): Promise<void> {
   await prisma.recruitmentCycleContract.deleteMany({ where: { cycleId } });
 }
 
-/** The master template for a track (for the /admin/contract editor), plus whether
+/** The master template for a track (for the /recruitment/contract editor), plus whether
  *  a custom one is stored (vs the built-in code default for that track). */
 export async function getGlobalContractLayout(
   track: Track

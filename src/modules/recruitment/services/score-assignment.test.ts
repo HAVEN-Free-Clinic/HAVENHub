@@ -8,6 +8,7 @@ import {
   scorerQueueScope,
   setCycleScoring,
 } from "./score-assignment";
+import { returnToRouting } from "./routing";
 
 let seq = 0;
 
@@ -136,6 +137,19 @@ describe("setCycleScoring", () => {
     expect(rows.filter((r) => r.applicationId === own.id)).toHaveLength(2);
   });
 
+  it("never hands a scorer their own application when it is not linked to their account", async () => {
+    const { cycle, lead, scorers } = await seed();
+    // Applied signed out, so there is no account link: only the address says it is Ann's.
+    await prisma.person.update({ where: { id: scorers[0].id }, data: { contactEmail: "own@yale.edu" } });
+    const own = await application(cycle.id, "own");
+
+    await setCycleScoring(cycle.id, { scorerIds: scorers.map((s) => s.id), target: 3 }, lead.id);
+
+    const rows = await assignmentsFor(cycle.id);
+    expect(rows.filter((r) => r.applicationId === own.id).map((r) => r.scorerId)).not.toContain(scorers[0].id);
+    expect(rows.filter((r) => r.applicationId === own.id)).toHaveLength(2);
+  });
+
   it("leaves applications that have left the committee alone", async () => {
     const { cycle, lead, scorers } = await seed();
     const open = await application(cycle.id, "open");
@@ -162,6 +176,20 @@ describe("setCycleScoring", () => {
     expect(result.added).toBe(2);
     const after = await assignmentsFor(cycle.id);
     expect(after.filter((r) => r.applicationId !== late.id)).toEqual(before);
+  });
+
+  it("takes back the extra reads when the target is lowered", async () => {
+    const { cycle, lead, scorers } = await seed();
+    const apps = [await application(cycle.id, "a"), await application(cycle.id, "b")];
+    await setCycleScoring(cycle.id, { scorerIds: scorers.map((s) => s.id), target: 3 }, lead.id);
+
+    const result = await setCycleScoring(cycle.id, { scorerIds: scorers.map((s) => s.id), target: 2 }, lead.id);
+
+    expect(result).toEqual({ added: 0, removed: 2 });
+    const rows = await assignmentsFor(cycle.id);
+    for (const app of apps) {
+      expect(rows.filter((r) => r.applicationId === app.id)).toHaveLength(2);
+    }
   });
 
   it("moves a departed scorer's unscored work but keeps the score they gave", async () => {
@@ -245,5 +273,57 @@ describe("loadScoringPanel", () => {
   it("refuses a viewer without recruitment.review_all", async () => {
     const { cycle, scorers } = await seed();
     await expect(loadScoringPanel(cycle.id, scorers[0].id)).rejects.toBeInstanceOf(RecruitmentAuthError);
+  });
+});
+
+describe("a hand-back", () => {
+  /** An application that skipped committee scoring: routed at submission, the
+   *  way renewals and first-choice departments are, so the division never
+   *  included it. */
+  async function routedAtSubmit(cycleId: string, tag: string) {
+    const app = await application(cycleId, tag);
+    return prisma.application.update({ where: { id: app.id }, data: { routedDepartmentCode: "SRHD" } });
+  }
+
+  it("gives the returned application scorers from the pool without moving anyone else's pile", async () => {
+    const { cycle, lead, scorers } = await seed();
+    await application(cycle.id, "open");
+    const returned = await routedAtSubmit(cycle.id, "returned");
+    await setCycleScoring(cycle.id, { scorerIds: scorers.map((s) => s.id), target: 2 }, lead.id);
+    const before = await assignmentsFor(cycle.id);
+    expect(before.some((r) => r.applicationId === returned.id)).toBe(false);
+
+    await returnToRouting(returned.id, lead.id, "not a fit for us");
+
+    const after = await assignmentsFor(cycle.id);
+    const mine = after.filter((r) => r.applicationId === returned.id);
+    expect(mine).toHaveLength(2);
+    expect(after.filter((r) => r.applicationId !== returned.id)).toEqual(before);
+    // Which is what puts it in those scorers' speed-score queues.
+    expect((await scorerQueueScope(cycle.id, mine[0].scorerId)).assignedIds.has(returned.id)).toBe(true);
+  });
+
+  it("hands it to the scorers with the smallest piles", async () => {
+    const { cycle, lead, scorers } = await seed();
+    await application(cycle.id, "a");
+    await application(cycle.id, "b");
+    const returned = await routedAtSubmit(cycle.id, "returned");
+    // Three scorers, two applications, one read each: somebody has an empty pile.
+    await setCycleScoring(cycle.id, { scorerIds: scorers.map((s) => s.id), target: 1 }, lead.id);
+    const busy = new Set((await assignmentsFor(cycle.id)).map((r) => r.scorerId));
+    const idle = scorers.map((s) => s.id).filter((id) => !busy.has(id));
+    expect(idle).toHaveLength(1);
+
+    await returnToRouting(returned.id, lead.id, null);
+
+    const mine = (await assignmentsFor(cycle.id)).filter((r) => r.applicationId === returned.id);
+    expect(mine.map((r) => r.scorerId)).toEqual(idle);
+  });
+
+  it("assigns nothing on a cycle with no scorer pool", async () => {
+    const { cycle, lead } = await seed();
+    const returned = await routedAtSubmit(cycle.id, "returned");
+    await returnToRouting(returned.id, lead.id, null);
+    expect(await assignmentsFor(cycle.id)).toHaveLength(0);
   });
 });

@@ -1,10 +1,12 @@
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import type { OnboardingContract } from "@prisma/client";
+import type { EpicRequirement, OnboardingContract, Track } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { getSetting } from "@/platform/settings/service";
 import { putObject, deleteObject } from "@/platform/storage";
+import { ACCEPTED_UPLOAD_TYPES, normalizePhoto, PHOTO_CONTENT_TYPE, PhotoError } from "@/platform/photos";
+import { isHeic } from "@/platform/photos/shared";
 import { decodeSignaturePng, SignatureError } from "./signature";
 import { normalizeIdentityKey } from "./identity-keys";
 import { isStoredSignature, type SignatureInput, type StoredSignature } from "../contract/signatures";
@@ -13,18 +15,22 @@ import { recordAudit } from "@/platform/audit";
 import { parseCompletionDate, CompletionDateError } from "@/platform/compliance/completion-date";
 import { RecruitmentAuthError } from "./review";
 import { findAcceptanceConflicts } from "../engine/conflicts";
+import { isAcceptanceConflict, onboardingAnchor } from "../engine/dual-appointments";
+import { approvedDualAppointmentPairs } from "./dual-appointments";
 import { renderCycleEmail } from "../email/render";
 import { resolveContractLayout } from "../contract/resolve";
-import { parseContractLayout, type ContractLayout } from "../contract/layout";
-import { DEFAULT_CONTRACT_LAYOUT } from "../contract/system-fields";
+import { parseContractLayout, type ContractLayout, type SystemFieldBlock, type SystemFieldKey } from "../contract/layout";
+import { AVAILABILITY_CHANGE_OPTIONS, DEFAULT_CONTRACT_LAYOUT, SHIFTS_WANTED_OPTIONS, isSystemFieldRequired } from "../contract/system-fields";
 import { buildContractAnswers, visibleContractBlocks, type ContractContext } from "../contract/visibility";
-import { epicRequirementFor, resolveEpicNeeded } from "../contract/epic-requirement";
+import { epicRequirementFor, resolveEpicNeeded, strictestEpicRequirement } from "../contract/epic-requirement";
 import { buildOnboardingNextSteps } from "../onboarding-next-steps";
 import { formatTrainingDate, formatTrainingLocation } from "../training-date";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { log, errorAttrs } from "@/platform/logging";
 import { deriveRowState, type OnboardingRow } from "../engine/onboarding-rows";
 import { resolveCustomAnswers } from "../contract/custom-answers";
+import { hipaaOnFileFor, type HipaaOnFile } from "../contract/hipaa-on-file";
+import type { ReviewOnFile } from "../contract/review";
 import { applicantFirstName } from "@/platform/person-name";
 
 /**
@@ -50,6 +56,22 @@ function safeParseLayout(value: unknown): ContractLayout {
 /** Parse the frozen review context stored at submit, or null when the row predates
  *  the column or the stored value is malformed (caller falls back to a live
  *  derivation in that case). Validates only the shape this module writes. */
+/** The on-file facts frozen at submit (see submitContract), or null for a
+ *  contract submitted before they were recorded. */
+function parseReviewOnFile(value: unknown): ReviewOnFile | null {
+  if (value == null || typeof value !== "object" || Array.isArray(value)) return null;
+  const onFile = (value as Record<string, unknown>).onFile;
+  if (onFile == null || typeof onFile !== "object" || Array.isArray(onFile)) return null;
+  const { hipaa, photo } = onFile as Record<string, unknown>;
+  const h = hipaa != null && typeof hipaa === "object" && !Array.isArray(hipaa) ? (hipaa as Record<string, unknown>) : null;
+  return {
+    hipaa: h && typeof h.completionDate === "string"
+      ? { completionDate: h.completionDate, pendingVerification: h.pendingVerification === true }
+      : null,
+    photo: photo === true,
+  };
+}
+
 function parseReviewContext(value: unknown): ContractContext | null {
   if (value == null || typeof value !== "object" || Array.isArray(value)) return null;
   const v = value as Record<string, unknown>;
@@ -58,11 +80,61 @@ function parseReviewContext(value: unknown): ContractContext | null {
   if (typeof epicRequirement !== "string") return null;
   if (department !== null && typeof department !== "string") return null;
   if (storedEpicId !== null && typeof storedEpicId !== "string") return null;
+  const additional = v.additionalDepartments;
+  const additionalDepartments =
+    Array.isArray(additional) && additional.every((d) => typeof d === "string") ? (additional as string[]) : [];
   return {
     department: department as string | null,
+    ...(additionalDepartments.length > 0 ? { additionalDepartments } : {}),
     track: track as ContractContext["track"],
     epicRequirement: epicRequirement as ContractContext["epicRequirement"],
     storedEpicId: storedEpicId as string | null,
+  };
+}
+
+/**
+ * The department facts a contract's visibility turns on, for the acceptance it
+ * was sent through.
+ *
+ * Usually one department. With an approved dual appointment the application is
+ * accepted into two, and the one form covers both: `additionalDepartments` makes
+ * the other department's gated blocks show, and the Epic requirement is the
+ * stricter of the two. The onboarding page, submitContract and the signed-contract
+ * review all resolve it here, so the three agree on what the person was asked.
+ */
+export async function contractDepartmentContext(
+  acceptance: { applicationId: string; departmentCode: string } | null | undefined,
+  track: Track,
+): Promise<{ department: string | null; additionalDepartments: string[]; epicRequirement: EpicRequirement }> {
+  if (!acceptance) return { department: null, additionalDepartments: [], epicRequirement: "NONE" };
+  const [siblings, approved] = await Promise.all([
+    prisma.acceptance.findMany({
+      where: { applicationId: acceptance.applicationId, departmentCode: { not: acceptance.departmentCode } },
+      select: { departmentCode: true },
+      orderBy: { createdAt: "asc" },
+    }),
+    approvedDualAppointmentPairs({ applicationIds: [acceptance.applicationId] }),
+  ]);
+  const others = siblings.map((a) => a.departmentCode);
+  // Only an allowed pair counts. A conflicted application is refused a link and
+  // a promotion, so this only matters if one slips through, and then showing a
+  // department nobody agreed to would be the wrong way to fail.
+  const additionalDepartments = isAcceptanceConflict(
+    [acceptance.departmentCode, ...others],
+    approved.map((d) => d.departmentCode),
+  )
+    ? []
+    : others;
+  const codes = [acceptance.departmentCode, ...additionalDepartments];
+  const rows = await prisma.department.findMany({
+    where: { code: { in: codes } },
+    select: { code: true, requiresEpicDirector: true, requiresEpicVolunteer: true },
+  });
+  const byCode = new Map(rows.map((r) => [r.code, r]));
+  return {
+    department: acceptance.departmentCode,
+    additionalDepartments,
+    epicRequirement: strictestEpicRequirement(codes.map((code) => epicRequirementFor(byCode.get(code) ?? null, track))),
   };
 }
 
@@ -134,7 +206,11 @@ export async function createOrResendContract(
         include: {
           applicant: true,
           cycle: { select: { id: true, title: true, status: true } },
-          acceptances: { select: { departmentCode: true } },
+          acceptances: {
+            select: { id: true, departmentCode: true, contract: { select: { id: true } } },
+            orderBy: { createdAt: "asc" },
+          },
+          dualAppointments: { where: { status: "APPROVED" }, select: { departmentCode: true } },
         },
       },
       contract: true,
@@ -149,11 +225,26 @@ export async function createOrResendContract(
   if (cycle.status === "DRAFT" || cycle.status === "ARCHIVED") {
     throw new ContractError("Onboarding links can only be sent for an open or closed cycle.");
   }
+  const approvedDual = acceptance.application.dualAppointments.map((d) => d.departmentCode);
   const conflicts = findAcceptanceConflicts(
     acceptance.application.acceptances.map((a) => ({ applicationId: acceptance.applicationId, departmentCode: a.departmentCode })),
+    approvedDual.map((departmentCode) => ({ applicationId: acceptance.applicationId, departmentCode })),
   );
   if (conflicts.has(acceptance.applicationId)) {
     throw new ContractError("This applicant was accepted by more than one department. Resolve the conflict on the Decisions page before onboarding.");
+  }
+  // A dual appointment is two acceptances and one person, who fills in one form.
+  // It goes out through one acceptance (onboardingAnchor), and promoting it puts
+  // them on both rosters. A second contract on the other acceptance would ask
+  // them to sign everything twice and promote them twice.
+  const anchor = onboardingAnchor(
+    acceptance.application.acceptances.map((a) => ({ ...a, hasContract: a.contract != null })),
+    approvedDual,
+  );
+  if (anchor && anchor.id !== acceptance.id) {
+    throw new ContractError(
+      `This applicant is a dual appointment. They onboard with one form, sent through their ${anchor.departmentCode} acceptance.`,
+    );
   }
   const applicant = acceptance.application.applicant;
   let contract = acceptance.contract;
@@ -164,7 +255,7 @@ export async function createOrResendContract(
     ? await resolveContractLayout(cycle.id)
     : null;
   if (!contract) {
-    // Prefill affiliation/grad-year/Spanish from the application answers so the
+    // Prefill affiliation/grad-year/pronouns/Spanish from the application answers so the
     // applicant does not re-answer them during onboarding; only on create, so a
     // resend never clobbers a contract a director has already started editing.
     const a = (acceptance.application.answers ?? {}) as Record<string, unknown>;
@@ -180,6 +271,12 @@ export async function createOrResendContract(
         phone: applicant.phone,
         yaleAffiliation: typeof a.yale_affiliation === "string" ? a.yale_affiliation : undefined,
         gradYear: typeof a.grad_year === "string" ? a.grad_year : undefined,
+        pronouns: typeof a.pronouns === "string" && a.pronouns.trim() ? a.pronouns.trim() : undefined,
+        // A staff applicant already wrote their title in the application's
+        // "school/title and department" box.
+        staffTitle: a.yale_affiliation === "staff" && typeof a.yale_affiliation_other === "string" && a.yale_affiliation_other.trim()
+          ? a.yale_affiliation_other.trim()
+          : undefined,
         spanishSelfReported: typeof a.spanish_proficiency === "string" && a.spanish_proficiency !== "none",
         templateSnapshot: layout as object,
       },
@@ -227,7 +324,13 @@ export async function getContractByToken(token: string) {
   // the Epic requirement) without a second round trip.
   const contract = await prisma.onboardingContract.findUnique({
     where: { token },
-    include: { acceptance: { include: { application: { include: { cycle: true } } } } },
+    // The term's clinic calendar rides along for the availability check, which
+    // shows the dates the applicant chose on the application.
+    include: {
+      acceptance: {
+        include: { application: { include: { cycle: { include: { term: { select: { clinicDates: true, endDate: true } } } } } } },
+      },
+    },
   });
   // An expired PENDING link is treated as invalid (the page shows the not-valid
   // state). An SRR can revive it by resending, which refreshes expiresAt on the
@@ -266,6 +369,51 @@ export async function lookupStoredEpicId(
   return matched?.epicId ?? null;
 }
 
+/** What the platform already holds for an applicant, so the contract can show it
+ *  instead of asking again. */
+export type OnFile = {
+  /** A HIPAA certificate that covers the contract's term (hipaaOnFileFor), or null. */
+  hipaa: HipaaOnFile | null;
+  /** The matched person's id when they have a stored profile photo, or null. */
+  photoPersonId: string | null;
+};
+
+/**
+ * What a returning applicant already has on file that the contract would
+ * otherwise ask for again: a HIPAA certificate that covers the term, and a stored
+ * profile photo. Matched exactly like lookupStoredEpicId (netId, else
+ * contactEmail). The onboarding page and submitContract both call this, so what
+ * the form presents as optional is exactly what the server accepts as optional.
+ */
+export async function lookupOnFile(
+  netId: string | null,
+  email: string | null,
+  termEnd: Date | null,
+  now: Date = new Date(),
+): Promise<OnFile> {
+  const key = normalizeIdentityKey(netId);
+  const emailKey = normalizeIdentityKey(email);
+  const select = {
+    id: true,
+    photoKey: true,
+    hipaaCertificates: {
+      orderBy: { uploadedAt: "desc" as const },
+      select: { completionDate: true, verifiedAt: true },
+    },
+  };
+  const byNetId = key
+    ? await prisma.person.findFirst({ where: { netId: { equals: key, mode: "insensitive" } }, select })
+    : null;
+  const person = byNetId ?? (emailKey
+    ? await prisma.person.findFirst({ where: { contactEmail: { equals: emailKey, mode: "insensitive" } }, select })
+    : null);
+  if (!person) return { hipaa: null, photoPersonId: null };
+  return {
+    hipaa: hipaaOnFileFor(person.hipaaCertificates, termEnd, now),
+    photoPersonId: person.photoKey ? person.id : null,
+  };
+}
+
 /**
  * Whether an ACTIVE Person already exists for this applicant, matched the same
  * way lookupStoredEpicId matches: by netId (case-insensitive), else by
@@ -302,6 +450,8 @@ export type ContractSubmission = {
   lastName: string;
   /** What they go by, if not their first name. Reaches Person at promotion. */
   preferredFirstName?: string;
+  /** Name of record, optional. Reaches Person at promotion. */
+  legalMiddleName?: string;
   email: string;
   netId?: string;
   phone?: string;
@@ -312,6 +462,11 @@ export type ContractSubmission = {
   pronouns?: string;
   staffTitle?: string;
   epicIdExpiration?: string; // raw YYYY-MM-DD from the date input; validated in submitContract
+  // The two scheduling answers. Each is required only when its system field is
+  // shown, and validated against its option list in submitContract.
+  shiftsWanted?: string; // a SHIFTS_WANTED_OPTIONS value
+  availabilityChangeNeeded?: string; // "yes" | "no"
+  availabilityChangeRequest?: string; // required when availabilityChangeNeeded is "yes"
   // Drawn signatures keyed by block id: each agreement's id, plus "initials".
   // Which are required is driven by the frozen snapshot layout. The typed-name
   // fallback still produces a PNG, so every value is a SignatureInput.
@@ -333,6 +488,9 @@ export type ContractSubmission = {
   licensedRN?: boolean;
   hipaaCompletedAt?: string; // raw YYYY-MM-DD from the date input; validated in submitContract
   hipaaFile?: { fileName: string; mimeType: string; bytes: Buffer };
+  /** The applicant's photo of their face, as chosen. Required whenever the
+   *  photo system field is shown; normalized in submitContract. */
+  photoFile?: { fileName: string; mimeType: string; bytes: Buffer };
 };
 
 export async function submitContract(
@@ -364,7 +522,7 @@ export async function submitContract(
       application: {
         include: {
           cycle: {
-            select: { id: true, title: true, track: true, inPersonTrainingDate: true, trainingLocation: true },
+            select: { id: true, title: true, track: true, inPersonTrainingDate: true, trainingLocation: true, term: { select: { endDate: true } } },
           },
         },
       },
@@ -372,15 +530,12 @@ export async function submitContract(
   });
   const cycle = acceptance?.application?.cycle ?? null;
   const track = cycle?.track ?? "VOLUNTEER";
-  const departmentCode = acceptance?.departmentCode ?? null;
-  const dept = departmentCode
-    ? await prisma.department.findUnique({
-        where: { code: departmentCode },
-        select: { requiresEpicDirector: true, requiresEpicVolunteer: true },
-      })
-    : null;
-  const requirement = epicRequirementFor(dept, track);
+  const { department: departmentCode, additionalDepartments, epicRequirement: requirement } =
+    await contractDepartmentContext(acceptance, track);
   const storedEpicId = await lookupStoredEpicId(contract.netId, contract.email);
+  // The same on-file lookup the page ran, so a certificate or photo the form
+  // showed as already on file is not demanded here.
+  const onFile = await lookupOnFile(contract.netId, contract.email, cycle?.term?.endDate ?? null);
 
   const e: Record<string, string> = {};
   if (!input.firstName?.trim()) e.firstName = "required";
@@ -415,14 +570,38 @@ export async function submitContract(
   if (input.pronouns) systemAnswers.pronouns = input.pronouns;
   if (input.staffTitle) systemAnswers.staffTitle = input.staffTitle;
   if (input.epicIdExpiration) systemAnswers.epicIdExpiration = input.epicIdExpiration;
+  if (input.shiftsWanted) systemAnswers.shiftsWanted = input.shiftsWanted;
   const answers = buildContractAnswers(
     { ...systemAnswers, ...(input.customAnswers ?? {}), hasEpic: input.hasEpic ? "on" : "" },
-    { department: departmentCode, track, epicRequirement: requirement, storedEpicId },
+    { department: departmentCode, additionalDepartments, track, epicRequirement: requirement, storedEpicId },
   );
   const visible = visibleContractBlocks(layout.blocks, answers);
-  const initialsEnabled = visible.some(
-    (b) => b.kind === "system_field" && b.systemKey === "initials" && b.enabled !== false,
-  );
+  // An optional system field is asked only when its block is visible and not
+  // switched off, which is therefore the only time it can be required.
+  const asks = (key: SystemFieldKey) =>
+    visible.some((b) => b.kind === "system_field" && b.systemKey === key && b.enabled !== false);
+  const initialsEnabled = asks("initials");
+  // The shown, enabled block for a system field, or undefined.
+  const shownField = (key: SystemFieldKey) =>
+    visible.find((b): b is SystemFieldBlock => b.kind === "system_field" && b.systemKey === key && b.enabled !== false);
+  // Fields a director marked required (or required by default) must be answered
+  // when shown. The fields with their own value checks below (shift count,
+  // availability, photo) apply the same rule there.
+  const plainValues: Partial<Record<SystemFieldKey, { name: string; value: string | null | undefined }>> = {
+    netId: { name: "netId", value: contract.netId ?? input.netId },
+    phone: { name: "phone", value: input.phone },
+    dob: { name: "dateOfBirth", value: input.dateOfBirth },
+    dietary: { name: "dietaryRestrictions", value: input.dietaryRestrictions },
+    yaleAffiliation: { name: "yaleAffiliation", value: input.yaleAffiliation },
+    gradYear: { name: "gradYear", value: input.gradYear },
+    pronouns: { name: "pronouns", value: input.pronouns },
+    staffTitle: { name: "staffTitle", value: input.staffTitle },
+    epicIdExpiration: { name: "epicIdExpiration", value: input.epicIdExpiration },
+  };
+  for (const [key, field] of Object.entries(plainValues) as [SystemFieldKey, { name: string; value: string | null | undefined }][]) {
+    const block = shownField(key);
+    if (block && isSystemFieldRequired(block) && !field.value?.trim()) e[field.name] = "required";
+  }
   const signed = (id: string) => Boolean(input.signatures?.[id]?.dataUrl);
   if (initialsEnabled && !signed("initials")) e["sig__initials"] = "required";
   for (const b of visible) {
@@ -440,8 +619,70 @@ export async function submitContract(
       if (empty) e[`custom__${b.key}`] = "required";
     }
   }
-  if (!input.hipaaCompletedAt) e.hipaaCompletedAt = "required";
-  if (!input.hipaaFile && !contract.hipaaStoredName) e.hipaaFile = "required";
+  // Scheduling answers. A value outside the option list is refused rather than
+  // stored, because the schedule builder renders it to directors verbatim.
+  let shiftsWanted: string | null = null;
+  const shiftsBlock = shownField("shiftsWanted");
+  if (shiftsBlock) {
+    const v = input.shiftsWanted?.trim() ?? "";
+    if (!v) {
+      if (isSystemFieldRequired(shiftsBlock)) e.shiftsWanted = "required";
+    }
+    else if (!SHIFTS_WANTED_OPTIONS.some((o) => o.value === v)) e.shiftsWanted = "Choose one of the listed options.";
+    else shiftsWanted = v;
+  }
+  // The change request is kept only alongside a "yes": a paragraph typed and
+  // then abandoned by switching back to "no" is not a request.
+  let availabilityChangeNeeded: boolean | null = null;
+  let availabilityChangeRequest: string | null = null;
+  const availabilityBlock = shownField("availabilityChange");
+  if (availabilityBlock) {
+    const needed = input.availabilityChangeNeeded;
+    if (!needed) {
+      if (isSystemFieldRequired(availabilityBlock)) e.availabilityChangeNeeded = "required";
+    }
+    else if (!AVAILABILITY_CHANGE_OPTIONS.some((o) => o.value === needed)) e.availabilityChangeNeeded = "Choose one of the listed options.";
+    else if (needed === "yes") {
+      availabilityChangeNeeded = true;
+      availabilityChangeRequest = input.availabilityChangeRequest?.trim() || null;
+      if (!availabilityChangeRequest) e.availabilityChangeRequest = "required";
+    } else {
+      availabilityChangeNeeded = false;
+    }
+  }
+  // Profile photo. Decoded here, during validation, so an unreadable image comes
+  // back as a field error beside any others rather than after the certificate
+  // and signatures have been written to storage.
+  let photoBytes: Buffer | null = null;
+  const photoBlock = shownField("photo");
+  if (photoBlock) {
+    const photo = input.photoFile;
+    const maxMb = await getSetting<number>("uploads.maxMb");
+    if (!photo) {
+      // A photo already on their profile stands in for a new one.
+      if (isSystemFieldRequired(photoBlock) && !onFile.photoPersonId) e.photo = "required";
+    }
+    // The browser converts HEIC before sending when it can; one that arrives still
+    // in HEIC is a browser that could not, and the server cannot decode it either.
+    else if (isHeic({ type: photo.mimeType, name: photo.fileName })) e.photo = "We couldn't read this HEIC photo. Choose a JPEG or PNG instead.";
+    else if (!ACCEPTED_UPLOAD_TYPES.has(photo.mimeType)) e.photo = "Upload a PNG, JPEG, WebP, or HEIC image.";
+    else if (photo.bytes.length > maxMb * 1024 * 1024) e.photo = `max ${maxMb} MB`;
+    else {
+      try {
+        photoBytes = await normalizePhoto(photo.bytes);
+      } catch (err) {
+        if (!(err instanceof PhotoError)) throw err;
+        e.photo = err.message;
+      }
+    }
+  }
+  // A certificate on file that covers the term stands in for a new one. Sending a
+  // newer certificate anyway is allowed, and then both halves are needed.
+  const hipaaGiven = Boolean(input.hipaaCompletedAt || input.hipaaFile);
+  if (!onFile.hipaa || hipaaGiven) {
+    if (!input.hipaaCompletedAt) e.hipaaCompletedAt = "required";
+    if (!input.hipaaFile && !contract.hipaaStoredName) e.hipaaFile = "required";
+  }
   if (input.hasEpic && !input.existingEpicId?.trim()) {
     e.existingEpicId = "required when you already have Epic";
   }
@@ -506,6 +747,23 @@ export async function submitContract(
     };
   }
 
+  // The photo was normalized during validation, so this only stores it. It is
+  // rolled back with the certificate wherever the submit fails below.
+  let photoKey: string | null = null;
+  let photoStoredName: string | null = null;
+  if (photoBytes) {
+    const storedName = `photo-${randomUUID()}.webp`;
+    const key = `onboarding/${contract.id}/${storedName}`;
+    try {
+      await putObject(key, photoBytes, PHOTO_CONTENT_TYPE);
+    } catch (err) {
+      if (writtenKey) await deleteObject(writtenKey);
+      throw err;
+    }
+    photoKey = key;
+    photoStoredName = storedName;
+  }
+
   // Persist each drawn signature as a private PNG blob and build the structured
   // record stored in the signatures JSON. Every enabled agreement (+ initials) was
   // validated as signed above, so decode failures here are treated as validation
@@ -544,6 +802,7 @@ export async function submitContract(
       // putObject throw escaped and leaked them.)
       await cleanupSignatures();
       if (writtenKey) await deleteObject(writtenKey);
+      if (photoKey) await deleteObject(photoKey);
       // Same contract as the apply wizard: the field error is rendered verbatim
       // under the field, so it carries the sentence and the banner stays generic.
       if (err instanceof SignatureError) throw new ContractValidationError("Please fix the highlighted fields.", { [`sig__${id}`]: "Please provide a valid signature." });
@@ -576,6 +835,7 @@ export async function submitContract(
         firstName: input.firstName.trim(),
         lastName: input.lastName.trim(),
         preferredFirstName: input.preferredFirstName?.trim() || null,
+        legalMiddleName: input.legalMiddleName?.trim() || null,
         // Pin the identity keys to the values the SRR-created contract was seeded
         // with (from the accepted Applicant record); ignore a freely-typed
         // netId/email in the submission (#49). Otherwise an applicant could type
@@ -593,6 +853,9 @@ export async function submitContract(
         pronouns: input.pronouns?.trim() || null,
         staffTitle: input.staffTitle?.trim() || null,
         epicIdExpiration: epicIdExpiration ?? null,
+        shiftsWanted,
+        availabilityChangeNeeded,
+        availabilityChangeRequest,
         initials: initialsName,
         signatures: signatureJson as object,
         // Confirmations (checkbox agreements) have no drawn signature, so this
@@ -618,13 +881,25 @@ export async function submitContract(
         licensedRN: input.licensedRN ?? false,
         hipaaCompletedAt: hipaaCompletedAt ?? null,
         ...fileRef,
+        photoStoredName,
         // Freeze the visibility context used to decide what the applicant saw --
         // department/track/Epic-requirement and the storedEpicId resolved at submit
         // -- so the signed-contract review renders exactly those blocks even after
         // the department's Epic requirement changes or a matching Person later gets
         // an epicId (which promotion itself causes). getContractForReview reads this
         // and only re-derives live for pre-column rows (#107/#108/#109).
-        reviewContext: { department: departmentCode, track, epicRequirement: requirement, storedEpicId } as object,
+        reviewContext: {
+          department: departmentCode, track, epicRequirement: requirement, storedEpicId,
+          ...(additionalDepartments.length > 0 ? { additionalDepartments } : {}),
+          // What stood in for an upload, so the signed-contract review can say
+          // "on file" rather than "not provided".
+          onFile: {
+            hipaa: onFile.hipaa && !input.hipaaFile
+              ? { completionDate: onFile.hipaa.completionDate.toISOString(), pendingVerification: onFile.hipaa.pendingVerification }
+              : null,
+            photo: Boolean(onFile.photoPersonId) && !input.photoFile,
+          },
+        } as object,
         status: "SUBMITTED",
         submittedAt: new Date(),
       },
@@ -632,6 +907,7 @@ export async function submitContract(
   } catch (err) {
     await cleanupSignatures();
     if (writtenKey) await deleteObject(writtenKey);
+    if (photoKey) await deleteObject(photoKey);
     throw err;
   }
   if (claimed.count === 0) {
@@ -639,6 +915,7 @@ export async function submitContract(
     // we just wrote so they aren't orphaned, and don't write a second audit row.
     await cleanupSignatures();
     if (writtenKey) await deleteObject(writtenKey);
+    if (photoKey) await deleteObject(photoKey);
     throw new ContractError("This onboarding form has already been submitted.");
   }
   await recordAudit({
@@ -736,7 +1013,7 @@ export async function withdrawContract(contractId: string, actorId: string): Pro
   }
   const contract = await prisma.onboardingContract.findUnique({
     where: { id: contractId },
-    select: { id: true, status: true, hipaaStoredName: true, signatures: true },
+    select: { id: true, status: true, hipaaStoredName: true, photoStoredName: true, signatures: true },
   });
   if (!contract) throw new ContractError("Onboarding contract not found.");
   if (contract.status === "PROMOTED") {
@@ -753,6 +1030,7 @@ export async function withdrawContract(contractId: string, actorId: string): Pro
     }
   }
   if (contract.hipaaStoredName) blobKeys.push(`onboarding/${contract.id}/${contract.hipaaStoredName}`);
+  if (contract.photoStoredName) blobKeys.push(`onboarding/${contract.id}/${contract.photoStoredName}`);
 
   // Delete the row first (the authoritative action). Blob cleanup is best-effort:
   // a leaked blob is a minor storage cost, whereas deleting blobs before a failed
@@ -780,25 +1058,54 @@ export async function withdrawContract(contractId: string, actorId: string): Pro
 }
 
 export async function listOnboarding(cycleId: string) {
-  const rows = await prisma.acceptance.findMany({
-    where: { application: { cycleId } },
-    include: {
-      application: {
-        include: {
-          applicant: { select: { firstName: true, lastName: true, email: true } },
+  const [rows, approved] = await Promise.all([
+    prisma.acceptance.findMany({
+      where: { application: { cycleId } },
+      include: {
+        application: {
+          include: {
+            applicant: { select: { firstName: true, lastName: true, email: true } },
+          },
         },
+        contract: true,
       },
-      contract: true,
-    },
-    orderBy: { createdAt: "asc" },
-  });
-  // Flag acceptances whose application was accepted by more than one department.
-  // The onboarding surface must not let SRR send links to, or promote, these
-  // until the conflict is resolved on the Decisions page.
+      orderBy: { createdAt: "asc" },
+    }),
+    approvedDualAppointmentPairs({ cycleId }),
+  ]);
+  // Flag acceptances whose application was accepted by more than one department
+  // without an approved dual appointment. The onboarding surface must not let SRR
+  // send links to, or promote, these until the conflict is resolved on the
+  // Decisions page.
   const conflicts = findAcceptanceConflicts(
     rows.map((r) => ({ applicationId: r.applicationId, departmentCode: r.departmentCode })),
+    approved,
   );
-  return rows.map((r) => ({ ...r, conflicted: conflicts.has(r.applicationId) }));
+  // A dual appointment onboards through one of its two acceptances; the other row
+  // points at it (onboardsWith) and has nothing of its own to send or promote.
+  const approvedByApp = new Map<string, string[]>();
+  for (const d of approved) approvedByApp.set(d.applicationId, [...(approvedByApp.get(d.applicationId) ?? []), d.departmentCode]);
+  const rowsByApp = new Map<string, typeof rows>();
+  for (const r of rows) rowsByApp.set(r.applicationId, [...(rowsByApp.get(r.applicationId) ?? []), r]);
+  const anchorByApp = new Map<string, (typeof rows)[number]>();
+  for (const [applicationId, appRows] of rowsByApp) {
+    if (appRows.length < 2 || conflicts.has(applicationId)) continue;
+    const anchor = onboardingAnchor(
+      appRows.map((r) => ({ row: r, departmentCode: r.departmentCode, hasContract: r.contract != null })),
+      approvedByApp.get(applicationId) ?? [],
+    );
+    if (anchor) anchorByApp.set(applicationId, anchor.row);
+  }
+  return rows.map((r) => {
+    const anchor = anchorByApp.get(r.applicationId);
+    const coveredBy = anchor && anchor.id !== r.id ? anchor : null;
+    return {
+      ...r,
+      conflicted: conflicts.has(r.applicationId),
+      onboardsWith: coveredBy?.departmentCode ?? null,
+      onRosterThroughAnchor: coveredBy?.contract?.promotedPersonId != null,
+    };
+  });
 }
 
 /**
@@ -825,8 +1132,9 @@ export async function listOnboardingRows(
     firstName: r.application.applicant.firstName,
     lastName: r.application.applicant.lastName,
     departmentCode: r.departmentCode,
-    state: deriveRowState({ conflicted: r.conflicted, contract: r.contract, now }),
-    onRoster: r.contract?.promotedPersonId != null,
+    state: deriveRowState({ conflicted: r.conflicted, onboardsWith: r.onboardsWith, contract: r.contract, now }),
+    onboardsWith: r.onboardsWith,
+    onRoster: r.contract?.promotedPersonId != null || r.onRosterThroughAnchor,
     customAnswers: r.contract
       ? resolveCustomAnswers(r.contract.templateSnapshot, r.contract.customAnswers)
       : [],
@@ -860,22 +1168,19 @@ export async function getContractForReview(contractId: string) {
   if (frozen) {
     ctx = frozen;
   } else {
-    const departmentCode = contract.acceptance.departmentCode;
     const track = contract.acceptance.application.cycle?.track ?? "VOLUNTEER";
-    const dept = departmentCode
-      ? await prisma.department.findUnique({
-          where: { code: departmentCode },
-          select: { requiresEpicDirector: true, requiresEpicVolunteer: true },
-        })
-      : null;
+    const departments = await contractDepartmentContext(contract.acceptance, track);
     ctx = {
-      department: departmentCode,
+      department: departments.department,
+      // Only when there is one, so a single-department context reads exactly as
+      // it always has, frozen or live.
+      ...(departments.additionalDepartments.length > 0 ? { additionalDepartments: departments.additionalDepartments } : {}),
       track,
-      epicRequirement: epicRequirementFor(dept, track),
+      epicRequirement: departments.epicRequirement,
       storedEpicId: await lookupStoredEpicId(contract.netId, contract.email),
     };
   }
-  return { contract, cycleId: contract.acceptance.application.cycleId, ctx };
+  return { contract, cycleId: contract.acceptance.application.cycleId, ctx, onFile: parseReviewOnFile(contract.reviewContext) };
 }
 
 /** Minimal certificate metadata for the reviewer-gated HIPAA download route:

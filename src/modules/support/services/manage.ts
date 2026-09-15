@@ -60,12 +60,13 @@ import { can } from "@/platform/rbac/engine";
 import { notify } from "@/platform/notifications/notify";
 import { getSetting } from "@/platform/settings/service";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
-import { MANAGE, SupportForbiddenError, SupportNotFoundError, SupportStateError } from "./tech-request";
+import { MANAGE, SupportForbiddenError, SupportNotFoundError, SupportStateError, TERMINAL_STATUSES } from "./tech-request";
 import { STATUS_LABELS } from "../components/status-badge";
 import { notifyIntercomStatusChange, pushIntercomTicketState } from "./notifications";
 
-/** RESOLVED, CLOSED, and CANCELLED are terminal: no further assign, status transition, priority change, resolve, or cancel is allowed. Also used by ticket-detail.tsx to gate the owner-facing cancel button and the manager control panel. */
-export const TERMINAL_STATUSES: TechRequestStatus[] = ["RESOLVED", "CLOSED", "CANCELLED"];
+/** Re-exported from tech-request.ts, which is where it is declared; every existing
+ *  caller imports it from here. See that declaration for why it moved. */
+export { TERMINAL_STATUSES } from "./tech-request";
 
 async function requireManage(actorPersonId: string): Promise<void> {
   if (!(await can(actorPersonId, MANAGE))) {

@@ -55,7 +55,8 @@ describe("PersonNameCell", () => {
 
   it("joins only the contact details it has, with no stray separator", () => {
     const all = render(<PersonNameCell person={person} />);
-    expect(all).toContain("al123 · ada@example.edu · 203-555-0100");
+    // The phone renders in the app's one format, whatever shape was stored.
+    expect(all).toContain("al123 · ada@example.edu · (203) 555-0100");
 
     const one = render(
       <PersonNameCell person={{ ...person, netId: null, phone: null }} />,

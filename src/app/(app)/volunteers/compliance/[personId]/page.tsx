@@ -61,6 +61,7 @@ import { CalendarDate } from "@/platform/dates/display";
 import { EmptyState } from "@/platform/ui/empty-state";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { hubTrail } from "@/platform/ui/breadcrumb-trail";
+import { formatPhone } from "@/platform/phone";
 
 type PageProps = { params: Promise<{ personId: string }> };
 
@@ -167,22 +168,13 @@ export default async function PersonCompliancePage({ params }: PageProps) {
 
   const certReq = certRequirement(status, "staff");
   const expiresAt = newestCert?.completionDate ? certExpiresAt(newestCert.completionDate) : null;
-  // A director has no master view to go back to; send them to the roster they do
-  // have. Both are one click either way, and a link to a page that bounces is
-  // worse than a slightly less specific one.
-
   return (
     <div>
-      {/* A hand-built trail rather than SetBreadcrumbLeaf: a manager came from
-          the master roster and a non-manager from the compliance page, and the
-          registry-derived crumb would send both to the latter. */}
-      <SetBreadcrumb
-        trail={hubTrail(
-          { label: "Volunteers", href: "/volunteers" },
-          ...(isManager ? [{ label: "Master compliance", href: "/volunteers/master" }] : []),
-          { label: person.name },
-        )}
-      />
+      {/* Everyone comes here from the one roster at /volunteers (the module
+          root), so the trail is the same for a manager and a director. It used
+          to fork: managers came from /volunteers/master, which is now a redirect
+          to that same roster. */}
+      <SetBreadcrumb trail={hubTrail({ label: "Volunteers", href: "/volunteers" }, { label: person.name })} />
       <PageHeader
         title={person.name}
         description={
@@ -220,7 +212,7 @@ export default async function PersonCompliancePage({ params }: PageProps) {
                     </a>
                   )}
                 </DetailRow>
-                <DetailRow label="Phone" empty="Not set">{person.phone}</DetailRow>
+                <DetailRow label="Phone" empty="Not set">{formatPhone(person.phone)}</DetailRow>
                 <DetailRow label="NetID" empty="Not set">{person.netId}</DetailRow>
                 <DetailRow label="Pronouns" empty="Not set">{person.pronouns}</DetailRow>
                 <DetailRow label="Yale affiliation" empty="Not set">{person.yaleAffiliation}</DetailRow>

@@ -10,6 +10,7 @@ import { Input } from "@/platform/ui/input";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { runAction } from "@/platform/ui/run-action";
 import { DescriptionList, DetailRow } from "@/platform/ui/description-list";
+import { TextLink } from "@/platform/ui/text-link";
 import { buildSpeedScoreQueue, type SpeedScoreItem } from "@/modules/recruitment/engine/speed-score-queue";
 import type { ReviewApplicationView } from "@/modules/recruitment/services/speed-score";
 import { DocumentPreview } from "./document-preview";
@@ -39,6 +40,14 @@ export function SpeedScoreModal({ open, onClose, items, onScore, onLoad }: Speed
   const loadedRef = useRef<Set<string>>(new Set());
   const [viewError, setViewError] = useState<string | null>(null);
   const [comment, setComment] = useState("");
+  // The comment each applicant holds on the server, kept current as this session
+  // saves. The box starts from it on every move: a score sends whatever is in the
+  // box and the upsert writes that over the stored comment, so a box that started
+  // empty deleted the comment on any applicant being re-scored. Read only in the
+  // effect and the save handler, never during render, so a ref.
+  const savedCommentsRef = useRef<Record<string, string | null>>(
+    Object.fromEntries(items.map((i) => [i.applicationId, i.myComment])),
+  );
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaving, startSave] = useTransition();
   // Applicant to keep in view across a queue-basis change (the show-scored
@@ -93,9 +102,9 @@ export function SpeedScoreModal({ open, onClose, items, onScore, onLoad }: Speed
   // Load current + prefetch next whenever the position changes.
   useEffect(() => {
     if (!open || !current) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentionally reset both viewError and comment synchronously on position change, before async prefetch
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentionally reset viewError and load this applicant's saved comment synchronously on position change, before async prefetch
     setViewError(null);
-    setComment("");
+    setComment(savedCommentsRef.current[current.applicationId] ?? "");
     void ensureLoaded(current.applicationId, true);
     const next = queue[index + 1];
     if (next) void ensureLoaded(next.applicationId, false);
@@ -129,6 +138,7 @@ export function SpeedScoreModal({ open, onClose, items, onScore, onLoad }: Speed
           setSaveError(res.error);
           return;
         }
+        savedCommentsRef.current[target] = note;
         setLiveScores((prev) => ({ ...prev, [target]: value }));
         setIndex((i) => i + 1);
       });
@@ -281,6 +291,34 @@ function ApplicationBody({ view }: { view: ReviewApplicationView }) {
 
   return (
     <div className="space-y-5">
+      {/* First, as on the detail page: having applied before changes how the rest
+          reads. Always shown, because "first application" is worth knowing too and
+          a missing section would look like a failed load. */}
+      <section>
+        <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Past applications</h3>
+        <p className="text-sm text-foreground-soft">{view.history.summary}</p>
+        {view.history.rows.length > 0 && (
+          <ul className="mt-2 divide-y divide-border-subtle border-y border-border-subtle">
+            {view.history.rows.map((r) => (
+              <li key={r.key} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2">
+                <div className="min-w-0">
+                  {/* A new tab: following the link in place would close the
+                      modal and lose the scorer's place in the queue. */}
+                  {r.href ? (
+                    <TextLink href={r.href} external size="sm" className="font-medium">
+                      {r.title}
+                    </TextLink>
+                  ) : (
+                    <span className="text-sm text-foreground-soft">{r.title}</span>
+                  )}
+                  {r.meta && <p className="mt-0.5 text-xs text-subtle-foreground">{r.meta}</p>}
+                </div>
+                <Badge className="shrink-0">{r.badge}</Badge>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
       {scalars.length > 0 && (
         <section>
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-subtle-foreground">At a glance</h3>

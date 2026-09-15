@@ -272,6 +272,18 @@ export async function updateTerm(
   return term;
 }
 
+/**
+ * What activating another term does to the one currently ACTIVE. A term whose
+ * end date is still ahead is being flipped early, so it is demoted to PLANNING
+ * and the flip stays undoable; a term that has ended is archived. activateTerm
+ * applies this and the activation checklist (term-readiness.ts) reports it, so
+ * the warning an admin reads before confirming cannot drift from what the swap
+ * then does.
+ */
+export function displacedStatusFor(term: { endDate: Date }, now: Date): "ARCHIVED" | "PLANNING" {
+  return term.endDate.getTime() > now.getTime() ? "PLANNING" : "ARCHIVED";
+}
+
 export async function activateTerm(actorPersonId: string, id: string): Promise<Term> {
   // Verify target exists first; surface a typed error early.
   const target = await prisma.term.findUnique({ where: { id } });
@@ -319,7 +331,7 @@ export async function activateTerm(actorPersonId: string, id: string): Promise<T
           // recoverable and re-activatable. A term already past its end date is a
           // normal end-of-semester handoff: archive it, and cancel its still-PENDING
           // shift requests, which can no longer be decided anywhere once archived.
-          displacedStatus = currentActive.endDate.getTime() > now.getTime() ? "PLANNING" : "ARCHIVED";
+          displacedStatus = displacedStatusFor(currentActive, now);
           displacedTerm = await tx.term.update({
             where: { id: currentActive.id },
             data: { status: displacedStatus },

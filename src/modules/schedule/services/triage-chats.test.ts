@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { splitPersonName } from "@/platform/person-name";
 import { resolveTriageRoster, type TriageRosterAssignment } from "./triage-chats";
 
 const BVHD = { id: "d-bvhd", code: "BVHD", name: "Behavioral Health" };
@@ -10,6 +11,7 @@ function assignment(
   over: Partial<TriageRosterAssignment> & { name: string; department: typeof BVHD },
 ): TriageRosterAssignment {
   const personId = over.personId ?? `p-${over.name.toLowerCase().replace(/\W+/g, "-")}`;
+  const parts = splitPersonName(over.name);
   return {
     personId,
     role: over.role ?? "DIRECTOR",
@@ -18,6 +20,8 @@ function assignment(
     person: {
       id: personId,
       name: over.name,
+      legalFirstName: parts.legalFirstName,
+      lastName: parts.lastName,
       netId: over.person?.netId ?? "nid",
       contactEmail: over.person?.contactEmail ?? null,
       entraObjectId: over.person?.entraObjectId ?? "oid",
@@ -139,7 +143,15 @@ describe("resolveTriageRoster", () => {
       assignments: [
         {
           ...assignment({ name: "Goeun Lee", department: BVHD }),
-          person: { id: "p-1", name: "Goeun Lee", netId: "gl123", contactEmail: "gl@example.com", entraObjectId: null },
+          person: {
+            id: "p-1",
+            name: "Goeun Lee",
+            legalFirstName: "Goeun",
+            lastName: "Lee",
+            netId: "gl123",
+            contactEmail: "gl@example.com",
+            entraObjectId: null,
+          },
           personId: "p-1",
         },
       ],

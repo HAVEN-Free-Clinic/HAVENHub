@@ -54,7 +54,7 @@ export default async function RecruitmentLayout({ children }: { children: ReactN
   return (
     <>
       {items.length > 0 && <ModuleNav items={items} />}
-      <div className="mt-8">{children}</div>
+      <div className="mt-6">{children}</div>
     </>
   );
 }

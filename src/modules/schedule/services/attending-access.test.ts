@@ -46,6 +46,11 @@ async function attending(name: string, email: string | null, isActive = true) {
   return prisma.attending.create({ data: { scheduleName: name, fullName: name, email, isActive } });
 }
 
+/** The real shape: the contact sheet's formal name differs from the clinic's. */
+async function attendingWithFormalName(fullName: string, scheduleName: string, email: string) {
+  return prisma.attending.create({ data: { fullName, scheduleName, email, isActive: true } });
+}
+
 beforeEach(async () => {
   await resetDb();
   await seedAttendingRole();
@@ -96,6 +101,46 @@ describe("enableHubAccess", () => {
     expect(person.netId).toBeNull();
 
     expect([...(await getEffectivePermissions(person.id))]).toEqual(["schedule.view"]);
+  });
+
+  /**
+   * The contact sheet holds the formal name ("Bia, Margaret") and the schedule
+   * holds what the clinic says ("Peggy Bia"). Creating the Person from the
+   * schedule name alone made "Peggy" the LEGAL given name, and because two clean
+   * tokens split confidently it never reached the review queue. That name goes
+   * to YNHH on an Epic access request.
+   */
+  it("takes the legal name from the contact sheet, not the clinic's nickname", async () => {
+    const a = await attendingWithFormalName("Bia, Margaret", "Peggy Bia", "peggy.bia@yale.edu");
+    await enableHubAccess(FCRL, a.id, { notify: false });
+
+    const linked = await prisma.attending.findUniqueOrThrow({ where: { id: a.id }, select: { personId: true } });
+    const person = await prisma.person.findUniqueOrThrow({ where: { id: linked.personId! } });
+
+    // What the clinic calls her, unchanged: this is the toolbar and every page.
+    expect(person.name).toBe("Peggy Bia");
+    // What YNHH needs.
+    expect(person.legalFirstName).toBe("Margaret");
+    expect(person.lastName).toBe("Bia");
+    // A comma form is a guess, and the two names disagree, so a human confirms.
+    expect(person.nameNeedsReview).toBe(true);
+  });
+
+  /**
+   * "Ponce Terashima, Javier" is on the schedule as "Dr. Ponce". Deriving a
+   * preferred FIRST name from that would store "Dr.", so the schedule name is
+   * kept whole rather than parsed.
+   */
+  it("keeps a clinic name that is not a first-name-plus-surname", async () => {
+    const a = await attendingWithFormalName("Ponce Terashima, Javier", "Dr. Ponce", "jp@yale.edu");
+    await enableHubAccess(FCRL, a.id, { notify: false });
+
+    const linked = await prisma.attending.findUniqueOrThrow({ where: { id: a.id }, select: { personId: true } });
+    const person = await prisma.person.findUniqueOrThrow({ where: { id: linked.personId! } });
+
+    expect(person.name).toBe("Dr. Ponce");
+    expect(person.legalFirstName).toBe("Javier");
+    expect(person.lastName).toBe("Ponce Terashima");
   });
 
   /**

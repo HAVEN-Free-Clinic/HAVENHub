@@ -1,11 +1,15 @@
 import { describe, it, expect } from "vitest";
+import { splitPersonName } from "@/platform/person-name";
 import { matchCandidates, exactNetIdMatch, MAX_RESULTS } from "./check-in-match";
 import type { CheckInCandidate } from "@/modules/recruitment/services/attendance-events";
 
 function candidate(over: Partial<CheckInCandidate> & { name: string }): CheckInCandidate {
+  const parts = splitPersonName(over.name);
   return {
     kind: "person",
     id: over.name.toLowerCase().replace(/\W/g, ""),
+    legalFirstName: parts.legalFirstName,
+    lastName: parts.lastName,
     email: null,
     netId: null,
     departmentCodes: [],

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { EpicRequirement, Track } from "@prisma/client";
 import { submitOnboarding, type SubmitResult } from "./actions";
 import { ContractField } from "./contract-field";
+import { DetailsReview, isReviewableBlock } from "./details-review";
 import { NextStepsScreen } from "./next-steps-screen";
 import { Alert } from "@/platform/ui/alert";
 import { SubmitButton } from "@/platform/ui/submit-button";
@@ -11,12 +12,28 @@ import { FormActions } from "@/platform/ui/form";
 import { visibleOnboardingBlocks } from "@/modules/recruitment/contract/visibility";
 import type { ContractLayout } from "@/modules/recruitment/contract/layout";
 
-type Prefill = { firstName: string; lastName: string; preferredFirstName: string; email: string; netId: string; phone: string; yaleAffiliation: string; gradYear: string };
+/**
+ * The most file data one submit may carry. The platform refuses a request body
+ * over ~4.5 MB at the edge, before submitContract runs (platform/config.ts), and
+ * the signatures and text fields ride along in the same body, so this keeps a
+ * margin under that.
+ */
+const MAX_SUBMIT_FILE_BYTES = 4_300_000;
+
+type Prefill = { firstName: string; legalMiddleName?: string; lastName: string; preferredFirstName: string; email: string; netId: string; phone: string; pronouns?: string; yaleAffiliation: string; gradYear: string; staffTitle?: string };
 type Ctx = {
   firstName: string; orgName: string; todayIso: string;
   trainingDate: string; trainingLocation: string;
   department: string | null; track: Track; epicRequirement: EpicRequirement;
   storedEpicId: string | null;
+  /** Departments they are also accepted into as a dual appointment. */
+  additionalDepartments?: string[];
+  /** Labelled clinic dates from the application, for the availability check. */
+  applicationAvailability?: string[];
+  /** A HIPAA certificate on file that covers the term; the upload becomes optional. */
+  hipaaOnFile?: { completionDate: string; expiresAt: string; pendingVerification: boolean } | null;
+  /** The stored profile photo as a data URI; a new photo becomes optional. */
+  photoOnFile?: string | null;
 };
 
 export function OnboardForm({
@@ -110,9 +127,22 @@ export function OnboardForm({
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    // Each upload field refuses a file over its own cap, but the certificate and
+    // the photo travel together, so check what they add up to before posting.
+    // Over the platform limit the POST fails at the edge with no message at all.
+    const fileBytes = [...formData.values()].reduce((n, v) => (typeof v === "string" ? n : n + v.size), 0);
+    if (fileBytes > MAX_SUBMIT_FILE_BYTES) {
+      setResult({
+        ok: false,
+        message: "Your HIPAA certificate and photo are too large to send together. Use a smaller certificate PDF or a different photo, then submit again.",
+      });
+      requestAnimationFrame(() => errorSummaryRef.current?.focus());
+      return;
+    }
     setSubmitting(true);
     try {
-      const res = await submitOnboarding(token, new FormData(e.currentTarget));
+      const res = await submitOnboarding(token, formData);
       setResult(res);
       if (!res.ok) requestAnimationFrame(() => errorSummaryRef.current?.focus());
     } catch {
@@ -143,9 +173,32 @@ export function OnboardForm({
   // director turned off entirely) and the visibleWhen evaluation against the
   // applicant's answers merged with the authoritative context.
   const shown = visibleOnboardingBlocks(layout, answers, {
-    department: ctx.department, track: ctx.track, epicRequirement: ctx.epicRequirement,
+    department: ctx.department, additionalDepartments: ctx.additionalDepartments,
+    track: ctx.track, epicRequirement: ctx.epicRequirement,
     storedEpicId: ctx.storedEpicId,
   });
+
+  // What to fetch before starting: only the uploads this layout actually asks
+  // for, since a director can remove either block.
+  const asked = (key: string) => shown.some((b) => b.kind === "system_field" && b.systemKey === key);
+  const toHaveReady = [
+    asked("hipaa") && !ctx.hipaaOnFile ? "your HIPAA certificate PDF" : null,
+    asked("photo") && !ctx.photoOnFile ? "a clear photo of your face" : null,
+  ].filter(Boolean).join(" and ");
+
+  // The details the application already collected render as one summary with an
+  // "Update" option, placed where the first of them sits, instead of as a page of
+  // inputs to re-read. Their inputs still render inside it (hidden), so the
+  // values post and visibility is computed exactly as before.
+  const reviewBlocks = shown.filter(isReviewableBlock);
+  const firstReviewIndex = shown.findIndex(isReviewableBlock);
+  const field = (b: (typeof shown)[number]) => (
+    <ContractField
+      key={"id" in b ? b.id : b.kind === "system_field" ? b.systemKey : b.key}
+      block={b} prefill={prefill} ctx={ctx} err={err} onAnswer={onAnswer} departments={departments}
+      maxUploadMb={maxUploadMb}
+    />
+  );
 
   return (
     <form onSubmit={onSubmit} onChange={markDirty} onInput={markDirty} className="mt-6">
@@ -157,8 +210,8 @@ export function OnboardForm({
             never asks for would be worse than saying nothing. */}
         <Alert tone="info">
           Nothing is saved until you submit this form.
-          {shown.some((b) => b.kind === "system_field" && b.systemKey === "hipaa")
-            ? " Have your HIPAA certificate PDF ready before you start, and set aside a few minutes to finish in one sitting."
+          {toHaveReady
+            ? ` Have ${toHaveReady} ready before you start, and set aside a few minutes to finish in one sitting.`
             : " Set aside a few minutes to finish in one sitting."}
         </Alert>
 
@@ -180,13 +233,15 @@ export function OnboardForm({
           </div>
         )}
 
-        {shown.map((b) => (
-          <ContractField
-            key={"id" in b ? b.id : b.kind === "system_field" ? b.systemKey : b.key}
-            block={b} prefill={prefill} ctx={ctx} err={err} onAnswer={onAnswer} departments={departments}
-            maxUploadMb={maxUploadMb}
-          />
-        ))}
+        {shown.map((b, i) => {
+          if (!isReviewableBlock(b)) return field(b);
+          if (i !== firstReviewIndex) return null;
+          return (
+            <DetailsReview key="details-review" blocks={reviewBlocks} prefill={prefill} err={err}>
+              {reviewBlocks.map(field)}
+            </DetailsReview>
+          );
+        })}
 
         <FormActions>
           <SubmitButton disabled={submitting}>{submitting ? "Submitting…" : "Submit onboarding"}</SubmitButton>

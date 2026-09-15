@@ -201,11 +201,21 @@ export default async function IncidentReviewPage({ searchParams }: PageProps) {
                     <TD className="max-w-xs text-sm text-foreground-soft">
                       {report.concernTypes.map((c) => CONCERN_LABELS[c] ?? c).join(", ")}
                     </TD>
+                    {/* Both columns say "no" in words: a blank cell read as a
+                        field nobody had filled in. */}
                     <TD>
-                      {report.immediateRisk && <Badge tone="critical">Immediate risk</Badge>}
+                      {report.immediateRisk ? (
+                        <Badge tone="critical">Immediate risk</Badge>
+                      ) : (
+                        <span className="text-sm text-subtle-foreground">No</span>
+                      )}
                     </TD>
                     <TD>
-                      {strikePendingCount > 0 && <Badge tone="warning">Strike pending</Badge>}
+                      {strikePendingCount > 0 ? (
+                        <Badge tone="warning">Strike pending</Badge>
+                      ) : (
+                        <span className="text-sm text-subtle-foreground">None</span>
+                      )}
                     </TD>
                     <TD>
                       <Badge tone={STATUS_TONES[report.status]}>{STATUS_LABELS[report.status]}</Badge>

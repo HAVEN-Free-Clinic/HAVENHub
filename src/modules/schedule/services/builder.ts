@@ -21,10 +21,13 @@ import { can, permissionDepartmentIds } from "@/platform/rbac/engine";
 import { mailingEmailForPerson } from "@/platform/auth/match-person";
 import { loadClearanceMap } from "@/platform/clearance";
 import {
+  findIncomingAcceptance,
   findIncomingMember,
   listIncomingMembers,
+  onboardingNotesByMember,
+  listIncomingShiftDrafts,
 } from "@/platform/recruitment/incoming-roster";
-import type { IncomingStage } from "@/platform/recruitment/incoming-roster";
+import type { IncomingShiftDraft, IncomingStage } from "@/platform/recruitment/incoming-roster";
 import { resolveAvailability } from "../engine/availability";
 import type { ResolvedAvailability } from "../engine/availability";
 import { toScheduleEntries } from "../engine/map";
@@ -43,6 +46,7 @@ import type {
   ProcedureStatus,
 } from "../engine/rhd";
 import { getSetting } from "@/platform/settings/service";
+import { comparePersonName, personNameOrderVia } from "@/platform/person-name";
 
 // ---------------------------------------------------------------------------
 // Typed errors
@@ -203,8 +207,12 @@ export async function canManageAnyScheduleDept(personId: string): Promise<boolea
  *
  * Validation:
  *   - dateKey must be a clinic date in the active term.
- *   - person must have an ACTIVE membership in the department+term.
+ *   - person must hold a place on the board: an ACTIVE membership in the
+ *     department+term, or a live acceptance into it (an incoming member).
  *   - role DIRECTOR only allowed when membership.kind === "DIRECTOR".
+ *
+ * A first-time applicant's row carries a synthetic `acceptance:<id>` in place of
+ * a personId, and is handed to {@link setIncomingDraft}.
  */
 export async function setAssignment(
   actor: string,
@@ -226,6 +234,14 @@ export async function setAssignment(
   }
 
   const term = await loadEditableTerm(opts.termId);
+
+  // A first-time applicant writes against their acceptance: they have no Person
+  // for a ShiftAssignment to point at until roster build creates one.
+  const draftAcceptanceId = acceptanceIdFromRowId(opts.personId);
+  if (draftAcceptanceId !== null) {
+    await setIncomingDraft(actor, term, { ...opts, acceptanceId: draftAcceptanceId });
+    return;
+  }
 
   if (opts.role !== null) {
     // Assign: the date must be an active clinic date of the term. (Unassign
@@ -386,6 +402,107 @@ export async function setAssignment(
 }
 
 /**
+ * setAssignment for a first-time applicant, whose row id is the synthetic
+ * `acceptance:<id>` rather than a person.
+ *
+ * Writes IncomingShiftAssignment, which promoteContracts moves onto
+ * ShiftAssignment once it has created the person. The rules are the person
+ * path's: to assign, the date must be a clinic date, the acceptance must still
+ * put them on THIS department's incoming roster for THIS term (the predicate the
+ * builder listed them by), and DIRECTOR needs a director-track acceptance.
+ * Unassign resolves by day key and asks none of that, so a draft on a withdrawn
+ * applicant or a removed clinic date can still be cleared.
+ */
+async function setIncomingDraft(
+  actor: string,
+  term: Term,
+  opts: {
+    departmentId: string;
+    dateKey: string;
+    personId: string;
+    acceptanceId: string;
+    role: "VOLUNTEER" | "SHADOW" | "DIRECTOR" | null;
+    reason?: string;
+  },
+): Promise<void> {
+  const entityId = `${term.id}|${opts.departmentId}|${opts.dateKey}|${opts.personId}`;
+
+  if (opts.role === null) {
+    const candidates = await prisma.incomingShiftAssignment.findMany({
+      where: { termId: term.id, departmentId: opts.departmentId, acceptanceId: opts.acceptanceId },
+      select: { id: true, clinicDate: true, role: true },
+    });
+    const existing = candidates.find((row) => isoDateKey(row.clinicDate) === opts.dateKey);
+    // deleteMany rather than delete: another director clearing the same draft a
+    // moment earlier is not an error worth surfacing.
+    if (existing) {
+      await prisma.incomingShiftAssignment.deleteMany({ where: { id: existing.id } });
+    }
+    await recordAudit({
+      actorPersonId: actor,
+      action: "schedule.unassign",
+      entityType: "IncomingShiftAssignment",
+      entityId,
+      before: {
+        role: existing?.role ?? null,
+        dateKey: opts.dateKey,
+        acceptanceId: opts.acceptanceId,
+        reason: opts.reason ?? null,
+      },
+    });
+    return;
+  }
+
+  const clinicDate = term.clinicDates.find((d) => isoDateKey(d) === opts.dateKey);
+  if (!clinicDate) {
+    throw new BuilderValidationError(`${opts.dateKey} is not a clinic date in the selected term.`);
+  }
+
+  // Acceptances are keyed by department CODE, not id.
+  const dept = await prisma.department.findUnique({
+    where: { id: opts.departmentId },
+    select: { code: true },
+  });
+  const incoming = dept
+    ? await findIncomingAcceptance({
+        acceptanceId: opts.acceptanceId,
+        termId: term.id,
+        departmentCode: dept.code,
+      })
+    : null;
+  if (!incoming) {
+    throw new BuilderValidationError(
+      "This applicant is no longer accepted into this department for the selected term.",
+    );
+  }
+  if (opts.role === "DIRECTOR" && incoming.kind !== "DIRECTOR") {
+    throw new BuilderValidationError(
+      "DIRECTOR role may only be assigned to members with a DIRECTOR membership kind.",
+    );
+  }
+
+  await prisma.incomingShiftAssignment.upsert({
+    where: { acceptanceId_clinicDate: { acceptanceId: opts.acceptanceId, clinicDate } },
+    create: {
+      acceptanceId: opts.acceptanceId,
+      termId: term.id,
+      departmentId: opts.departmentId,
+      clinicDate,
+      role: opts.role,
+    },
+    update: { role: opts.role },
+  });
+
+  await recordAudit({
+    actorPersonId: actor,
+    action: "schedule.assign",
+    entityType: "IncomingShiftAssignment",
+    entityId,
+    after: { role: opts.role, dateKey: opts.dateKey, acceptanceId: opts.acceptanceId },
+  });
+}
+
+/**
  * Flips one of the SHIFT_TAGS booleans on an existing assignment.
  *
  * Throws BuilderValidationError when no assignment row exists for the
@@ -413,6 +530,36 @@ export async function toggleTag(
   const clinicDate = term.clinicDates.find((d) => isoDateKey(d) === opts.dateKey);
   if (!clinicDate) {
     throw new BuilderValidationError(`${opts.dateKey} is not a clinic date in the selected term.`);
+  }
+
+  // A first-time applicant's draft: same flip, on the table their drafts live in.
+  const draftAcceptanceId = acceptanceIdFromRowId(opts.personId);
+  if (draftAcceptanceId !== null) {
+    const draft = await prisma.incomingShiftAssignment.findFirst({
+      where: {
+        termId: term.id,
+        departmentId: opts.departmentId,
+        clinicDate,
+        acceptanceId: draftAcceptanceId,
+      },
+    });
+    if (!draft) {
+      throw new BuilderValidationError("No assignment row found for this person/date/department.");
+    }
+    const flipped = !draft[opts.tag];
+    await prisma.incomingShiftAssignment.update({
+      where: { id: draft.id },
+      data: { [opts.tag]: flipped },
+    });
+    await recordAudit({
+      actorPersonId: actor,
+      action: "schedule.tag",
+      entityType: "IncomingShiftAssignment",
+      entityId: draft.id,
+      before: { [opts.tag]: draft[opts.tag] },
+      after: { [opts.tag]: flipped },
+    });
+    return;
   }
 
   const existing = await prisma.shiftAssignment.findFirst({
@@ -1102,13 +1249,16 @@ async function resolveSlotAssignments(
 // builderView types
 // ---------------------------------------------------------------------------
 
-/** Scheduling preferences a member gave during training intake (training quiz).
- *  Surfaced to directors in the builder; never auto-applied to capacity math. */
+/** Scheduling preferences a member gave on their onboarding contract and during
+ *  training intake (training quiz). Surfaced to directors in the builder; never
+ *  auto-applied to capacity math or to an availability tier. */
 export type BuilderMemberIntake = {
-  /** Minimum shifts the member wants this term (free text, e.g. "4"). */
-  minShiftsWanted: string | null;
-  /** Free-text availability beyond their checked dates. */
-  additionalShiftAvailability: string | null;
+  /** Shifts the member would like this term, from the onboarding contract
+   *  ("1".."7", "8+"). */
+  preferredShifts: string | null;
+  /** A change to their application availability the member requested on the
+   *  onboarding contract, in their own words. A director decides what to do. */
+  availabilityChangeRequest: string | null;
   /** Free-text note the member addressed to the directors. */
   feedback: string | null;
 };
@@ -1117,28 +1267,25 @@ export type BuilderMemberIntake = {
  * The pre-roster half of a builder row: someone accepted into this department for
  * this term whose roster build has not happened yet.
  *
- * Present so a director can draft next term's schedule around the returners who
+ * Present so a director can draft next term's schedule around the people who
  * have already applied, been accepted, and given availability, instead of waiting
- * for the whole incoming class to finish onboarding. A draft shift on one of these
- * people is a real ShiftAssignment, but an INERT one: shift reminders, morning
- * check-in invites, and the clinic-wide master schedule all filter on ACTIVE
- * (person, department) membership, so nothing reaches the person and nothing shows
- * clinic-wide until roster build gives them that membership -- at which point the
- * draft starts working on its own, with no re-entry.
+ * for the whole incoming class to finish onboarding. Every draft is INERT until
+ * roster build, by one of two routes:
+ *
+ *   - a returner (applied signed in, so has a Person) gets a real
+ *     ShiftAssignment. Shift reminders, morning check-in invites, and the
+ *     clinic-wide master schedule all filter on ACTIVE (person, department)
+ *     membership, so nothing reaches them until roster build gives them one, and
+ *     then the draft starts working on its own;
+ *   - a first-time applicant has no Person until roster build creates one, so
+ *     their row carries {@link provisionalRowId} and their drafts live in
+ *     IncomingShiftAssignment, which nothing outside the builder reads.
+ *     promoteContracts moves them onto ShiftAssignment as it creates the person.
  */
 export type BuilderProvisional = {
   acceptanceId: string;
   /** ACCEPTED (no contract yet) -> ONBOARDING (contract open) -> SUBMITTED (awaiting roster build). */
   stage: IncomingStage;
-  /**
-   * False when the applicant has no Person record yet, which is every first-time
-   * applicant: only someone signed in when they applied (in practice a returning
-   * member renewing or transferring) carries the link. A ShiftAssignment is keyed
-   * on a person, so there is nothing to assign to until roster build mints one.
-   * The row still renders, so the director can see who is coming and when they
-   * said they are free.
-   */
-  placeable: boolean;
 };
 
 export type BuilderMember = {
@@ -1147,6 +1294,9 @@ export type BuilderMember = {
   person: {
     id: string;
     name: string;
+    /** The sort key. See comparePersonName: the roster orders by surname. */
+    legalFirstName: string;
+    lastName: string;
     verifiedLanguages: string[];
     /** INTP proficiency, for the below-bar mark on the Spanish badge. Null when unscored. */
     spanishScore: number | null;
@@ -1167,15 +1317,21 @@ export type BuilderMember = {
  *
  * The builder's rows, React keys, and assignment lookups are all keyed on
  * `person.id`, and these rows have no person. A prefixed synthetic id keeps them
- * in the same shape as every other row without inventing a Person: it matches no
- * ShiftAssignment (so the row is always empty), and it survives an accidental
- * round trip to the server safely, because every write resolves a person through
- * the database and this id resolves to nobody.
+ * in the same shape as every other row without inventing a Person. Their drafts
+ * are keyed on the same id in the board map, so a cell click sends it back
+ * unchanged, and setAssignment / toggleTag route it to the draft table by the
+ * prefix. It can never reach ShiftAssignment: a cuid has no colon.
  */
 const PROVISIONAL_ROW_PREFIX = "acceptance:";
 
 export function provisionalRowId(acceptanceId: string): string {
   return `${PROVISIONAL_ROW_PREFIX}${acceptanceId}`;
+}
+
+/** The acceptance a {@link provisionalRowId} names, or null for a real personId. */
+function acceptanceIdFromRowId(rowId: string): string | null {
+  if (!rowId.startsWith(PROVISIONAL_ROW_PREFIX)) return null;
+  return rowId.slice(PROVISIONAL_ROW_PREFIX.length) || null;
 }
 
 /**
@@ -1199,6 +1355,8 @@ export type BuilderAssignmentEntry = {
    */
   person: {
     name: string;
+    legalFirstName: string;
+    lastName: string;
     verifiedLanguages: string[];
     spanishScore: number | null;
     licensedRN: boolean;
@@ -1222,7 +1380,7 @@ type AssignmentRow = {
   cc: boolean;
   remote: boolean;
   specialty: boolean;
-  person: { name: string; licensedRN: boolean };
+  person: { name: string; legalFirstName: string; lastName: string; licensedRN: boolean };
 };
 
 /**
@@ -1247,6 +1405,8 @@ function buildAssignmentsByDate(
       tags: { triage: a.triage, walkin: a.walkin, cc: a.cc, remote: a.remote, specialty: a.specialty },
       person: {
         name: a.person.name,
+        legalFirstName: a.person.legalFirstName,
+        lastName: a.person.lastName,
         verifiedLanguages: languageMap.get(a.personId) ?? [],
         spanishScore: spanishScores.get(a.personId) ?? null,
         licensedRN: a.person.licensedRN,
@@ -1254,6 +1414,36 @@ function buildAssignmentsByDate(
     };
   }
   return byDate;
+}
+
+/**
+ * A first-time applicant's draft, in the shape the board reads assignments in.
+ *
+ * Keyed on the same synthetic row id their member row carries, so the grid finds
+ * the draft on the row it belongs to. No address: the shift email list is for
+ * people with a Hub account, and a returner's draft already has one.
+ */
+function draftAssignmentRow(d: IncomingShiftDraft) {
+  const rowId = provisionalRowId(d.acceptanceId);
+  return {
+    personId: rowId,
+    clinicDate: d.clinicDate,
+    role: d.role,
+    triage: d.triage,
+    walkin: d.walkin,
+    cc: d.cc,
+    remote: d.remote,
+    specialty: d.specialty,
+    person: {
+      id: rowId,
+      name: d.name,
+      legalFirstName: d.legalFirstName,
+      lastName: d.lastName,
+      licensedRN: d.licensedRN,
+      contactEmail: null,
+      netId: null,
+    },
+  };
 }
 
 /**
@@ -1272,30 +1462,37 @@ export async function assignmentsFor(
   termId: string,
   departmentId: string,
 ): Promise<BuilderAssignments> {
-  const rows = await prisma.shiftAssignment.findMany({
-    where: { termId, departmentId },
-    select: {
-      personId: true,
-      clinicDate: true,
-      role: true,
-      triage: true,
-      walkin: true,
-      cc: true,
-      remote: true,
-      specialty: true,
-      person: { select: { name: true, licensedRN: true } },
-    },
-  });
+  const [rows, drafts] = await Promise.all([
+    prisma.shiftAssignment.findMany({
+      where: { termId, departmentId },
+      select: {
+        personId: true,
+        clinicDate: true,
+        role: true,
+        triage: true,
+        walkin: true,
+        cc: true,
+        remote: true,
+        specialty: true,
+        person: { select: { name: true, legalFirstName: true, lastName: true, licensedRN: true } },
+      },
+    }),
+    listIncomingShiftDrafts({ termId, departmentId }),
+  ]);
   // The score rides with the languages, not separately: the badge that reads it
   // is the SAME badge the read-only Full Schedule renders, and loading one
   // without the other is what made the two pages disagree about the same
-  // interpreter.
+  // interpreter. Drafts have no Person, so nothing to look up for them.
   const personIds = [...new Set(rows.map((r) => r.personId))];
   const [languageMap, spanishScores] = await Promise.all([
     verifiedLanguagesByPerson(personIds),
     spanishScoresByPerson(personIds),
   ]);
-  return buildAssignmentsByDate(rows, languageMap, spanishScores);
+  return buildAssignmentsByDate(
+    [...rows, ...drafts.map(draftAssignmentRow)],
+    languageMap,
+    spanishScores,
+  );
 }
 
 /**
@@ -1310,14 +1507,31 @@ export async function assignmentsFor(
  * only pay for {@link assignmentsFor} when the answer actually moved. It is the
  * single seam where change detection lives: swapping in Postgres LISTEN/NOTIFY
  * later means replacing this call, not the stream around it.
+ *
+ * Two tables, because the board is two: first-time applicants' drafts live in
+ * IncomingShiftAssignment, and a stamp that only watched ShiftAssignment would
+ * leave a second director's screen blind to every draft the first one placed.
  */
 export async function boardRevision(termId: string, departmentId: string): Promise<string> {
-  const agg = await prisma.shiftAssignment.aggregate({
-    where: { termId, departmentId },
-    _count: { _all: true },
-    _max: { updatedAt: true },
-  });
-  return `${agg._count._all}:${agg._max.updatedAt?.getTime() ?? 0}`;
+  const where = { termId, departmentId };
+  const [shifts, drafts] = await Promise.all([
+    prisma.shiftAssignment.aggregate({
+      where,
+      _count: { _all: true },
+      _max: { updatedAt: true },
+    }),
+    prisma.incomingShiftAssignment.aggregate({
+      where,
+      _count: { _all: true },
+      _max: { updatedAt: true },
+    }),
+  ]);
+  return [
+    shifts._count._all,
+    shifts._max.updatedAt?.getTime() ?? 0,
+    drafts._count._all,
+    drafts._max.updatedAt?.getTime() ?? 0,
+  ].join(":");
 }
 
 /**
@@ -1534,7 +1748,7 @@ export async function builderView(
   const selectedDateKey = selectedDate ? isoDateKey(selectedDate) : null;
 
   // Load all assignments for the term in the selected department.
-  const [allAssignments, members, scheduleDay, pendingCount, closures, incomingAll] =
+  const [allAssignments, members, scheduleDay, pendingCount, closures, incomingAll, incomingDrafts] =
     await Promise.all([
     prisma.shiftAssignment.findMany({
       where: { termId: term.id, departmentId: selectedDept.id },
@@ -1542,14 +1756,14 @@ export async function builderView(
         // netId feeds the shift email list's fallback address (see shiftEmails
         // below); it is never displayed from here.
         person: {
-          select: { id: true, name: true, licensedRN: true, contactEmail: true, netId: true },
+          select: { id: true, name: true, legalFirstName: true, lastName: true, licensedRN: true, contactEmail: true, netId: true },
         },
       },
     }),
     prisma.termMembership.findMany({
       where: { termId: term.id, departmentId: selectedDept.id, status: "ACTIVE" },
       include: { person: true },
-      orderBy: { person: { name: "asc" } },
+      orderBy: personNameOrderVia("person"),
     }),
     selectedDate
       ? prisma.scheduleDay.findFirst({
@@ -1572,6 +1786,9 @@ export async function builderView(
       departmentCode: selectedDept.code,
       clinicDates,
     }),
+    // First-time applicants' drafts, which have no Person for a ShiftAssignment
+    // to point at. Merged into the board below under their rows' synthetic ids.
+    listIncomingShiftDrafts({ termId: term.id, departmentId: selectedDept.id }),
   ]);
 
   // An incoming member who is ALREADY on the roster is not incoming any more.
@@ -1588,6 +1805,14 @@ export async function builderView(
   const incomingPersonIds = new Set(
     incoming.map((i) => i.personId).filter((id): id is string => id !== null),
   );
+  // Every incoming ROW id, including the synthetic one a first-time applicant's
+  // row carries. The person ids above are for lookups keyed on a Person
+  // (languages, scores); this is for anything keyed on a board row.
+  const incomingRowIds = new Set(
+    incoming.map((i) => i.personId ?? provisionalRowId(i.acceptanceId)),
+  );
+  const isIncomingRow = (id: string) =>
+    incomingRowIds.has(id) || acceptanceIdFromRowId(id) !== null;
 
   // Verified language capabilities for everyone on this board, in one query.
   // Only VERIFIED languages reach the builder: a self-reported claim is an
@@ -1609,8 +1834,10 @@ export async function builderView(
     spanishScoresByPerson(capabilityPersonIds),
   ]);
 
-  // Build assignmentsByDate.
-  const assignmentsByDate = buildAssignmentsByDate(allAssignments, languageMap, spanishScores);
+  // The board: real shifts plus first-time applicants' drafts, as one list, so
+  // the grid, the Day view, and the capacity panel below all read one shape.
+  const boardAssignments = [...allAssignments, ...incomingDrafts.map(draftAssignmentRow)];
+  const assignmentsByDate = buildAssignmentsByDate(boardAssignments, languageMap, spanishScores);
 
   // Load each member's training intake (scheduling preferences from the training
   // quiz), keyed by personId:track. A member's track is their membership kind, so
@@ -1622,13 +1849,18 @@ export async function builderView(
         select: {
           personId: true,
           track: true,
-          minShiftsWanted: true,
-          additionalShiftAvailability: true,
           feedback: true,
         },
       })
     : [];
   const intakeByKey = new Map(trainingRows.map((t) => [`${t.personId}:${t.track}`, t]));
+  // The onboarding contract's scheduling answers for the same members, keyed the
+  // same way.
+  const onboardingNotes = await onboardingNotesByMember({
+    termId: term.id,
+    departmentCode: selectedDept.code,
+    personIds: memberPersonIds,
+  });
 
   // Build members list.
   const builderMembers: BuilderMember[] = members.map((m) => {
@@ -1641,12 +1873,15 @@ export async function builderView(
     });
 
     const intakeRow = intakeByKey.get(`${m.person.id}:${m.kind}`);
+    const notes = onboardingNotes.get(`${m.person.id}:${m.kind}`);
 
     return {
       membershipId: m.id,
       person: {
         id: m.person.id,
         name: m.person.name,
+        legalFirstName: m.person.legalFirstName,
+        lastName: m.person.lastName,
         verifiedLanguages: languageMap.get(m.person.id) ?? [],
         spanishScore: spanishScores.get(m.person.id) ?? null,
         licensedRN: m.person.licensedRN,
@@ -1658,8 +1893,8 @@ export async function builderView(
         m.availabilityUpdatedAt !== null && m.availabilityAcknowledgedAt === null,
       legacyNote: m.selfUpdatedAvailability ?? null,
       intake: {
-        minShiftsWanted: intakeRow?.minShiftsWanted ?? null,
-        additionalShiftAvailability: intakeRow?.additionalShiftAvailability ?? null,
+        preferredShifts: notes?.preferredShifts ?? null,
+        availabilityChangeRequest: notes?.availabilityChangeRequest ?? null,
         feedback: intakeRow?.feedback ?? null,
       },
       provisional: null,
@@ -1674,13 +1909,16 @@ export async function builderView(
   // Their availability is the BASELINE tier and only that: the self-update and
   // director-override tiers both live on TermMembership, which is precisely what
   // they do not have yet, so the tier the availability view labels "Application"
-  // is the literal truth for them. Intake notes are empty for the same reason --
-  // the training quiz that fills them comes after roster build.
+  // is the literal truth for them. Training intake is empty for the same reason
+  // -- the training quiz comes after roster build -- but the onboarding
+  // contract's scheduling answers are already on the acceptance once submitted.
   const incomingMembers: BuilderMember[] = incoming.map((i) => ({
     membershipId: null,
     person: {
       id: i.personId ?? provisionalRowId(i.acceptanceId),
       name: i.name,
+      legalFirstName: i.legalFirstName,
+      lastName: i.lastName,
       verifiedLanguages: i.personId ? languageMap.get(i.personId) ?? [] : [],
       // A provisional row has no personId yet, so it has no score to look up.
       // The badge degrades to a plain verified one, which is correct: nothing
@@ -1699,18 +1937,17 @@ export async function builderView(
     overrideActive: false,
     acknowledgePending: false,
     legacyNote: null,
-    intake: { minShiftsWanted: null, additionalShiftAvailability: null, feedback: null },
+    intake: { ...i.onboardingNotes, feedback: null },
     provisional: {
       acceptanceId: i.acceptanceId,
       stage: i.stage,
-      placeable: i.personId !== null,
     },
   }));
 
   const allBuilderMembers = [...builderMembers, ...incomingMembers];
 
   // Capacity for the selected date.
-  const selectedAssignments = selectedDateKey ? allAssignments.filter((a) => isoDateKey(a.clinicDate) === selectedDateKey) : [];
+  const selectedAssignments = selectedDateKey ? boardAssignments.filter((a) => isoDateKey(a.clinicDate) === selectedDateKey) : [];
 
   // The copyable shift email list. Built from the ASSIGNMENTS rather than the
   // department's members, so it is exactly the people working this date, and it
@@ -1742,9 +1979,10 @@ export async function builderView(
   // and an incoming member is the opposite: a director drafting a term still being
   // recruited for needs "is this Saturday staffed" to include the class they are
   // staffing it with, or the panel reads zero exactly when it is being used.
+  // First-time applicants' drafts included, by their rows' synthetic ids.
   const countableMemberIds = new Set([
     ...members.map((m) => m.person.id),
-    ...incomingPersonIds,
+    ...incomingRowIds,
   ]);
   const capacityAssignments = selectedAssignments.filter((a) => countableMemberIds.has(a.personId));
 
@@ -1798,11 +2036,11 @@ export async function builderView(
   // they are built onto the roster, which is the moment either means anything.
   const clearanceScope = [
     ...new Set([...volunteerAssigneesOnDate.map((a) => a.personId), ...members.map((m) => m.person.id)]),
-  ].filter((personId) => !incomingPersonIds.has(personId));
+  ].filter((personId) => !isIncomingRow(personId));
   const bannerClearance = await loadClearanceMap(clearanceScope, term.id, now);
 
   const bannerVolunteers = volunteerAssigneesOnDate
-    .filter((a) => !incomingPersonIds.has(a.personId))
+    .filter((a) => !isIncomingRow(a.personId))
     .map((a) => {
       const person = memberById.get(a.personId)?.person ?? a.person;
       const cleared = bannerClearance.get(a.personId)?.cleared ?? true;
@@ -2011,7 +2249,14 @@ async function buildRhdBlock(
     personIds.length > 0
       ? prisma.person.findMany({
           where: { id: { in: personIds } },
-          select: { id: true, name: true, contactEmail: true, licensedRN: true },
+          select: {
+            id: true,
+            name: true,
+            legalFirstName: true,
+            lastName: true,
+            contactEmail: true,
+            licensedRN: true,
+          },
         })
       : Promise.resolve([]),
     verifiedLanguagesByPerson(personIds),
@@ -2025,9 +2270,20 @@ async function buildRhdBlock(
     ...new Map(
       selectedRhdAssignments
         .filter((a) => a.role === "DIRECTOR")
-        .map((a) => [a.personId, { id: a.personId, name: personMap.get(a.personId)?.name ?? "Unknown" }]),
+        .map((a) => {
+          const p = personMap.get(a.personId);
+          return [
+            a.personId,
+            {
+              id: a.personId,
+              name: p?.name ?? "Unknown",
+              legalFirstName: p?.legalFirstName ?? "",
+              lastName: p?.lastName ?? "",
+            },
+          ] as const;
+        }),
     ).values(),
-  ].sort((a, b) => a.name.localeCompare(b.name));
+  ].sort(comparePersonName);
 
   function toRhdPerson(personId: string): RhdPersonLite {
     const p = personMap.get(personId);

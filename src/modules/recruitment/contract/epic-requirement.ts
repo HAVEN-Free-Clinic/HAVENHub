@@ -14,6 +14,18 @@ export function epicRequirementFor(dept: EpicColumns | null, track: Track): Epic
   return track === "DIRECTOR" ? dept.requiresEpicDirector : dept.requiresEpicVolunteer;
 }
 
+/**
+ * The requirement for someone serving in more than one department: the
+ * strictest of them. A dual appointment into a department that uses Epic needs
+ * Epic even when the other department does not. ALL beats SOME beats NONE, and
+ * an empty list (no department at all) is NONE, as epicRequirementFor has it.
+ */
+export function strictestEpicRequirement(requirements: readonly EpicRequirement[]): EpicRequirement {
+  if (requirements.includes("ALL")) return "ALL";
+  if (requirements.includes("SOME")) return "SOME";
+  return "NONE";
+}
+
 /** Throw at runtime for impossible enum values. Ensures adding a fourth
  *  EpicRequirement forces compilation to fail until this function is updated. */
 function assertNever(x: never): never {

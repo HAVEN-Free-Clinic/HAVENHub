@@ -114,7 +114,7 @@ export default async function ScheduleLayout({ children }: { children: ReactNode
   return (
     <>
       <ModuleNav items={items} />
-      <div className="mt-8">{children}</div>
+      <div className="mt-6">{children}</div>
     </>
   );
 }

@@ -5,6 +5,7 @@ import {
   authorizerInitials,
   listEpicAuthorizers,
   listPendingDeactivations,
+  listEpicTicketsWithoutRequest,
   listPendingEpicRequests,
   reconcileDeactivationRequests,
   submitEpicRequests,
@@ -51,20 +52,41 @@ async function grantPermission(personId: string, permission: string) {
 }
 
 describe("authorizerInitials", () => {
-  it("returns the first and last token initials, uppercased", () => {
-    expect(authorizerInitials("Caprice Culkin")).toBe("CC");
-    expect(authorizerInitials("Renee Tracey")).toBe("RT");
-    expect(authorizerInitials("Jack Carney")).toBe("JC");
+  it("returns the legal first and surname initials, uppercased", () => {
+    expect(authorizerInitials({ legalFirstName: "Caprice", lastName: "Culkin" })).toBe("CC");
+    expect(authorizerInitials({ legalFirstName: "Renee", lastName: "Tracey" })).toBe("RT");
   });
 
-  it("uses the first and final token for multi-part names", () => {
-    expect(authorizerInitials("Mary Jane Watson")).toBe("MW");
+  it("skips the middle name", () => {
+    expect(
+      authorizerInitials({ legalFirstName: "Mary", legalMiddleName: "Jane", lastName: "Watson" }),
+    ).toBe("MW");
   });
 
-  it("handles a single-token name and stray whitespace", () => {
-    expect(authorizerInitials("Cher")).toBe("C");
-    expect(authorizerInitials("  Ada   Lovelace  ")).toBe("AL");
-    expect(authorizerInitials("")).toBe("");
+  // These go in the subject line of a request to YNHH, who hold the name of
+  // record. A nickname there is a subject line about somebody they cannot find.
+  it("ignores a preferred first name", () => {
+    expect(
+      authorizerInitials({
+        legalFirstName: "Margaret",
+        lastName: "Bia",
+        preferredFirstName: "Peggy",
+      }),
+    ).toBe("MB");
+  });
+
+  // The old token split took the FINAL token, so a two-word surname was
+  // initialled on its second half: "JT" for a man whose surname starts with P.
+  it("takes the first letter of a compound surname, not its last word", () => {
+    expect(authorizerInitials({ legalFirstName: "Javier", lastName: "Ponce Terashima" })).toBe(
+      "JP",
+    );
+  });
+
+  it("handles a mononym, stray whitespace, and an empty record", () => {
+    expect(authorizerInitials({ legalFirstName: "Cher", lastName: "" })).toBe("C");
+    expect(authorizerInitials({ legalFirstName: "  Ada ", lastName: " Lovelace  " })).toBe("AL");
+    expect(authorizerInitials({ legalFirstName: "", lastName: "" })).toBe("");
   });
 });
 
@@ -93,7 +115,9 @@ describe("listEpicAuthorizers", () => {
     expect(rows[0]).toMatchObject({
       id: cc.id,
       name: "Caprice Culkin",
-      phone: "720-254-2589",
+      // Stored "720-254-2589"; the authorizer line and the YNHH PDF both print
+      // the app's one phone format.
+      phone: "(720) 254-2589",
       email: "caprice.culkin@yale.edu",
       initials: "CC",
     });
@@ -250,6 +274,89 @@ describe("listPendingEpicRequests", () => {
     });
 
     expect(await listPendingEpicRequests()).toEqual([]);
+  });
+});
+
+describe("listEpicTicketsWithoutRequest", () => {
+  beforeEach(resetDb);
+
+  it("returns an EPIC ticket that has no Epic request attached", async () => {
+    const requester = await createPerson("Requester");
+    const t = await createTechRequest(requester.id, {
+      category: "EPIC",
+      subject: "Need Epic access",
+      description: "d",
+    });
+
+    const rows = await listEpicTicketsWithoutRequest();
+    expect(rows.map((r) => r.id)).toEqual([t.id]);
+    expect(rows[0]).toMatchObject({ number: t.number, subject: t.subject, fromIntercom: false });
+  });
+
+  it("drops the ticket once a request is attached", async () => {
+    // The whole point of the list: it is a to-do, and attaching is what does it.
+    const mgr = await createPerson("Manager");
+    const requester = await createPerson("Requester");
+    const t = await createTechRequest(requester.id, {
+      category: "EPIC",
+      subject: "Need Epic access",
+      description: "d",
+    });
+    expect((await listEpicTicketsWithoutRequest()).map((r) => r.id)).toEqual([t.id]);
+
+    await prisma.epicRequest.create({
+      data: {
+        personId: requester.id,
+        kind: "NEW",
+        status: "PENDING",
+        requestedById: mgr.id,
+        techRequestId: t.id,
+      },
+    });
+
+    expect(await listEpicTicketsWithoutRequest()).toEqual([]);
+  });
+
+  it("ignores tickets of any other category", async () => {
+    const requester = await createPerson("Requester");
+    await createTechRequest(requester.id, {
+      category: "GENERAL_IT",
+      subject: "Laptop",
+      description: "d",
+    });
+
+    expect(await listEpicTicketsWithoutRequest()).toEqual([]);
+  });
+
+  it("drops a terminal ticket, so the list drains instead of accruing", async () => {
+    // A manager has no status controls on an Intercom-linked ticket, so a list
+    // that kept resolved rows could never be emptied from the Hub. The moment of
+    // loss is covered by the audit entry in intercom-sync instead.
+    const requester = await createPerson("Requester");
+    const t = await createTechRequest(requester.id, {
+      category: "EPIC",
+      subject: "Need Epic access",
+      description: "d",
+    });
+    await prisma.techRequest.update({ where: { id: t.id }, data: { status: "RESOLVED" } });
+
+    expect(await listEpicTicketsWithoutRequest()).toEqual([]);
+  });
+
+  it("marks a chat-origin ticket, which is the case this list exists for", async () => {
+    const requester = await createPerson("Requester");
+    const t = await createTechRequest(requester.id, {
+      category: "EPIC",
+      subject: "Need Epic access",
+      description: "d",
+    });
+    await prisma.techRequest.update({
+      where: { id: t.id },
+      data: { intercomConversationId: "conv_1" },
+    });
+
+    const rows = await listEpicTicketsWithoutRequest();
+    expect(rows.map((r) => r.fromIntercom)).toEqual([true]);
   });
 });
 

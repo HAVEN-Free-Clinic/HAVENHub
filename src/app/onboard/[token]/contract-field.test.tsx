@@ -191,3 +191,108 @@ describe("ContractField", () => {
     expect(out).toContain("required");
   });
 });
+
+describe("ContractField scheduling blocks and name parts", () => {
+  const availability = (dates?: string[]) =>
+    renderToStaticMarkup(
+      <ContractField
+        block={{ kind: "system_field", systemKey: "availabilityChange" }}
+        prefill={prefill}
+        ctx={{ ...ctx, applicationAvailability: dates }}
+        err={noErr}
+        onAnswer={noop}
+      />,
+    );
+
+  it("shows the clinic dates from the application and says changes are by request", () => {
+    const out = availability(["Sat, Oct 3", "Sat, Oct 17"]);
+    expect(out).toContain("Sat, Oct 3");
+    expect(out).toContain("Sat, Oct 17");
+    expect(out).toContain("can only be made by request");
+    expect(out).toMatch(/<select[^>]*name="availabilityChangeNeeded"[^>]*required|<select[^>]*required[^>]*name="availabilityChangeNeeded"/);
+    // The explanation box waits for a "yes".
+    expect(out).not.toContain('name="availabilityChangeRequest"');
+  });
+
+  it("says so when the application has no clinic dates on file", () => {
+    expect(availability([])).toContain("We do not have any clinic dates from your application on file.");
+    expect(availability(undefined)).toContain("We do not have any clinic dates from your application on file.");
+  });
+
+  it("renders the shift count as a required choice with its help text", () => {
+    const out = html({ kind: "system_field", systemKey: "shiftsWanted", helpText: "Your department sets the minimum." });
+    expect(out).toMatch(/<select[^>]*name="shiftsWanted"[^>]*required|<select[^>]*required[^>]*name="shiftsWanted"/);
+    expect(out).toContain("8 or more shifts");
+    expect(out).toContain("Your department sets the minimum.");
+  });
+
+  it("asks for the legal name parts, an optional middle name, and the name they go by", () => {
+    const out = html({ kind: "system_field", systemKey: "name" });
+    expect(out).toContain("Legal first name");
+    expect(out).toContain('name="legalMiddleName"');
+    expect(out).toContain("Legal last name");
+    expect(out).toContain('name="preferredFirstName"');
+  });
+});
+
+describe("ContractField profile photo", () => {
+  it("asks for a required photo of their face, and says what a clear one looks like", () => {
+    const out = html({ kind: "system_field", systemKey: "photo" });
+    // Attribute order is React's business, so match name and required on the same tag in either order.
+    expect(out).toMatch(/<input(?=[^>]*name="photo")(?=[^>]*required)[^>]*>/);
+    expect(out).toContain("clear, recent photo of your face");
+    expect(out).toContain("no group photos, sunglasses");
+  });
+
+  it("shows a photo already on file and makes a new one optional", () => {
+    const out = renderToStaticMarkup(
+      <ContractField block={{ kind: "system_field", systemKey: "photo" }} prefill={prefill}
+        ctx={{ ...ctx, photoOnFile: "data:image/webp;base64,AAAA" }} err={noErr} onAnswer={noop} />,
+    );
+    expect(out).toContain('src="data:image/webp;base64,AAAA"');
+    expect(out).toContain("upload a new one to replace it");
+    expect(out).toMatch(/<input(?=[^>]*name="photo")[^>]*>/);
+    expect(out).not.toMatch(/<input(?=[^>]*name="photo")(?=[^>]*required)[^>]*>/);
+  });
+});
+
+describe("ContractField HIPAA certificate", () => {
+  const hipaa = (hipaaOnFile?: { completionDate: string; expiresAt: string; pendingVerification: boolean }) =>
+    renderToStaticMarkup(
+      <ContractField block={{ kind: "system_field", systemKey: "hipaa", helpText: "Go to the HIPAA site." }} prefill={prefill}
+        ctx={{ ...ctx, hipaaOnFile }} err={noErr} onAnswer={noop} />,
+    );
+
+  it("asks for a certificate when none on file covers the term", () => {
+    const out = hipaa();
+    expect(out).toContain("Go to the HIPAA site.");
+    expect(out).toMatch(/<input(?=[^>]*name="hipaaFile")(?=[^>]*required)[^>]*>/);
+  });
+
+  it("says a certificate on file covers it, and makes a newer upload optional", () => {
+    const out = hipaa({ completionDate: "Aug 1, 2026", expiresAt: "Aug 1, 2027", pendingVerification: false });
+    expect(out).toContain("is on file and valid through Aug 1, 2027");
+    expect(out).toContain("Upload a newer certificate instead");
+    expect(out).not.toMatch(/<input(?=[^>]*name="hipaaFile")(?=[^>]*required)[^>]*>/);
+    expect(out).not.toMatch(/<input(?=[^>]*name="hipaaCompletedAt")(?=[^>]*required)[^>]*>/);
+  });
+
+  it("tells them an upload still awaiting verification counts", () => {
+    expect(hipaa({ completionDate: "Sep 1, 2026", expiresAt: "Sep 1, 2027", pendingVerification: true }))
+      .toContain("It is waiting to be verified, so there is no need to upload it again.");
+  });
+});
+
+describe("ContractField required switch", () => {
+  it("marks and enforces a field a director made required", () => {
+    const out = html({ kind: "system_field", systemKey: "phone", required: true });
+    expect(out).toMatch(/<input(?=[^>]*name="phone")(?=[^>]*required)[^>]*>/);
+  });
+
+  it("drops the requirement when a director made a default-required field optional", () => {
+    expect(html({ kind: "system_field", systemKey: "shiftsWanted", required: false }))
+      .not.toMatch(/<select(?=[^>]*name="shiftsWanted")(?=[^>]*required)[^>]*>/);
+    expect(html({ kind: "system_field", systemKey: "photo", required: false }))
+      .not.toMatch(/<input(?=[^>]*name="photo")(?=[^>]*required)[^>]*>/);
+  });
+});

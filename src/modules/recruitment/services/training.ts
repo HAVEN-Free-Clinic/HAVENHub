@@ -1,4 +1,5 @@
 import type { ApplicantType, RecruitmentCycle, Prisma, TrainingMethod, Track } from "@prisma/client";
+import { comparePersonName } from "@/platform/person-name";
 import { effectiveComplianceStatus, overallClearance } from "@/platform/compliance/rules";
 import type { ComplianceStatus, TrainingState, OverallClearance } from "@/platform/compliance/rules";
 import { prisma, type TransactionClient } from "@/platform/db";
@@ -185,9 +186,13 @@ export async function completeTraining(
  * through recordEventCheckIn, and completeTraining above is the shared write both
  * that path and the quiz path still use. */
 
+/** The note a member leaves for their directors on the training quiz. The quiz
+ *  used to ask for a shift count and extra availability too; the shift count
+ *  moved to the onboarding contract (shiftsWanted), and availability is never
+ *  self-reported after the application. Training.minShiftsWanted and
+ *  Training.additionalShiftAvailability are no longer written; the columns keep
+ *  whatever earlier terms stored. */
 export type TrainingIntake = {
-  additionalShiftAvailability?: string | null;
-  minShiftsWanted?: string | null;
   feedback?: string | null;
 };
 
@@ -273,8 +278,6 @@ export async function getMyTrainingForTerm(personId: string, term: { id: string;
         questions,
         gradedQuestionCount,
         intake: {
-          additionalShiftAvailability: row?.additionalShiftAvailability ?? null,
-          minShiftsWanted: row?.minShiftsWanted ?? null,
           feedback: row?.feedback ?? null,
         },
       };
@@ -327,8 +330,6 @@ export async function submitQuiz(
     await tx.training.update({
       where: { id: row.id },
       data: {
-        additionalShiftAvailability: input.intake.additionalShiftAvailability ?? undefined,
-        minShiftsWanted: input.intake.minShiftsWanted ?? undefined,
         feedback: input.intake.feedback ?? undefined,
       },
     });
@@ -652,6 +653,10 @@ export type RosterOrigin = ApplicantType | "RETURNING";
 
 type TrainingRosterFields = {
   name: string;
+  /** Surname order, the same as everywhere else. An applicant has no Person
+   *  row yet, so their own firstName/lastName columns fill these. */
+  legalFirstName: string;
+  lastName: string;
   departmentCode: string;
   /**
    * HIPAA status over every certificate the clinic holds for this person: the
@@ -776,7 +781,16 @@ export async function listTrainingRoster(cycleId: string, viewerId: string): Pro
         // is the rule the clearance engine and the HIPAA panel both apply, and
         // taking one row disagreed with both for a member mid-renewal, whose
         // newest upload is unverified and whose verified one is still valid.
-        person: { select: { id: true, name: true, contactEmail: true, hipaaCertificates: { orderBy: { uploadedAt: "desc" } } } },
+        person: {
+          select: {
+            id: true,
+            name: true,
+            legalFirstName: true,
+            lastName: true,
+            contactEmail: true,
+            hipaaCertificates: { orderBy: { uploadedAt: "desc" } },
+          },
+        },
       },
     }),
     prisma.acceptance.findMany({
@@ -957,7 +971,11 @@ export async function listTrainingRoster(cycleId: string, viewerId: string): Pro
     const trainingState: TrainingState = row?.status === "COMPLETE" ? "COMPLETE" : "PENDING";
     return {
       kind: "member",
-      personId: m.person.id, name: m.person.name, departmentCode: m.department.code,
+      personId: m.person.id,
+      name: m.person.name,
+      legalFirstName: m.person.legalFirstName,
+      lastName: m.person.lastName,
+      departmentCode: m.department.code,
       certStatus, origin: originByPerson.get(m.person.id) ?? null,
       trainingState, locked: row?.locked ?? false,
       overallClearance: overallClearance(certStatus, trainingState === "COMPLETE"),
@@ -974,6 +992,8 @@ export async function listTrainingRoster(cycleId: string, viewerId: string): Pro
       acceptanceId: a.id,
       applicantId: applicant.id,
       name: `${applicant.firstName} ${applicant.lastName}`.trim(),
+      legalFirstName: applicant.firstName,
+      lastName: applicant.lastName,
       departmentCode: a.departmentCode,
       // Every certificate the clinic holds for them, from BOTH addresses.
       //
@@ -1014,5 +1034,5 @@ export async function listTrainingRoster(cycleId: string, viewerId: string): Pro
 
   // Interleaved, not appended. A lead reading this in the run-up to a session is
   // looking for a name, and two alphabetical lists is two places to look for it.
-  return [...memberRows, ...pendingRows].sort((a, b) => a.name.localeCompare(b.name));
+  return [...memberRows, ...pendingRows].sort(comparePersonName);
 }

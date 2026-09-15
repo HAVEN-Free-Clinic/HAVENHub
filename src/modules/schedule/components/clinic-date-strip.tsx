@@ -10,9 +10,11 @@
 
 import Link from "next/link";
 import { cx } from "@/platform/ui/cx";
+import { ScrollFade } from "@/platform/ui/scroll-fade";
 import { isoDateKey } from "@/platform/dates";
 import { displayDate } from "@/modules/schedule/engine/display";
 import { groupByMonth } from "./clinic-date-order";
+import { SelectedIntoView } from "./selected-into-view";
 
 export type ClinicDateStripProps = {
   dates: Date[];
@@ -37,11 +39,24 @@ export function ClinicDateStrip({ dates, selectedKey, closedKeys, hrefFor, ariaL
   if (dates.length === 0) return null;
 
   const closed = new Set(closedKeys ?? []);
+  const anyClosed = dates.some((d) => closed.has(isoDateKey(d)));
 
+  // One run of months, not one row per month. Stacked a row per month, a
+  // five-month term pushed the Builder's schedule ~717px down the page, and on a
+  // phone each month wrapped again, so Full schedule opened on a wall of pills.
+  // On a phone it is a single scrolling row (SelectedIntoView keeps the chosen
+  // date on screen, ScrollFade says there is more); from sm up the months flow
+  // and wrap together, usually into two or three lines.
   return (
-    <nav aria-label={ariaLabel} className="flex flex-col gap-3">
+    <div className="space-y-2">
+    <SelectedIntoView selectedKey={selectedKey}>
+    <ScrollFade>
+    <nav
+      aria-label={ariaLabel}
+      className="flex gap-x-5 gap-y-2 overflow-x-auto [scrollbar-width:none] sm:flex-wrap sm:overflow-visible [&::-webkit-scrollbar]:hidden"
+    >
       {groupByMonth(dates).map((group) => (
-        <div key={group.key} className="flex flex-wrap items-center gap-2">
+        <div key={group.key} className="flex shrink-0 items-center gap-2 sm:shrink sm:flex-wrap">
           {/*
             A span, not a SectionHeader: these label a run of links inside a nav
             landmark rather than opening a document section, and promoting them
@@ -60,7 +75,7 @@ export function ClinicDateStrip({ dates, selectedKey, closedKeys, hrefFor, ariaL
                 href={hrefFor(key)}
                 aria-current={isSelected ? "page" : undefined}
                 className={cx(
-                  "inline-flex items-center justify-center min-h-11 rounded-full px-3 py-1 text-sm font-medium transition-colors",
+                  "inline-flex shrink-0 items-center justify-center whitespace-nowrap min-h-11 rounded-full px-3 py-1 text-sm font-medium transition-colors",
                   isSelected
                     ? "bg-brand text-white"
                     : "bg-muted text-foreground-soft hover:bg-muted-strong",
@@ -82,5 +97,18 @@ export function ClinicDateStrip({ dates, selectedKey, closedKeys, hrefFor, ariaL
         </div>
       ))}
     </nav>
+    </ScrollFade>
+    </SelectedIntoView>
+    {/* The dashed ring had no key on screen: sighted users met an orange outline
+        with nothing saying what it meant. Shown only when a closed date is in
+        the strip, and the swatch is decorative; each pill already announces
+        its own closure to a screen reader. */}
+    {anyClosed && (
+      <p className="flex items-center gap-2 text-xs text-subtle-foreground">
+        <span aria-hidden className="inline-block h-4 w-7 shrink-0 rounded-full border border-dashed border-warning" />
+        Dashed outline: the clinic is closed that date. It can still be scheduled.
+      </p>
+    )}
+    </div>
   );
 }

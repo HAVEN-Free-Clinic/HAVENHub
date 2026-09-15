@@ -5,6 +5,8 @@ import { RoutingError } from "./routing";
 import { scoreAverage } from "../engine/scoring";
 import { bucketByPercentile } from "../engine/route-buckets";
 import { applicationStage, type ApplicationStage } from "../engine/application-stage";
+import { isOwnApplication } from "../engine/own-application";
+import { reviewerIdentity } from "./own-application";
 
 export type SpeedRouteRow = {
   applicationId: string;
@@ -70,7 +72,7 @@ export async function loadSpeedRouteBoard(cycleId: string, viewerId: string): Pr
   const apps = await prisma.application.findMany({
     where: { cycleId, status: "SUBMITTED" },
     include: {
-      applicant: { select: { firstName: true, lastName: true } },
+      applicant: { select: { firstName: true, lastName: true, applicantPersonId: true, emailLower: true, netId: true } },
       committeeScores: { select: { score: true } },
       acceptances: { select: { emailedAt: true } },
       interviews: { select: { decision: true } },
@@ -118,12 +120,23 @@ export async function loadSpeedRouteBoard(cycleId: string, viewerId: string): Pr
     topPercent: cycle.routeTopPercent,
     bottomPercent: cycle.routeBottomPercent,
   });
-  const rows = (ids: string[]) => ids.map((id) => byId.get(id)!);
+  // A lead who also applied never sees their own row. It is dropped only AFTER
+  // the tiers are cut over the whole cohort: re-cutting without it would move
+  // someone else into its slot and tell the lead where they stood.
+  const me = await reviewerIdentity(viewerId);
+  const own = new Set(apps.filter((a) => isOwnApplication(a.applicant, me)).map((a) => a.id));
+  const rows = (ids: string[]) => ids.filter((id) => !own.has(id)).map((id) => byId.get(id)!);
   // Highest average first: when a department hands several applicants back at
   // once, the lead works the strongest candidates first.
+  //
+  // Read from the stage, not the returned marker alone. Rejecting a returned
+  // applicant answers the return but leaves the marker set (so a Reopen still
+  // knows which department declined them), and filtering on the marker kept
+  // every rejected row in this card for good.
   const returned = apps
-    .filter((a) => a.returnedToRoutingAt != null)
+    .filter((a) => !own.has(a.id))
     .map((a) => byId.get(a.id)!)
+    .filter((r) => r.stage === "RETURNED")
     .sort((a, b) => (b.average ?? -1) - (a.average ?? -1));
   return {
     cycleId: cycle.id,

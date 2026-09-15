@@ -16,23 +16,33 @@ export const VOLUNTEER_LAYOUT: ContractLayout = {
     { kind: "system_field", systemKey: "staffTitle",
       visibleWhen: { field: "yaleAffiliation", op: "is", value: "staff" } },
     { kind: "system_field", systemKey: "dietary" },
+    // Required whenever shown (submitContract), and becomes the person's
+    // profile photo at roster build.
+    { kind: "system_field", systemKey: "photo" },
 
-    { kind: "section", id: "sec_hipaa", title: "HIPAA Compliance", body: HIPAA_INSTRUCTIONS },
-    { kind: "system_field", systemKey: "hipaa" },
+    { kind: "section", id: "sec_hipaa", title: "HIPAA Compliance", body: "" },
+    // The instructions ride on the block rather than the section, so they fold
+    // away with the upload when a certificate on file already covers the term.
+    { kind: "system_field", systemKey: "hipaa", helpText: HIPAA_INSTRUCTIONS },
 
-    // The Epic section hides for a department that never uses Epic when the
-    // applicant has no id on file (epicSection derived in contract/visibility.ts).
+    // Epic follows the department: shown only when the accepted department uses
+    // Epic for this track, and the volunteer is never asked whether they need it.
+    // The block confirms an Epic ID already on file, or collects an existing one.
     { kind: "section", id: "sec_epic", title: "Epic Access", body: EPIC_ACCESS_GUIDANCE,
-      visibleWhen: { field: "epicSection", op: "is", value: "show" } },
-    { kind: "custom_question", key: "epic_needed_self",
-      label: "Is Epic access required for your role at {{orgName}}?",
-      type: "SINGLE_SELECT", required: true,
-      options: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }],
-      visibleWhen: { field: "epicAsk", op: "is", value: "yes" } },
-    // The epic block itself confirms a stored id or collects one; hidden with
-    // the section when Epic is not needed and none is on file.
+      visibleWhen: { field: "epicRequirement", op: "is", value: "ALL" } },
     { kind: "system_field", systemKey: "epic",
-      visibleWhen: { field: "epicSection", op: "is", value: "show" } },
+      visibleWhen: { field: "epicRequirement", op: "is", value: "ALL" } },
+
+    // Scheduling. Both answers are stored on the contract and shown to the
+    // department's directors in the schedule builder's intake notes. Neither
+    // changes a schedule or an availability tier by itself: an availability
+    // change is a request a director reads, which is what the block tells the
+    // volunteer before they write one.
+    { kind: "section", id: "sec_scheduling", title: "Scheduling",
+      body: "Your directors build the schedule from the clinic dates on your application. These questions help them place you." },
+    { kind: "system_field", systemKey: "shiftsWanted",
+      helpText: "Your department sets the minimum number of shifts. This is your preference, and directors use it when they build the schedule." },
+    { kind: "system_field", systemKey: "availabilityChange" },
 
     { kind: "section", id: "sec_contract", title: "Volunteer Contract", body: "" },
     { kind: "agreement", id: "agreement", title: "Volunteer Agreement", confirmKind: "initials",

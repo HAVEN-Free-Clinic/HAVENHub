@@ -3,6 +3,7 @@ import { requirePersonSession } from "@/platform/auth/session";
 import { signOut } from "@/platform/auth/auth";
 import { HavenLogo } from "@/platform/ui/haven-logo";
 import { getOnboardingStatus } from "@/modules/onboarding/services/onboarding";
+import { getAccessTerm } from "@/platform/terms/access-term";
 import { getMyEhsStatus } from "@/platform/ehs/services/my-ehs";
 import { firstNameOf } from "@/platform/person-name";
 import { OnboardingChecklist } from "./onboarding-checklist";
@@ -20,7 +21,8 @@ export default async function GetStartedPage() {
   // owns it (Workday vs HealthOnTrack), so this needs the items, not just the
   // task state. Fetched after the redirects above so it costs nothing for anyone
   // who is bounced off this page.
-  const ehsItems = await getMyEhsStatus(person.personId);
+  // EHS for the term the checklist is for (getAccessTerm), not always the live one.
+  const ehsItems = await getMyEhsStatus(person.personId, (await getAccessTerm(person.personId))?.id);
 
   const firstName = firstNameOf(person.name) || "there";
   const pct =

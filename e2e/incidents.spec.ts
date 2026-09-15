@@ -359,6 +359,13 @@ test("the incidents module root sends a reviewer to the queue, not into a blank 
   await devLogin(page, "j.carney@yale.edu");
   await page.goto("/incidents");
   await page.waitForURL((url) => url.pathname === "/incidents/review");
-  // The form is still one click away, under its own name.
-  await expect(page.getByRole("link", { name: "Report a concern" })).toBeVisible();
+  // The form is still one click away, under its own name. It left the tab row
+  // (folded under My reports, which carries the button), so from the queue that
+  // click is the Incidents dropdown.
+  await page.getByRole("button", { name: "Incidents sub-pages" }).click();
+  await expect(
+    page
+      .getByRole("navigation", { name: "Incidents sub-page links" })
+      .getByRole("link", { name: "Report a concern", exact: true }),
+  ).toBeVisible();
 });

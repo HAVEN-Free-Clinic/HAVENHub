@@ -29,7 +29,7 @@ export default async function LearningLayout({ children }: { children: ReactNode
   return (
     <>
       <ModuleNav items={filterNavItems(mod.nav, perms)} />
-      <div className="mt-8">{children}</div>
+      <div className="mt-6">{children}</div>
     </>
   );
 }

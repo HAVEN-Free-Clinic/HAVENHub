@@ -4,13 +4,16 @@ import { devLogin, loginAs } from "./auth";
 test("admin login: hub My info tile links to /my-info and page renders read-only rows and HIPAA section", async ({ page }) => {
   await devLogin(page, "j.carney@yale.edu");
 
-  // Hub must show a My info tile with a link to /my-info.
-  const tile = page.getByRole("link", { name: /Open My info/i });
-  await expect(tile).toBeVisible();
-  await expect(tile).toHaveAttribute("href", "/my-info");
+  // My info is reached from the account menu, its home in the nav. The hub's
+  // module tile grid used to carry a second entry; it is gone, and the action
+  // feed's My info card can be ranked out of the top four, so it is no anchor.
+  await page.getByRole("button", { name: "Account menu" }).click();
+  const link = page.getByRole("link", { name: "My info", exact: true });
+  await expect(link).toBeVisible();
+  await expect(link).toHaveAttribute("href", "/my-info");
 
   // Navigate to /my-info.
-  await tile.click();
+  await link.click();
   await page.waitForURL((url) => url.pathname === "/my-info");
 
   // The read-only row shows the LEGAL name; "Goes by" beside it is editable.

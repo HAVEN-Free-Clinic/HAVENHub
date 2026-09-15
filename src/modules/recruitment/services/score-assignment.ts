@@ -5,6 +5,8 @@ import { recordAudit } from "@/platform/audit";
 import { RecruitmentAuthError } from "./review";
 import { allocateAssignments, type AssignmentPair } from "../engine/score-assignment";
 import { applicationStage, isHandledStage } from "../engine/application-stage";
+import { applicationOwnerAmong } from "../engine/own-application";
+import { reviewerIdentities } from "./own-application";
 
 export class ScoreAssignmentError extends Error {
   constructor(message: string) { super(message); this.name = "ScoreAssignmentError"; }
@@ -30,7 +32,7 @@ async function eligibleApplications(cycleId: string) {
       routedDepartmentCode: true,
       returnedToRoutingAt: true,
       decision: true,
-      applicant: { select: { applicantPersonId: true } },
+      applicant: { select: { applicantPersonId: true, emailLower: true, netId: true } },
       committeeScores: { select: { scorerId: true } },
       interviews: { select: { decision: true } },
     },
@@ -51,7 +53,7 @@ async function eligibleApplications(cycleId: string) {
     )
     .map((a) => ({
       id: a.id,
-      applicantPersonId: a.applicant.applicantPersonId,
+      applicant: a.applicant,
       scorerIds: a.committeeScores.map((c) => c.scorerId),
     }));
 }
@@ -126,9 +128,9 @@ export async function loadScoringPanel(cycleId: string, viewerId: string): Promi
  * then divide the roster up to match.
  *
  * Idempotent and incremental: press it again after a late application arrives
- * and it tops up only what is short. See allocateAssignments for the rules that
- * make re-running safe (a recorded score is never undone, and only unscored
- * work moves).
+ * and it tops up only what is short; lower the target and it takes back the
+ * unstarted surplus. See allocateAssignments for the rules that make re-running
+ * safe (a recorded score is never undone, and only unscored work moves).
  *
  * Emptying the pool turns the whole feature off for the cycle: the assignments
  * go, and every recruitment.score holder is back to seeing the full roster.
@@ -159,7 +161,10 @@ export async function setCycleScoring(
     }
   }
 
-  const applications = await eligibleApplications(cycleId);
+  const [applications, poolIdentities] = await Promise.all([
+    eligibleApplications(cycleId),
+    reviewerIdentities(scorerIds),
+  ]);
   const eligibleIds = applications.map((a) => a.id);
   const existing = await prisma.scoreAssignment.findMany({
     where: { applicationId: { in: eligibleIds } },
@@ -170,12 +175,22 @@ export async function setCycleScoring(
   );
 
   const { add, remove } = allocateAssignments({
-    applications: applications.map((a) => ({ id: a.id, applicantPersonId: a.applicantPersonId })),
+    applications: applications.map((a) => ({ id: a.id, applicantPersonId: applicationOwnerAmong(a.applicant, poolIdentities) })),
     scorerIds,
     target: input.target,
     existing,
     scored,
   });
+
+  // One delete per scorer, not per assignment. Lowering the target on a full
+  // cycle takes back hundreds of rows, and a pool is only ever a handful of
+  // people.
+  const removeByScorer = new Map<string, string[]>();
+  for (const r of remove) {
+    const ids = removeByScorer.get(r.scorerId);
+    if (ids) ids.push(r.applicationId);
+    else removeByScorer.set(r.scorerId, [r.applicationId]);
+  }
 
   // Everything above is a read or a pure computation, so the transaction holds
   // only writes. A statement that fails inside a Postgres transaction aborts
@@ -195,8 +210,8 @@ export async function setCycleScoring(
         update: {},
       }),
     ),
-    ...remove.map((r) =>
-      prisma.scoreAssignment.deleteMany({ where: { applicationId: r.applicationId, scorerId: r.scorerId } }),
+    ...[...removeByScorer].map(([scorerId, applicationIds]) =>
+      prisma.scoreAssignment.deleteMany({ where: { scorerId, applicationId: { in: applicationIds } } }),
     ),
     ...(add.length > 0 ? [prisma.scoreAssignment.createMany({ data: add, skipDuplicates: true })] : []),
   ]);
@@ -209,6 +224,56 @@ export async function setCycleScoring(
     after: { target: input.target, scorers: scorerIds.length, added: add.length, removed: remove.length },
   });
   return { added: add.length, removed: remove.length };
+}
+
+/**
+ * Give one application that has just come back to the committee its readers,
+ * the way the panel's Save would, without touching anyone else's pile.
+ *
+ * Called when a department hands an application back (returnToRouting). An
+ * application routed at submission, as renewals and first-choice departments
+ * are, was never in the division, so it came back to "Needs re-routing"
+ * assigned to nobody and, on a pooled cycle, sat in no scorer's queue.
+ *
+ * Runs the ordinary allocation over the whole open roster so the new readers
+ * are the least-loaded scorers, but writes only this application's additions
+ * and none of the removals: a hand-back is not the moment to reshuffle other
+ * piles. The application goes first so its picks see today's loads, not loads
+ * inflated by top-ups for other short applications that are not being written.
+ *
+ * A no-op on a cycle with no pool, where every scorer already sees everything.
+ */
+export async function assignReturnedApplication(cycleId: string, applicationId: string): Promise<number> {
+  const [cycle, pool] = await Promise.all([
+    prisma.recruitmentCycle.findUnique({ where: { id: cycleId }, select: { scoresPerApplication: true } }),
+    prisma.cycleScorer.findMany({ where: { cycleId }, select: { personId: true } }),
+  ]);
+  if (!cycle || pool.length === 0) return 0;
+
+  const [applications, poolIdentities] = await Promise.all([
+    eligibleApplications(cycleId),
+    reviewerIdentities(pool.map((p) => p.personId)),
+  ]);
+  const returned = applications.find((a) => a.id === applicationId);
+  if (!returned) return 0;
+  const ordered = [returned, ...applications.filter((a) => a.id !== applicationId)];
+  const existing = await prisma.scoreAssignment.findMany({
+    where: { applicationId: { in: ordered.map((a) => a.id) } },
+    select: { applicationId: true, scorerId: true },
+  });
+
+  const { add } = allocateAssignments({
+    applications: ordered.map((a) => ({ id: a.id, applicantPersonId: applicationOwnerAmong(a.applicant, poolIdentities) })),
+    scorerIds: pool.map((p) => p.personId),
+    target: cycle.scoresPerApplication,
+    existing,
+    scored: ordered.flatMap((a) => a.scorerIds.map((scorerId) => ({ applicationId: a.id, scorerId }))),
+  });
+  const mine = add.filter((a) => a.applicationId === applicationId);
+  if (mine.length > 0) {
+    await prisma.scoreAssignment.createMany({ data: mine, skipDuplicates: true });
+  }
+  return mine.length;
 }
 
 export type QueueScope = {

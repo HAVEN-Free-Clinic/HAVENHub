@@ -30,6 +30,21 @@ export type ModuleNavItem = {
    * own page.
    */
   dynamicGate?: boolean;
+  /**
+   * Fold this page under another tab of the same module: the href of that tab.
+   *
+   * A folded page keeps everything that makes it findable -- its entry in the
+   * global dropdown, its Cmd+K hit, its breadcrumb label -- but the module's own
+   * tab row omits it and marks `underTab` active while you are on it. For a page
+   * reached from its parent (Credentialing from Attendings) or used a few days a
+   * year (Check in), rather than a peer that earns a permanent tab. It is the
+   * answer to a tab row that had grown to eleven, not a way to hide a page:
+   * dropping an item from the registry would lose the dropdown and Cmd+K too.
+   *
+   * Must name another item in the same module that is not itself folded
+   * (guarded by registry.test.ts).
+   */
+  underTab?: string;
 };
 
 export type ModuleManifest = {

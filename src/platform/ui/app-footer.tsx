@@ -3,10 +3,11 @@ import { getSetting } from "@/platform/settings/service";
 import { formatCopyright } from "@/platform/branding/attribution";
 import { formatOrgLine, type OrgIdentity } from "@/platform/branding/org";
 import { cx } from "./cx";
+import { SHELL_WIDTH } from "./shell-width";
 
 /** Content-column widths, matched to the shell each footer sits in. */
 const WIDTHS = {
-  app: "max-w-6xl",
+  app: SHELL_WIDTH,
   wide: "max-w-4xl",
   prose: "max-w-2xl",
 } as const;

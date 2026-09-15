@@ -27,6 +27,7 @@ import { getSetting } from "@/platform/settings/service";
 import { queueEmail } from "@/platform/email/send";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
 import { log, errorAttrs } from "@/platform/logging";
+import { splitPersonName } from "@/platform/person-name";
 import { AttendingForbiddenError, AttendingValidationError } from "./attendings";
 
 /** The system role enableHubAccess grants. Must match SYSTEM_ROLES. */
@@ -149,13 +150,30 @@ export async function enableHubAccess(
   if (existingPerson) {
     personId = existingPerson.id;
   } else {
-    // fullName ("Bia, Margaret") is the roster's formal form and scheduleName
-    // ("Peggy Bia") is how the clinic writes them. Person.name is shown in the
-    // toolbar and on every page they touch, so it takes the name the clinic
-    // actually uses.
+    // Two names, two jobs. scheduleName ("Peggy Bia") is how the clinic writes
+    // them and is what the toolbar and every page show, so it stays the display
+    // name verbatim. fullName ("Bia, Margaret") is the contact sheet's formal
+    // form, and it is where the LEGAL parts come from, because those are what
+    // reach YNHH on an Epic access request.
+    //
+    // Deriving the legal name from scheduleName instead made "Peggy" the legal
+    // given name, and two clean tokens split confidently, so it never reached
+    // the review queue either. The schedule name is kept WHOLE rather than
+    // parsed for a preferred first name: "Ponce Terashima, Javier" is on the
+    // schedule as "Dr. Ponce", whose leading token is "Dr.".
+    //
+    // Flagged on purpose. The parts are a proposal derived from a comma form,
+    // and the two names disagree by design, so somebody confirms the split and
+    // sets a preferred first name if there is one. The flag is also what lets
+    // the explicit `name` survive the write extension (see person-name-write.ts).
+    const legal = splitPersonName(attending.fullName);
     const created = await prisma.person.create({
       data: {
         name: attending.scheduleName,
+        legalFirstName: legal.legalFirstName,
+        legalMiddleName: legal.legalMiddleName,
+        lastName: legal.lastName,
+        nameNeedsReview: true,
         contactEmail: email,
         status: "ACTIVE",
         // netId deliberately left null. See the file header.

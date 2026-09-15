@@ -52,6 +52,8 @@ export type ShiftRole = "VOLUNTEER" | "SHADOW" | "DIRECTOR";
 /** Identity for an optimistic assignment, for people who have no row yet. */
 export type BoardPerson = {
   name: string;
+  legalFirstName: string;
+  lastName: string;
   verifiedLanguages: string[];
   licensedRN: boolean;
 };
@@ -370,6 +372,8 @@ export function BuilderBoardProvider({
     (dateKey: string, personId: string, role: ShiftRole) => {
       const person = peopleRef.current[personId] ?? {
         name: "",
+        legalFirstName: "",
+        lastName: "",
         verifiedLanguages: [],
         licensedRN: false,
       };

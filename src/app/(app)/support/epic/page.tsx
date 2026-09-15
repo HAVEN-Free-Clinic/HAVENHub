@@ -22,6 +22,7 @@ import {
   listPendingDeactivations,
   listEpicAuthorizers,
   listIncidentPeople,
+  listEpicTicketsWithoutRequest,
   listPendingEpicRequests,
   listLinkableTechRequests,
   closeTicket,
@@ -213,10 +214,18 @@ async function sendEpicEmailFromTrackerAction(formData: FormData) {
   redirect("/support/epic?tab=tracker");
 }
 
-async function cancelEpicRequestAction(formData: FormData) {
+/**
+ * `requestId` arrives bound, not through the FormData, because the Pending tab
+ * cancels from a button inside the create-ticket form. react-dom drops the
+ * submitter when it takes a `formAction` off it, so that button's `name`/`value`
+ * reached nothing and every cancel from that tab failed with "not found".
+ * Binding also gives each row its own pending state, since each bound reference
+ * is distinct. The Tracker tab, which has a real per-row form, binds the same
+ * way so there is one shape rather than two.
+ */
+async function cancelEpicRequestAction(requestId: string, formData: FormData) {
   "use server";
   const session = await requirePermission("support.manage_requests");
-  const requestId = String(formData.get("requestId") ?? "");
   // Return to whichever tab initiated the cancel (Tracker or Pending).
   const tab = String(formData.get("tab") ?? "tracker") === "pending" ? "pending" : "tracker";
   try {
@@ -295,7 +304,16 @@ export default async function EpicRequestsPage({ searchParams }: PageProps) {
   const historyLimit = activeTab === "history" ? EPIC_HISTORY_LIMIT : undefined;
   const needsGenerate = activeTab === "generate";
   const needsTracker = activeTab === "tracker";
-  const [departments, history, pendingDeactivations, authorizers, incidentPeople, pending, linkableTickets] =
+  const [
+    departments,
+    history,
+    pendingDeactivations,
+    authorizers,
+    incidentPeople,
+    pending,
+    orphanEpicTickets,
+    linkableTickets,
+  ] =
     await Promise.all([
       needsGenerate ? listDepartmentsWithMembers() : [],
       needsHistory
@@ -310,6 +328,9 @@ export default async function EpicRequestsPage({ searchParams }: PageProps) {
       needsGenerate || activeTab === "term-batch" ? listEpicAuthorizers() : [],
       needsTracker ? listIncidentPeople() : [],
       activeTab === "pending" ? listPendingEpicRequests() : [],
+      // Same tab, same reason: an EPIC ticket nobody attached a request to is a
+      // hole in this queue, so it is loaded and shown beside it.
+      activeTab === "pending" ? listEpicTicketsWithoutRequest() : [],
       needsTracker ? listLinkableTechRequests() : [],
     ]);
 
@@ -343,6 +364,7 @@ export default async function EpicRequestsPage({ searchParams }: PageProps) {
         authorizers={authorizers}
         incidentPeople={incidentPeople}
         pending={pending}
+        orphanEpicTickets={orphanEpicTickets}
         linkableTickets={linkableTickets}
         rollup={rollup}
         termOptions={termOptions}

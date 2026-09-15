@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { summaryLine } from "./applicant-history";
+import { summaryLine } from "@/modules/recruitment/engine/history-display";
 import type { ApplicantHistory, HistoryEntry } from "@/modules/recruitment/services/history";
 
 const applicationEntry = (over: Partial<HistoryEntry> = {}): HistoryEntry => ({

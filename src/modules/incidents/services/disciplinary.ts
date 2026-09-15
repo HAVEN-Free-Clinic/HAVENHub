@@ -24,7 +24,7 @@ import { can } from "@/platform/rbac/engine";
 import { manageableDepartmentIds } from "@/platform/departments";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { isStrikeSubject, isReportSubject } from "./self-exclusion";
-import { personNameSearchClauses } from "@/platform/person-name";
+import { personNameSearchClauses, comparePersonName } from "@/platform/person-name";
 import { PERSON_NAME_ORDER } from "@/platform/person-name";
 
 // ---------------------------------------------------------------------------
@@ -688,7 +688,7 @@ export async function issuablePeople(actorPersonId: string): Promise<{
       personId: { not: actorPersonId },
     },
     include: {
-      person: { select: { id: true, name: true } },
+      person: { select: { id: true, name: true, legalFirstName: true, lastName: true } },
       department: { select: { name: true } },
     },
   });
@@ -696,7 +696,13 @@ export async function issuablePeople(actorPersonId: string): Promise<{
   // Dedupe by personId; collect all dept names per person.
   const peopleMap = new Map<
     string,
-    { id: string; name: string | null; departmentNames: Set<string> }
+    {
+      id: string;
+      name: string | null;
+      legalFirstName: string;
+      lastName: string;
+      departmentNames: Set<string>;
+    }
   >();
 
   for (const m of memberships) {
@@ -707,18 +713,20 @@ export async function issuablePeople(actorPersonId: string): Promise<{
       peopleMap.set(m.personId, {
         id: m.personId,
         name: m.person.name,
+        legalFirstName: m.person.legalFirstName,
+        lastName: m.person.lastName,
         departmentNames: new Set([m.department.name]),
       });
     }
   }
 
   const people = [...peopleMap.values()]
+    .sort(comparePersonName)
     .map((p) => ({
       id: p.id,
       name: p.name,
       departmentNames: [...p.departmentNames].sort(),
-    }))
-    .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
+    }));
 
   return { all: false, people };
 }
@@ -930,7 +938,7 @@ export async function strikeablePeople(actorPersonId: string): Promise<
   const activeTerm = await getActiveTerm();
   const [persons, memberships] = await Promise.all([
     prisma.person.findMany({
-      select: { id: true, name: true, status: true },
+      select: { id: true, name: true, legalFirstName: true, lastName: true, status: true },
       orderBy: PERSON_NAME_ORDER,
     }),
     activeTerm
@@ -957,11 +965,18 @@ export async function strikeablePeople(actorPersonId: string): Promise<
         : [];
       // PersonStatus is ACTIVE | OFFBOARDED -- there is no INACTIVE value.
       if (p.status !== "ACTIVE") parts.push("offboarded");
-      return { id: p.id, name: p.name, hint: parts.join(" ") || null, active: p.status === "ACTIVE" };
+      return {
+        id: p.id,
+        name: p.name,
+        legalFirstName: p.legalFirstName,
+        lastName: p.lastName,
+        hint: parts.join(" ") || null,
+        active: p.status === "ACTIVE",
+      };
     })
     .sort((a, b) => {
       if (a.active !== b.active) return a.active ? -1 : 1;
-      return a.name.localeCompare(b.name);
+      return comparePersonName(a, b);
     })
     .map(({ id, name, hint }) => ({ id, name, hint }));
 }

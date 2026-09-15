@@ -49,7 +49,7 @@ describe("backfillPersonNames", () => {
     expect(after.nameNeedsReview).toBe(false);
   });
 
-  it("leaves an ambiguous name flagged, with its best guess written", async () => {
+  it("leaves an ambiguous name flagged, with its best guess written to the PARTS", async () => {
     const id = await seedRawPerson("Maria de la Cruz");
 
     const report = await backfillPersonNames({ dryRun: false });
@@ -58,6 +58,40 @@ describe("backfillPersonNames", () => {
     expect(after.lastName).toBe("de la Cruz");
     expect(after.nameNeedsReview).toBe(true);
     expect(report.counts.flagged).toBe(1);
+  });
+
+  /**
+   * The rule the production dry run bought at the cost of nearly writing 44 wrong
+   * names. A guessed split must not reach the column every roster, badge, email
+   * and wallet pass renders: "Dariana Gil Hernandez" is ALREADY correct, and the
+   * guess ("Dariana Hernandez") is worse than the string it would replace. The
+   * parts are what nobody knows yet, so only the parts move.
+   */
+  it("does not touch the display name of a row it had to guess at", async () => {
+    const compound = await seedRawPerson("Dariana Gil Hernandez");
+    const korean = await seedRawPerson("Hye Young Choi");
+
+    await backfillPersonNames({ dryRun: false });
+
+    const a = await prisma.person.findUniqueOrThrow({ where: { id: compound } });
+    expect(a.name).toBe("Dariana Gil Hernandez");
+    expect(a.nameNeedsReview).toBe(true);
+    // The parts still carry the guess, so the review queue has something to show.
+    expect(a.legalFirstName).toBe("Dariana");
+
+    const b = await prisma.person.findUniqueOrThrow({ where: { id: korean } });
+    expect(b.name).toBe("Hye Young Choi");
+    expect(b.nameNeedsReview).toBe(true);
+  });
+
+  it("still cleans the display name of a row it read with confidence", async () => {
+    const id = await seedRawPerson("Jonathan (Jack) Carney");
+
+    await backfillPersonNames({ dryRun: false });
+
+    const after = await prisma.person.findUniqueOrThrow({ where: { id } });
+    expect(after.name).toBe("Jack Carney");
+    expect(after.nameNeedsReview).toBe(false);
   });
 
   it("does not re-guess a row a human already confirmed", async () => {

@@ -516,7 +516,7 @@ describe("listLanguageReviewQueue with both sources", () => {
     await prisma.application.create({
       data: {
         cycleId: cycle.id, applicantId: applicant.id, answers: {},
-        applicantType: "NEW", departmentChoices: ["PATS"],
+        applicantType: "NEW", departmentChoices: ["PATS"], languagesClaimed: ["es"],
         status: "SUBMITTED", submittedAt: new Date(),
       },
     });
@@ -567,7 +567,7 @@ describe("listLanguageReviewQueue with both sources", () => {
     await prisma.application.create({
       data: {
         cycleId: cycle.id, applicantId: applicant.id, answers: {},
-        applicantType: "NEW", departmentChoices: ["EDUC"],
+        applicantType: "NEW", departmentChoices: ["EDUC"], languagesClaimed: ["es"],
         dualRoleDepartments: ["INTP"], status: "SUBMITTED", submittedAt: new Date(),
       },
     });
@@ -614,6 +614,7 @@ describe("listLanguageReviewQueue with both sources", () => {
       data: {
         cycleId: cycle.id, applicantId: applicant.id, answers: {},
         applicantType: "RENEWAL", departmentChoices: ["PATS"], renewalDepartment: "PATS",
+        languagesClaimed: ["es"],
         status: "SUBMITTED", submittedAt: new Date(),
       },
     });

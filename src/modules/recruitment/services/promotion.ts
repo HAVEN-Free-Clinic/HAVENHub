@@ -6,9 +6,19 @@ import { SPANISH, carryForwardApplicationAssessments, claimLanguage, notifyRevie
 import { dualRolesToRecord } from "@/platform/dual-roles/catalog";
 import { notifyDirectorsOfDualRoleOffers } from "@/platform/dual-roles";
 import { log, errorAttrs } from "@/platform/logging";
+import { queueEmail } from "@/platform/email/send";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
+import { applicantFirstName } from "@/platform/person-name";
+import { resolveCycleEmail, renderResolvedEmail, type EmailSources } from "../email/render";
+import { buildOnboardingNextSteps } from "../onboarding-next-steps";
+import { formatTrainingDate, formatTrainingLocation } from "../training-date";
+import { getObject } from "@/platform/storage";
+import { getSetting } from "@/platform/settings/service";
+import { PHOTO_CONTENT_TYPE, setPhotoFromUpload } from "@/platform/photos";
 import { aliasPerson, flushEvents } from "@/platform/posthog/capture";
 import {
   AVAILABILITY_FIELD_KEY,
+  adoptIncomingShiftsTx,
   applicationAvailabilityDates,
   parseAvailabilityDates,
 } from "@/platform/recruitment/incoming-roster";
@@ -18,6 +28,8 @@ import { getActiveTerm } from "@/platform/terms/active-term";
 import { upsertSpanishAssessmentForTerm } from "@/platform/languages/spanish-assessments";
 import { normalizeIdentityKey } from "./identity-keys";
 import { findAcceptanceConflicts } from "../engine/conflicts";
+import { joinNames } from "../engine/dual-appointments";
+import { epicRequirementFor } from "../contract/epic-requirement";
 import { RecruitmentAuthError } from "./review";
 import { linkAttendanceByEmail } from "./attendance-events";
 
@@ -51,10 +63,13 @@ export async function promoteContracts(
   // message per offer turns a cohort promotion into an inbox flood.
   const pendingDualRoles: Array<{ personId: string; departmentCode: string; primaryDepartmentCode: string }> = [];
 
+  // The roster welcome email's resolved template, once per cycle for the batch.
+  const welcomeSources = new Map<string, EmailSources>();
+
   for (const id of contractIds) {
     const contract = await prisma.onboardingContract.findUnique({
       where: { id },
-      include: { acceptance: { include: { application: { include: { cycle: { select: { termId: true, track: true, term: { select: { clinicDates: true } } } }, acceptances: { select: { departmentCode: true } } } } } } },
+      include: { acceptance: { include: { application: { include: { cycle: { select: { id: true, title: true, termId: true, track: true, inPersonTrainingDate: true, trainingLocation: true, term: { select: { clinicDates: true } } } }, acceptances: { select: { id: true, departmentCode: true }, orderBy: { createdAt: "asc" } }, dualAppointments: { where: { status: "APPROVED" }, select: { departmentCode: true } } } } } } },
     });
     if (!contract || contract.status !== "SUBMITTED") { skipped += 1; continue; }
     // A withdrawn applicant must never reach the roster. Withdrawal deliberately
@@ -63,16 +78,29 @@ export async function promoteContracts(
     // promotable and nothing else downstream would catch this.
     if (contract.acceptance.application.status === "WITHDRAWN") { skipped += 1; continue; }
     // Never promote a conflicted acceptance: one application accepted by more
-    // than one department would otherwise land the person on two rosters. SRR
-    // must resolve the conflict on the Decisions page first.
+    // than one department would otherwise land the person on two rosters nobody
+    // agreed to. SRR must resolve the conflict on the Decisions page first. An
+    // approved dual appointment is the agreed version of exactly that, so its
+    // department does not count as a conflict (engine/dual-appointments.ts).
     const application = contract.acceptance.application;
     const conflicts = findAcceptanceConflicts(
       application.acceptances.map((a) => ({ applicationId: application.id, departmentCode: a.departmentCode })),
+      application.dualAppointments.map((d) => ({ applicationId: application.id, departmentCode: d.departmentCode })),
     );
     if (conflicts.has(application.id)) { skipped += 1; continue; }
     const cycle = application.cycle;
     const dept = await prisma.department.findUnique({ where: { code: contract.acceptance.departmentCode } });
     if (!dept) { skipped += 1; continue; }
+    // The application's other acceptance, when it holds a dual appointment. The
+    // person filled in ONE contract, so promoting it puts them on every roster
+    // they were accepted into, and adopts the drafts each department made.
+    const alsoAcceptances = application.acceptances.filter((a) => a.departmentCode !== dept.code);
+    const alsoDepts = alsoAcceptances.length > 0
+      ? await prisma.department.findMany({
+          where: { code: { in: alsoAcceptances.map((a) => a.departmentCode) } },
+          select: { id: true, code: true, name: true, requiresEpicDirector: true, requiresEpicVolunteer: true },
+        })
+      : [];
     const kind: "DIRECTOR" | "VOLUNTEER" = cycle.track === "DIRECTOR" ? "DIRECTOR" : "VOLUNTEER";
     // Carry the availability the applicant chose on their application into the
     // scheduler's baseline tier. Without this the member lands with empty
@@ -167,9 +195,30 @@ export async function promoteContracts(
             cancelledDeactivations = await cancelOpenDeactivationRequestsTx(tx, person.id);
             wasReactivated = true;
           }
+          // Name parts the contract adds to a returner's record. Like every
+          // column below, a value only ever FILLS a gap: the record may have been
+          // corrected by a human since they applied. The person-name write
+          // extension refuses a partial parts update (it cannot derive `name`
+          // without reading the row), so a fill sends the complete parts, and
+          // passes back the review flag and current name so a row awaiting
+          // review keeps both.
+          const middleFill = person.legalMiddleName == null ? contract.legalMiddleName?.trim() || null : null;
+          const preferredFill = person.preferredFirstName == null ? contract.preferredFirstName?.trim() || null : null;
+          const nameFill =
+            (middleFill || preferredFill) && person.legalFirstName.trim() !== ""
+              ? {
+                  name: person.name,
+                  legalFirstName: person.legalFirstName,
+                  legalMiddleName: person.legalMiddleName ?? middleFill,
+                  lastName: person.lastName,
+                  preferredFirstName: person.preferredFirstName ?? preferredFill,
+                  nameNeedsReview: person.nameNeedsReview,
+                }
+              : {};
           await tx.person.update({
             where: { id: person.id },
             data: {
+              ...nameFill,
               status: "ACTIVE",
               phone: person.phone ?? contract.phone,
               yaleAffiliation: person.yaleAffiliation ?? contract.yaleAffiliation,
@@ -197,6 +246,7 @@ export async function promoteContracts(
               // it, somebody who told us they go by Jack on day one lands on
               // the roster as Jonathan and has to correct it themselves.
               preferredFirstName: contract.preferredFirstName?.trim() || null,
+              legalMiddleName: contract.legalMiddleName?.trim() || null,
               netId: writableNetId, contactEmail: normEmail, phone: contract.phone,
               yaleAffiliation: contract.yaleAffiliation, gradYear: contract.gradYear,
               epicId: contract.existingEpicId, status: "ACTIVE",
@@ -231,9 +281,11 @@ export async function promoteContracts(
 
         // Every ACTUALLY CLAIMED language runs through claimLanguage, whether
         // or not INTP already assessed it pre-acceptance. A language carried
-        // above but never claimed (Spanish is assessed regardless of claim, per
-        // decision 1) must NOT run through here: claimLanguage always sets
-        // selfReported true, and this applicant never made that claim.
+        // above but never claimed (Spanish for a department that assesses it
+        // regardless of claim, such as PATS, or a verdict re-recorded from one
+        // already on file) must NOT run through here:
+        // claimLanguage always sets selfReported true, and this applicant never
+        // made that claim.
         // claimLanguage's own upsert is safe to run on an already-assessed row:
         // its update branch only ever touches selfReported, leaving the verdict
         // carryForwardApplicationAssessments just wrote untouched. Its `created`
@@ -262,39 +314,56 @@ export async function promoteContracts(
         // them as two rows in the schedule builder grid (sharing one personId, so
         // both toggle the same assignment) and double-counts them in department
         // compliance. Retire any ACTIVE row of the other kind first.
-        const otherKindActive = await tx.termMembership.findMany({
-          where: {
-            personId: person.id, termId: cycle.termId, departmentId: dept.id,
-            status: "ACTIVE", kind: { not: kind },
-          },
-          select: { id: true },
-        });
-        for (const m of otherKindActive) {
-          await tx.termMembership.update({ where: { id: m.id }, data: { status: "REMOVED" } });
-        }
-
-        const existingMembership = await tx.termMembership.findFirst({ where: { personId: person.id, termId: cycle.termId, departmentId: dept.id, kind } });
-        if (!existingMembership) {
-          await tx.termMembership.create({ data: { personId: person.id, termId: cycle.termId, departmentId: dept.id, kind, status: "ACTIVE", baselineAvailability: availabilityDates } });
-        } else if (existingMembership.status === "REMOVED") {
-          // Offboarding flips a membership to REMOVED rather than deleting it (see
-          // offboard convergence). A person who was previously removed and is now
-          // re-promoted keeps that stale REMOVED row, so without this they land as
-          // Person.status ACTIVE but absent from every ACTIVE-keyed roster,
-          // scheduler, and compliance surface (audit3 M1). Reactivate it; an
-          // already-ACTIVE membership is left untouched. Refresh baseline
-          // availability from the fresh application, but only when the application
-          // actually supplied an availability answer (checked on the PARSED list,
-          // before the clinic-date filter): an application with no availability
-          // answer at all must not wipe an existing baseline. If the applicant did
-          // answer but every date they picked has since fallen off the clinic
-          // calendar (or was a phantom Saturday from before this filter existed),
-          // write the empty FILTERED list so the stale dates don't linger, matching
-          // the create path above.
-          await tx.termMembership.update({
-            where: { id: existingMembership.id },
-            data: { status: "ACTIVE", ...(parsedAvailabilityDates.length > 0 ? { baselineAvailability: availabilityDates } : {}) },
+        // A const for the closure: `person` is reassigned above, so TypeScript
+        // does not carry its non-null narrowing into a function body.
+        const memberId = person.id;
+        const ensureMembership = async (departmentId: string) => {
+          const otherKindActive = await tx.termMembership.findMany({
+            where: {
+              personId: memberId, termId: cycle.termId, departmentId,
+              status: "ACTIVE", kind: { not: kind },
+            },
+            select: { id: true },
           });
+          for (const m of otherKindActive) {
+            await tx.termMembership.update({ where: { id: m.id }, data: { status: "REMOVED" } });
+          }
+
+          const existingMembership = await tx.termMembership.findFirst({ where: { personId: memberId, termId: cycle.termId, departmentId, kind } });
+          if (!existingMembership) {
+            await tx.termMembership.create({ data: { personId: memberId, termId: cycle.termId, departmentId, kind, status: "ACTIVE", baselineAvailability: availabilityDates } });
+          } else if (existingMembership.status === "REMOVED") {
+            // Offboarding flips a membership to REMOVED rather than deleting it (see
+            // offboard convergence). A person who was previously removed and is now
+            // re-promoted keeps that stale REMOVED row, so without this they land as
+            // Person.status ACTIVE but absent from every ACTIVE-keyed roster,
+            // scheduler, and compliance surface (audit3 M1). Reactivate it; an
+            // already-ACTIVE membership is left untouched. Refresh baseline
+            // availability from the fresh application, but only when the application
+            // actually supplied an availability answer (checked on the PARSED list,
+            // before the clinic-date filter): an application with no availability
+            // answer at all must not wipe an existing baseline. If the applicant did
+            // answer but every date they picked has since fallen off the clinic
+            // calendar (or was a phantom Saturday from before this filter existed),
+            // write the empty FILTERED list so the stale dates don't linger, matching
+            // the create path above.
+            await tx.termMembership.update({
+              where: { id: existingMembership.id },
+              data: { status: "ACTIVE", ...(parsedAvailabilityDates.length > 0 ? { baselineAvailability: availabilityDates } : {}) },
+            });
+          }
+        };
+        await ensureMembership(dept.id);
+        for (const also of alsoDepts) await ensureMembership(also.id);
+
+        // Draft shifts a director placed before this person existed. A first-time
+        // applicant has no Person until the lines above, so the schedule builder
+        // kept their drafts against the acceptance. Moved onto the real schedule
+        // in the same transaction as the membership, so there is no moment where
+        // someone is on the roster but their drafted Saturdays are not.
+        await adoptIncomingShiftsTx(tx, { acceptanceId: contract.acceptanceId, personId: person.id });
+        for (const also of alsoAcceptances) {
+          await adoptIncomingShiftsTx(tx, { acceptanceId: also.id, personId: person.id });
         }
 
         // Dual-role offers: the applicant ticked "I will also serve VADM/INTP"
@@ -322,6 +391,9 @@ export async function promoteContracts(
           declared: application.dualRoleDepartments,
           primaryDepartmentCode: dept.code,
           activeDepartmentCodes,
+          // A department that already rejected them during selection has
+          // decided; offering the person to it again would reopen that.
+          declinedBy: application.dualRoleDeclinedBy,
         })) {
           const key = { personId: person.id, termId: cycle.termId, departmentCode };
           const existingInterest = await tx.dualRoleInterest.findUnique({
@@ -361,7 +433,11 @@ export async function promoteContracts(
           }
         }
 
-        if (contract.epicNeeded && !effectiveEpicId) {
+        // contract.epicNeeded was decided at submit. A dual appointment approved
+        // after that can add a department that uses Epic, so check its own rule
+        // too rather than trusting the form's answer alone.
+        const alsoNeedsEpic = alsoDepts.some((d) => epicRequirementFor(d, cycle.track) === "ALL");
+        if ((contract.epicNeeded || alsoNeedsEpic) && !effectiveEpicId) {
           const openReq = await tx.epicRequest.findFirst({ where: { personId: person.id, status: { in: ["PENDING", "SUBMITTED"] } } });
           if (!openReq) {
             // Carry the applicant's Epic access details onto the request so whoever
@@ -396,6 +472,70 @@ export async function promoteContracts(
       pendingDualRoles.push(...result.newDualRoles);
       carriedSpanish.push(...result.carriedSpanish);
       await recordAudit({ actorPersonId: actorId, action: "recruitment.promote", entityType: "OnboardingContract", entityId: id });
+      // The contract's photo becomes the person's profile photo, replacing any
+      // they had. After the transaction and best-effort, like the attendance link
+      // below: this is object storage I/O plus a Person write on the outer client,
+      // and a failure must not undo a promotion that has already committed. The
+      // member chose this photo themselves, so it is recorded as their own upload
+      // (actor = the person), exactly as if they had uploaded it on My Info.
+      if (contract.photoStoredName) {
+        try {
+          const bytes = await getObject(`onboarding/${contract.id}/${contract.photoStoredName}`);
+          if (!bytes) throw new Error("the onboarding photo is missing from storage");
+          const maxMb = await getSetting<number>("uploads.maxMb");
+          await setPhotoFromUpload(
+            result.personId,
+            { type: PHOTO_CONTENT_TYPE, size: bytes.length, bytes },
+            maxMb,
+            result.personId,
+          );
+        } catch (err) {
+          log.error("[promotion] copying the onboarding photo to the profile failed", errorAttrs(err, { contractId: id }));
+        }
+      }
+      // Tell them they are on the roster and can sign in now. After the commit and
+      // best-effort, like the photo above: the email is not part of being on the
+      // roster, and a template or settings failure must not undo a promotion.
+      // Returners get the short version; a brand-new person or a reactivated alum
+      // gets the introduction to HAVEN Hub.
+      try {
+        let sources = welcomeSources.get(cycle.id);
+        if (!sources) {
+          sources = await resolveCycleEmail(cycle.id, "recruitment.roster_welcome");
+          welcomeSources.set(cycle.id, sources);
+        }
+        const [zone, baseUrl] = await Promise.all([getDisplayTimeZone(), getSetting<string>("app.baseUrl")]);
+        const isReturning = !result.isNew && !wasReactivated;
+        // Through the end of training day, so someone added that morning still reads it.
+        const trainingAhead =
+          cycle.inPersonTrainingDate != null && cycle.inPersonTrainingDate.getTime() > Date.now() - 24 * 60 * 60 * 1000;
+        const signIn = buildOnboardingNextSteps({
+          email: contract.email, trainingDate: null, trainingLocation: "", hasAccount: true,
+          epicNeeded: false, storedEpicId: null, hasEpic: false,
+        }).signIn;
+        const email = renderResolvedEmail(sources, {
+          firstName: applicantFirstName(contract) || "there",
+          cycleTitle: cycle.title,
+          departmentName: joinNames([dept.name, ...alsoDepts.map((d) => d.name)]),
+          isNew: !isReturning,
+          isReturning,
+          signInText: signIn.text ?? signIn.emailText,
+          training: trainingAhead
+            ? `Attend in-person training on ${formatTrainingDate(cycle.inPersonTrainingDate, zone)}${formatTrainingLocation(cycle.trainingLocation ?? null)}.`
+            : "",
+          hubUrl: baseUrl,
+        });
+        await queueEmail(prisma, {
+          to: contract.email,
+          subject: email.subject,
+          html: email.html,
+          template: "recruitment.roster_welcome",
+          personId: result.personId,
+          triggeredById: actorId,
+        });
+      } catch (err) {
+        log.error("[promotion] failed to queue the roster welcome email", errorAttrs(err, { contractId: id }));
+      }
       // Bringing a Person back to ACTIVE is auditable wherever it happens. The
       // recruitment.promote row above is against the contract, so without this a
       // reactivation via re-onboarding left no trace on the Person, unlike the

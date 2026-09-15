@@ -362,3 +362,42 @@ describe("hasPlatformScope", () => {
     expect(await hasPlatformScope(person.id, "volunteers.view", f.term.id)).toBe(false);
   });
 });
+
+describe("access for a new member on the next term's roster only", () => {
+  beforeEach(resetDb);
+
+  async function nextTerm() {
+    return prisma.term.create({
+      data: { code: "FA26", name: "Fall 2026", startDate: new Date("2026-10-03"), endDate: new Date("2027-01-01"), status: "PLANNING" },
+    });
+  }
+
+  it("grants the kind baseline through their next-term membership", async () => {
+    const f = await fixture();
+    const next = await nextTerm();
+    const person = await prisma.person.create({ data: { name: "New Vol" } });
+    await prisma.termMembership.create({ data: { personId: person.id, termId: next.id, departmentId: f.vadm.id, kind: "VOLUNTEER" } });
+    expect(await can(person.id, "schedule.view")).toBe(true);
+    expect(await permissionDepartmentIds(person.id, "schedule.view")).toEqual([f.vadm.id]);
+  });
+
+  it("does not reach them through an assignment scoped to the live term", async () => {
+    const f = await fixture();
+    const next = await nextTerm();
+    await prisma.roleAssignment.deleteMany({ where: { kind: "VOLUNTEER" } });
+    await prisma.roleAssignment.create({ data: { roleId: f.volunteerRole.id, kind: "VOLUNTEER", termId: f.term.id } });
+    const person = await prisma.person.create({ data: { name: "New Vol" } });
+    await prisma.termMembership.create({ data: { personId: person.id, termId: next.id, departmentId: f.vadm.id, kind: "VOLUNTEER" } });
+    expect(await can(person.id, "schedule.view")).toBe(false);
+  });
+
+  it("keeps a current member on the live term, so next term's role does not arrive early", async () => {
+    const f = await fixture();
+    const next = await nextTerm();
+    const person = await prisma.person.create({ data: { name: "Returner" } });
+    await prisma.termMembership.create({ data: { personId: person.id, termId: f.term.id, departmentId: f.vadm.id, kind: "VOLUNTEER" } });
+    await prisma.termMembership.create({ data: { personId: person.id, termId: next.id, departmentId: f.itcm.id, kind: "DIRECTOR" } });
+    expect(await can(person.id, "schedule.view")).toBe(true);
+    expect(await can(person.id, "volunteers.view")).toBe(false);
+  });
+});

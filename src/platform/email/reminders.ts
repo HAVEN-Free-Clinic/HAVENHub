@@ -40,6 +40,7 @@ import { log, errorAttrs } from "@/platform/logging";
 import { effectiveCompliance, certExpiresAt } from "@/platform/compliance/rules";
 import { outstandingItems } from "@/platform/compliance/outstanding-items";
 import { getActiveTerm } from "@/platform/terms/active-term";
+import { getNextTerm } from "@/platform/terms/next-term";
 import { notify } from "@/platform/notifications/notify";
 import { resolveChannel } from "@/platform/notifications/channel";
 import { renderEmail } from "./templates/renderEmail";
@@ -144,19 +145,34 @@ export async function runClearanceReminders(
   const termId = activeTerm.id;
 
   // 2. Candidate people: ACTIVE persons with at least one ACTIVE TermMembership
-  //    in the active term. Two-step: membership ids -> person rows (ACTIVE only).
+  //    in the active term, plus new members on the NEXT term's roster who are not
+  //    on the live one. Those are onboarding onto the next term ahead of the switch
+  //    (getAccessTerm): their gate, checklist, and access already follow that term,
+  //    so their reminders do too. Two-step: membership ids -> person rows (ACTIVE only).
   const membershipRows = await prisma.termMembership.findMany({
     where: { termId, status: "ACTIVE" },
     select: { personId: true, createdAt: true },
   });
+  const liveMemberIds = new Set(membershipRows.map((m) => m.personId));
 
-  const candidateIds = Array.from(
-    new Set(membershipRows.map((m) => m.personId))
-  );
+  const nextTerm = await getNextTerm();
+  const nextOnlyRows = nextTerm
+    ? (
+        await prisma.termMembership.findMany({
+          where: { termId: nextTerm.id, status: "ACTIVE" },
+          select: { personId: true, createdAt: true },
+        })
+      ).filter((m) => !liveMemberIds.has(m.personId))
+    : [];
+  // People reminded against the next term rather than the live one.
+  const nextOnlyIds = new Set(nextOnlyRows.map((m) => m.personId));
 
-  // Earliest active membership per person, for the onboarding grace period.
+  const candidateIds = Array.from(new Set([...liveMemberIds, ...nextOnlyIds]));
+
+  // Earliest active membership per person, for the onboarding grace period. For a
+  // next-term member that is when they were added to its roster.
   const joinedAt = new Map<string, Date>();
-  for (const m of membershipRows) {
+  for (const m of [...membershipRows, ...nextOnlyRows]) {
     const seen = joinedAt.get(m.personId);
     if (!seen || m.createdAt < seen) joinedAt.set(m.personId, m.createdAt);
   }
@@ -242,7 +258,13 @@ export async function runClearanceReminders(
   //    onboarding email; loadClearanceMap gives the per-term step config plus the
   //    missing task keys that drive the onboarding leg.
   const ehsMissingByPerson = await loadEhsMissingMap(termId);
-  const clearanceByPerson = await loadClearanceMap(personIds, termId);
+  const clearanceByPerson = await loadClearanceMap(personIds.filter((id) => !nextOnlyIds.has(id)), termId);
+  // The same two maps for the next-term cohort, computed against that term.
+  const nextOnlyPersonIds = personIds.filter((id) => nextOnlyIds.has(id));
+  const nextEhsMissingByPerson =
+    nextTerm && nextOnlyPersonIds.length > 0 ? await loadEhsMissingMap(nextTerm.id) : new Map<string, string[]>();
+  const nextClearanceByPerson: Awaited<ReturnType<typeof loadClearanceMap>> =
+    nextTerm && nextOnlyPersonIds.length > 0 ? await loadClearanceMap(nextOnlyPersonIds, nextTerm.id) : new Map();
 
   // Members the loop finds uncleared, carried into the weekly digest after it.
   const uncleared = new Map<string, UnclearedMember>();
@@ -272,8 +294,11 @@ export async function runClearanceReminders(
     // upload's date, when the status describing them came from the older cert
     // expiring far sooner. A renewal nudge quoting the wrong date is worse than
     // none (audit 14, L3).
-    const { status, cert } = effectiveCompliance(certs, activeTerm.endDate, now);
-    const clearance = clearanceByPerson.get(person.id);
+    // A next-term member is judged against the term they are onboarding onto.
+    const nextOnly = nextTerm !== null && nextOnlyIds.has(person.id);
+    const reminderTerm = nextOnly && nextTerm ? nextTerm : activeTerm;
+    const { status, cert } = effectiveCompliance(certs, reminderTerm.endDate, now);
+    const clearance = (nextOnly ? nextClearanceByPerson : clearanceByPerson).get(person.id);
 
     // A term can disable the HIPAA step. loadClearanceMap drops a disabled step from
     // `tasks`, so its absence means "not required this term": neutralize the leg.
@@ -285,7 +310,7 @@ export async function runClearanceReminders(
 
     const items = onboardingItems(
       clearance?.missing ?? [],
-      ehsMissingByPerson.get(person.id) ?? []
+      (nextOnly ? nextEhsMissingByPerson : ehsMissingByPerson).get(person.id) ?? []
     );
     const onboardingUnsatisfied = items.length > 0;
 
@@ -453,7 +478,10 @@ export async function runClearanceReminders(
     //
     // stalledSince is known without re-reading the row. Either the row already
     // carried one, or the upsert/updateMany a few lines above just stamped `now`.
-    uncleared.set(person.id, {
+    //
+    // A next-term member is left out: the digest goes to the live term's directors,
+    // and their own department's next-term directors pick them up at the switch.
+    if (!nextOnly) uncleared.set(person.id, {
       name: person.name,
       items: [
         ...(hipaaUnsatisfied ? [`HIPAA certification: ${complianceStatusLabel(hipaaStatus, "staff").label}`] : []),
@@ -608,7 +636,7 @@ async function sendClearanceDigests(
       email: { subject: rendered.subject, html: rendered.html },
       teams: {
         title: "Weekly clearance digest",
-        summary: `${members.length} member${members.length === 1 ? "" : "s"} in ${departmentNames} are not cleared.`,
+        summary: `${members.length} member${members.length === 1 ? "" : "s"} in ${departmentNames} ${members.length === 1 ? "is" : "are"} not cleared.`,
         // /volunteers gates on volunteers.view, which the seeded Director baseline
         // holds, and it is the compliance surface itself. /admin gates on admin.access,
         // which Director does NOT hold, so linking there resolves to /no-access for

@@ -3,19 +3,45 @@ import { can } from "@/platform/rbac/engine";
 import { queueEmail } from "@/platform/email/send";
 import { recordAudit } from "@/platform/audit";
 import { findAcceptanceConflicts } from "../engine/conflicts";
+import { joinNames } from "../engine/dual-appointments";
 import { rosterDecision } from "../engine/decision-summary";
-import { resolveCycleEmail, renderResolvedEmail } from "../email/render";
+import { resolveCycleEmail, renderResolvedEmail, type EmailSources } from "../email/render";
 import { RecruitmentAuthError, AcceptanceError } from "./review";
+import { approvedDualAppointmentPairs } from "./dual-appointments";
 import { applicantFirstName } from "@/platform/person-name";
 
-export type Conflict = { applicationId: string; applicantName: string; departments: string[] };
+export type Conflict = {
+  applicationId: string;
+  applicantName: string;
+  departments: string[];
+  /** Where the application is routed, when it is routed at all. */
+  routedDepartmentCode: string | null;
+  /** A volunteer application accepted by exactly two departments can be settled
+   *  by approving one of them as a dual appointment instead of revoking it. */
+  canBecomeDualAppointment: boolean;
+};
 
 export async function listConflicts(cycleId: string): Promise<Conflict[]> {
-  const acceptances = await prisma.acceptance.findMany({
-    where: { application: { cycleId } },
-    include: { application: { include: { applicant: { select: { firstName: true, lastName: true, preferredFirstName: true } } } } },
-  });
-  const conflictIds = findAcceptanceConflicts(acceptances.map((a) => ({ applicationId: a.applicationId, departmentCode: a.departmentCode })));
+  const [acceptances, approved] = await Promise.all([
+    prisma.acceptance.findMany({
+      where: { application: { cycleId } },
+      include: {
+        application: {
+          select: {
+            routedDepartmentCode: true,
+            cycle: { select: { track: true } },
+            applicant: { select: { firstName: true, lastName: true, preferredFirstName: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: "asc" },
+    }),
+    approvedDualAppointmentPairs({ cycleId }),
+  ]);
+  const conflictIds = findAcceptanceConflicts(
+    acceptances.map((a) => ({ applicationId: a.applicationId, departmentCode: a.departmentCode })),
+    approved,
+  );
   const byApp = new Map<string, Conflict>();
   for (const a of acceptances) {
     if (!conflictIds.has(a.applicationId)) continue;
@@ -27,10 +53,15 @@ export async function listConflicts(cycleId: string): Promise<Conflict[]> {
         applicationId: a.applicationId,
         applicantName: `${a.application.applicant.firstName} ${a.application.applicant.lastName}`,
         departments: [a.departmentCode],
+        routedDepartmentCode: a.application.routedDepartmentCode,
+        canBecomeDualAppointment: a.application.cycle.track === "VOLUNTEER",
       });
     }
   }
-  return [...byApp.values()];
+  return [...byApp.values()].map((c) => ({
+    ...c,
+    canBecomeDualAppointment: c.canBecomeDualAppointment && new Set(c.departments).size === 2,
+  }));
 }
 
 export async function releaseSummary(cycleId: string): Promise<{
@@ -38,6 +69,8 @@ export async function releaseSummary(cycleId: string): Promise<{
   conflictedApplications: number;
   unnotified: number;
   emailed: number;
+  /** Accepted applications that hold an approved dual appointment. */
+  dualAppointments: number;
 }> {
   // Same WITHDRAWN exclusion releaseDecisions applies to the rows it actually
   // emails. Without it the summary counted acceptances Release will never send:
@@ -48,18 +81,73 @@ export async function releaseSummary(cycleId: string): Promise<{
   //
   // Application.status is non-nullable, so `not` drops no rows unexpectedly here
   // -- the same reasoning releaseDecisions records at its own filter.
-  const acceptances = await prisma.acceptance.findMany({
-    where: { application: { cycleId, status: { not: "WITHDRAWN" } } },
-  });
-  const conflictIds = findAcceptanceConflicts(acceptances.map((a) => ({ applicationId: a.applicationId, departmentCode: a.departmentCode })));
+  const [acceptances, approved] = await Promise.all([
+    prisma.acceptance.findMany({
+      where: { application: { cycleId, status: { not: "WITHDRAWN" } } },
+    }),
+    approvedDualAppointmentPairs({ cycleId }),
+  ]);
+  const conflictIds = findAcceptanceConflicts(
+    acceptances.map((a) => ({ applicationId: a.applicationId, departmentCode: a.departmentCode })),
+    approved,
+  );
   const acceptedApplications = new Set(acceptances.map((a) => a.applicationId)).size;
-  let unnotified = 0;
-  let emailed = 0;
+  // Counted by application, like the send: Release emails an applicant once,
+  // naming every department, so a dual appointment is one email, not two.
+  const unnotified = new Set<string>();
+  const emailed = new Set<string>();
   for (const a of acceptances) {
-    if (a.emailedAt) { emailed += 1; continue; }
-    if (!conflictIds.has(a.applicationId)) unnotified += 1;
+    if (a.emailedAt) { emailed.add(a.applicationId); continue; }
+    if (!conflictIds.has(a.applicationId)) unnotified.add(a.applicationId);
   }
-  return { acceptedApplications, conflictedApplications: conflictIds.size, unnotified, emailed };
+  const accepted = new Set(acceptances.map((a) => `${a.applicationId}:${a.departmentCode}`));
+  const dualAppointments = new Set(
+    approved.filter((d) => accepted.has(`${d.applicationId}:${d.departmentCode}`)).map((d) => d.applicationId),
+  ).size;
+  return {
+    acceptedApplications,
+    conflictedApplications: conflictIds.size,
+    unnotified: unnotified.size,
+    emailed: emailed.size,
+    dualAppointments,
+  };
+}
+
+/**
+ * Claim every still-unemailed acceptance in `acceptances` (all on ONE
+ * application) and queue one acceptance email naming the departments this send
+ * claimed.
+ *
+ * One email, not one per acceptance: a dual appointment is two acceptances for
+ * one person, and two near-identical congratulations a minute apart read like a
+ * mistake. Each claim is the same `emailedAt: null` precondition as before, taken
+ * inside the transaction, so a concurrent Release or waitlist promote can neither
+ * re-send nor re-stamp; a department someone else's send already claimed is left
+ * out of this email rather than repeated (audit3 L15).
+ */
+async function claimAndQueueAcceptanceEmail(input: {
+  acceptances: Array<{ id: string; departmentCode: string }>;
+  departmentName: (code: string) => string;
+  sources: EmailSources;
+  to: string;
+  firstName: string;
+  cycleTitle: string;
+}): Promise<boolean> {
+  return prisma.$transaction(async (tx) => {
+    const claimed: string[] = [];
+    for (const acc of input.acceptances) {
+      const res = await tx.acceptance.updateMany({ where: { id: acc.id, emailedAt: null }, data: { emailedAt: new Date() } });
+      if (res.count === 1) claimed.push(acc.departmentCode);
+    }
+    if (claimed.length === 0) return false;
+    const email = renderResolvedEmail(input.sources, {
+      firstName: input.firstName,
+      cycleTitle: input.cycleTitle,
+      departmentName: joinNames(claimed.map(input.departmentName)),
+    });
+    await queueEmail(tx, { to: input.to, subject: email.subject, html: email.html, template: "recruitment.acceptance" });
+    return true;
+  });
 }
 
 /** Render + queue the acceptance email for a single acceptance and atomically
@@ -67,9 +155,11 @@ export async function releaseSummary(cycleId: string): Promise<{
  *  this path and a later Release never double-send. Used by the waitlist
  *  "promote to accept" flow to notify a promoted applicant immediately, without
  *  waiting for a separate release run. Skips (returns "conflicted") if the
- *  application now holds acceptances from more than one department, mirroring
- *  releaseDecisions' conflict skip -- the conflict must be resolved (and the
- *  cycle released) before that applicant is emailed. */
+ *  application now holds acceptances from more than one department without an
+ *  approved dual appointment, mirroring releaseDecisions' conflict skip -- the
+ *  conflict must be resolved (and the cycle released) before that applicant is
+ *  emailed. An approved dual appointment's still-unemailed acceptance rides along
+ *  in the same email. */
 export async function sendAcceptanceEmail(
   applicationId: string,
   departmentCode: string,
@@ -94,33 +184,46 @@ export async function sendAcceptanceEmail(
   // it can then only be cleared through revokeAcceptance.
   if (acc.application.status === "WITHDRAWN") return { sent: false, reason: "withdrawn" };
   if (acc.emailedAt) return { sent: false, reason: "already_emailed" };
-  // Conflict = this application accepted by more than one distinct department
+  // Conflict = this application accepted by more departments than it may be
   // (the single-application case of findAcceptanceConflicts). Don't notify until
   // the conflict is resolved and the cycle released.
-  const appAcceptances = await prisma.acceptance.findMany({ where: { applicationId }, select: { departmentCode: true } });
-  if (new Set(appAcceptances.map((a) => a.departmentCode)).size > 1) return { sent: false, reason: "conflicted" };
+  const [appAcceptances, approved] = await Promise.all([
+    prisma.acceptance.findMany({
+      where: { applicationId },
+      select: { id: true, departmentCode: true, emailedAt: true },
+      orderBy: { createdAt: "asc" },
+    }),
+    approvedDualAppointmentPairs({ applicationIds: [applicationId] }),
+  ]);
+  const conflicted = findAcceptanceConflicts(
+    appAcceptances.map((a) => ({ applicationId, departmentCode: a.departmentCode })),
+    approved,
+  ).has(applicationId);
+  if (conflicted) return { sent: false, reason: "conflicted" };
 
-  const dept = await prisma.department.findUnique({ where: { code: departmentCode }, select: { name: true } });
+  const unsent = appAcceptances.filter((a) => a.emailedAt == null);
+  const depts = await prisma.department.findMany({
+    where: { code: { in: unsent.map((a) => a.departmentCode) } },
+    select: { code: true, name: true },
+  });
+  const deptName = new Map(depts.map((d) => [d.code, d.name]));
   const sources = await resolveCycleEmail(acc.application.cycle.id, "recruitment.acceptance");
-  const email = renderResolvedEmail(sources, {
+  const sent = await claimAndQueueAcceptanceEmail({
+    acceptances: unsent,
+    departmentName: (code) => deptName.get(code) ?? code,
+    sources,
+    to: acc.application.applicant.email,
     firstName: applicantFirstName(acc.application.applicant) || "there",
     cycleTitle: acc.application.cycle.title,
-    departmentName: dept?.name ?? departmentCode,
-  });
-  const sent = await prisma.$transaction(async (tx) => {
-    // Atomic claim mirrors releaseDecisions: only one caller can flip emailedAt,
-    // so a concurrent release/promote can't re-queue or re-stamp (audit3 L15).
-    const claimed = await tx.acceptance.updateMany({ where: { id: acc.id, emailedAt: null }, data: { emailedAt: new Date() } });
-    if (claimed.count !== 1) return false;
-    await queueEmail(tx, { to: acc.application.applicant.email, subject: email.subject, html: email.html, template: "recruitment.acceptance" });
-    return true;
   });
   return sent ? { sent: true } : { sent: false, reason: "already_emailed" };
 }
 
 /** Email every accepted, non-conflicted, un-emailed applicant once; stamp
  *  emailedAt. Idempotent. Conflicted applications are skipped (counted by
- *  distinct application). Requires review_all. */
+ *  distinct application). `sent` counts emails, which is applicants: an
+ *  application with an approved dual appointment gets one email naming both
+ *  departments. Requires review_all. */
 export async function releaseDecisions(cycleId: string, actorId: string): Promise<{ sent: number; skippedConflicted: number }> {
   if (!(await can(actorId, "recruitment.review_all"))) throw new RecruitmentAuthError("Only SRR can release decisions.");
   const cycle = await prisma.recruitmentCycle.findUnique({ where: { id: cycleId } });
@@ -137,6 +240,8 @@ export async function releaseDecisions(cycleId: string, actorId: string): Promis
   const acceptances = await prisma.acceptance.findMany({
     where: { application: { cycleId, status: { not: "WITHDRAWN" } } },
     include: { application: { include: { applicant: true } } },
+    // Oldest first, so the department that accepted them first leads the email.
+    orderBy: { createdAt: "asc" },
   });
 
   // Key the dept-name map off the acceptances actually being emailed, not just
@@ -147,30 +252,33 @@ export async function releaseDecisions(cycleId: string, actorId: string): Promis
   const deptCodes = [...new Set([...cycle.departments, ...acceptances.map((a) => a.departmentCode)])];
   const depts = await prisma.department.findMany({ where: { code: { in: deptCodes } }, select: { code: true, name: true } });
   const deptName = new Map(depts.map((d) => [d.code, d.name]));
-  const conflictIds = findAcceptanceConflicts(acceptances.map((a) => ({ applicationId: a.applicationId, departmentCode: a.departmentCode })));
+  const approved = await approvedDualAppointmentPairs({ cycleId });
+  const conflictIds = findAcceptanceConflicts(
+    acceptances.map((a) => ({ applicationId: a.applicationId, departmentCode: a.departmentCode })),
+    approved,
+  );
 
   // Resolve the acceptance email sources once for the whole cycle.
   const acceptanceSources = await resolveCycleEmail(cycleId, "recruitment.acceptance");
 
-  let sent = 0;
   const skippedApps = new Set<string>();
+  const unsentByApplication = new Map<string, typeof acceptances>();
   for (const acc of acceptances) {
     if (acc.emailedAt) continue;
     if (conflictIds.has(acc.applicationId)) { skippedApps.add(acc.applicationId); continue; }
-    const applicant = acc.application.applicant;
-    const email = renderResolvedEmail(acceptanceSources, {
+    unsentByApplication.set(acc.applicationId, [...(unsentByApplication.get(acc.applicationId) ?? []), acc]);
+  }
+
+  let sent = 0;
+  for (const group of unsentByApplication.values()) {
+    const applicant = group[0].application.applicant;
+    const claimedByThisRelease = await claimAndQueueAcceptanceEmail({
+      acceptances: group,
+      departmentName: (code) => deptName.get(code) ?? code,
+      sources: acceptanceSources,
+      to: applicant.email,
       firstName: applicantFirstName(applicant) || "there",
       cycleTitle: cycle.title,
-      departmentName: deptName.get(acc.departmentCode) ?? acc.departmentCode,
-    });
-    const claimedByThisRelease = await prisma.$transaction(async (tx) => {
-      // Claim the send atomically: the emailedAt: null precondition means only one
-      // of two concurrent releases can stamp this acceptance, so the loser neither
-      // re-queues the acceptance email nor re-stamps emailedAt (audit3 L15).
-      const claimed = await tx.acceptance.updateMany({ where: { id: acc.id, emailedAt: null }, data: { emailedAt: new Date() } });
-      if (claimed.count !== 1) return false;
-      await queueEmail(tx, { to: applicant.email, subject: email.subject, html: email.html, template: "recruitment.acceptance" });
-      return true;
     });
     if (claimedByThisRelease) sent += 1;
   }

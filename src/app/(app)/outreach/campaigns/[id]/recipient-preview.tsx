@@ -8,6 +8,7 @@ import { Alert } from "@/platform/ui/alert";
 import { Button } from "@/platform/ui/button";
 import { Card } from "@/platform/ui/card";
 import { Input, Textarea, Field } from "@/platform/ui/input";
+import { Select } from "@/platform/ui/select";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { useFormDirty } from "./use-form-dirty";
@@ -21,6 +22,7 @@ const REASON_LABEL: Record<RecipientReason, string> = {
   matched: "Condition match",
   included: "Added by search",
   pasted: "Pasted address",
+  applicant: "Applicant",
 };
 
 /**
@@ -49,8 +51,20 @@ const MIN_SEARCH_LENGTH = 2;
  * campaigns/service.ts. Naming both possibilities in one sentence is the point:
  * the sender should read a missing address as "check the spelling, or check the
  * scope", never as "that person does not exist".
+ *
+ * The scope half of that sentence is said only on a SCOPED campaign, the one
+ * place it is true. An unscoped campaign mails an address nobody has, so there a
+ * listed address is malformed, excluded, or already mailed, and a sentence about
+ * scope would send the sender looking for a boundary that is not there. Saying
+ * so leaks nothing: `scoped` is a fact about the campaign, not about any address.
  */
-export function UnresolvedPastedAddresses({ addresses }: { addresses: string[] }) {
+export function UnresolvedPastedAddresses({
+  addresses,
+  scoped,
+}: {
+  addresses: string[];
+  scoped: boolean;
+}) {
   if (addresses.length === 0) return null;
   return (
     <Alert tone="warning">
@@ -63,8 +77,17 @@ export function UnresolvedPastedAddresses({ addresses }: { addresses: string[] }
         ))}
       </ul>
       <p className="mt-1">
-        An address is listed here whether nobody has it or somebody outside this campaign&apos;s
-        audience scope does. Check the spelling, and check the scope.
+        {scoped ? (
+          <>
+            An address is listed here whether nobody has it or somebody outside this
+            campaign&apos;s audience scope does. Check the spelling, and check the scope.
+          </>
+        ) : (
+          <>
+            An address is listed here when it is not a valid email address, or belongs to
+            someone excluded by hand or already sent this campaign. Check the spelling.
+          </>
+        )}
       </p>
     </Alert>
   );
@@ -111,6 +134,9 @@ export function RecipientPreview({
   excludeAction,
   clearExcludedAction,
   pastedEmailsAction,
+  applicantCycleIds,
+  cycleOptions,
+  applicantCycleAction,
 }: {
   formId: string;
   /**
@@ -141,6 +167,12 @@ export function RecipientPreview({
    * would destroy the block it was complaining about.
    */
   pastedEmailsAction: (prevState: FormProblems, formData: FormData) => Promise<FormProblems>;
+  /** The recruitment cycles whose applicants this campaign emails. Unscoped campaigns only. */
+  applicantCycleIds: string[];
+  /** Every recruitment cycle, labelled, for the applicant picker. */
+  cycleOptions: { id: string; label: string }[];
+  /** Adds or removes one cycle; see applicantCycleAction in actions.ts. */
+  applicantCycleAction: FormAction;
 }) {
   const dirty = useFormDirty(formId, savedAt);
   const [query, setQuery] = useState("");
@@ -213,8 +245,10 @@ export function RecipientPreview({
         <h3 className="text-sm font-semibold text-foreground">Recipients</h3>
         <p className="text-xs text-subtle-foreground">
           Everyone this campaign will email as it is saved now: the people your conditions
-          match, plus anyone added below, minus anyone excluded. Manual additions are held to
-          the same audience scope the conditions are.
+          match, plus anyone added below, minus anyone excluded.{" "}
+          {preview.scoped
+            ? "Manual additions are held to the same audience scope the conditions are."
+            : "With no audience scope, applicants and pasted addresses are emailed whether or not they have a HAVEN Hub account."}
         </p>
       </div>
 
@@ -286,17 +320,26 @@ export function RecipientPreview({
               </THead>
               <tbody>
                 {preview.sample.map((r) => (
-                  <TR key={r.personId}>
-                    <TD className="text-foreground-soft">{r.name}</TD>
+                  // Keyed by address when there is no id: a bare-address
+                  // recipient has none, and the roll is already deduped by address.
+                  <TR key={r.personId ?? `address:${r.email.toLowerCase()}`}>
+                    <TD className="text-foreground-soft">
+                      {r.name || <span className="text-subtle-foreground">No name on file</span>}
+                    </TD>
                     <TD className="text-foreground-soft">{r.email}</TD>
                     <TD className="text-xs text-subtle-foreground">{REASON_LABEL[r.reason]}</TD>
                     <TD>
-                      <form action={excludeAction}>
-                        <input type="hidden" name="personId" value={r.personId} />
-                        <SubmitButton variant="ghost" pendingLabel="Excluding…" disabled={navigatingDisabled}>
-                          Exclude
-                        </SubmitButton>
-                      </form>
+                      {/* Exclusion is by person id, so a bare address has no
+                          Exclude: take it out of the paste box, or remove its
+                          cycle, instead. */}
+                      {r.personId !== null && (
+                        <form action={excludeAction}>
+                          <input type="hidden" name="personId" value={r.personId} />
+                          <SubmitButton variant="ghost" pendingLabel="Excluding…" disabled={navigatingDisabled}>
+                            Exclude
+                          </SubmitButton>
+                        </form>
+                      )}
                     </TD>
                   </TR>
                 ))}
@@ -313,6 +356,72 @@ export function RecipientPreview({
           />
         )}
       </Card>
+
+      {/* Applicants to whole recruitment cycles, account or not. Unscoped
+          campaigns only: the service refuses to add a cycle to a scoped one and
+          ignores the column there, so on a scoped campaign this card could only
+          offer a control that does nothing. Each control is its own small form
+          with nothing unsaved worth protecting, but it still navigates, so it
+          takes the same guard as Exclude. */}
+      {!preview.scoped && (
+        <Card className="space-y-3">
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-foreground">Applicants</p>
+            <p className="text-xs text-subtle-foreground">
+              Everyone who submitted an application to a cycle, at the address they applied
+              with, whether or not they have a HAVEN Hub account. Anyone who later withdrew is
+              included; unsubmitted drafts are not. Looked up again when the campaign sends, so
+              later applicants are included too.
+            </p>
+          </div>
+
+          {applicantCycleIds.length > 0 && (
+            <ul className="divide-y divide-border">
+              {applicantCycleIds.map((cycleId) => (
+                <li key={cycleId} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                  <span className="text-sm text-foreground-soft">
+                    {cycleOptions.find((c) => c.id === cycleId)?.label ?? "Deleted cycle"}
+                  </span>
+                  <form action={applicantCycleAction}>
+                    <input type="hidden" name="intent" value="remove" />
+                    <input type="hidden" name="cycleId" value={cycleId} />
+                    <SubmitButton variant="ghost" pendingLabel="Removing…" disabled={navigatingDisabled}>
+                      Remove
+                    </SubmitButton>
+                  </form>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {cycleOptions.some((c) => !applicantCycleIds.includes(c.id)) && (
+            <form action={applicantCycleAction}>
+              <input type="hidden" name="intent" value="add" />
+              <FormRow>
+                <div className={ROW_WIDTH.grow}>
+                  <Field label="Add a recruitment cycle">
+                    <Select name="cycleId" defaultValue="" disabled={navigatingDisabled}>
+                      <option value="" disabled>
+                        Choose a cycle
+                      </option>
+                      {cycleOptions
+                        .filter((c) => !applicantCycleIds.includes(c.id))
+                        .map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.label}
+                          </option>
+                        ))}
+                    </Select>
+                  </Field>
+                </div>
+                <SubmitButton variant="outline" pendingLabel="Adding…" disabled={navigatingDisabled}>
+                  Add applicants
+                </SubmitButton>
+              </FormRow>
+            </form>
+          )}
+        </Card>
+      )}
 
       {/* Manual include. The search is bounded by this campaign's scope on the
           server (see searchPeopleAction), so this box can only ever offer
@@ -381,7 +490,11 @@ export function RecipientPreview({
         <form action={pasteFormAction} className="space-y-3">
           <Field
             label="Paste addresses"
-            hint="One per line, or separated by commas. Held to the same audience scope as everything else."
+            hint={
+              preview.scoped
+                ? "One per line, or separated by commas. Held to the same audience scope as everything else."
+                : "One per line, or separated by commas. An address with no HAVEN Hub account is still emailed, with no name to greet them by."
+            }
             hintPosition="top"
           >
             <Textarea
@@ -425,7 +538,7 @@ export function RecipientPreview({
           </Alert>
         )}
 
-        <UnresolvedPastedAddresses addresses={preview.unresolved} />
+        <UnresolvedPastedAddresses addresses={preview.unresolved} scoped={preview.scoped} />
       </Card>
     </div>
   );

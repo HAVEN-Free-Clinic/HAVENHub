@@ -40,6 +40,7 @@
 import type { TechRequest, TechRequestCategory, TechRequestStatus } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
+import { TERMINAL_STATUSES } from "./tech-request";
 import { log } from "@/platform/logging";
 import { normalizeTicketStateLabel } from "@/platform/intercom/tickets";
 import { CATEGORY_LABELS } from "../labels";
@@ -365,6 +366,33 @@ export async function applyIntercomTicketStateChange(
     where: { id: existing.id },
     data: { status },
   });
+
+  // An EPIC ticket reaching a terminal state with no Epic request attached is
+  // the one outcome this sync can produce that loses a member's request outright.
+  // The Epic intake never happens in chat by design (it needs a government id),
+  // so the handoff is "Fin links you to the Hub form" -- and if that second half
+  // never happened, resolving the conversation is the moment the ask disappears:
+  // /support/epic never knew about it, and once terminal it drops off the
+  // orphan list too. Recorded rather than refused, because Intercom owns status
+  // here and blocking the write would put the two sides permanently out of step.
+  if (TERMINAL_STATUSES.includes(status) && updated.category === "EPIC") {
+    const attached = await prisma.epicRequest.count({ where: { techRequestId: updated.id } });
+    if (attached === 0) {
+      log.warn("[support] Intercom resolved an EPIC ticket with no Epic request attached", {
+        techRequestId: updated.id,
+        number: updated.number,
+        status,
+      });
+      await recordAudit({
+        actorPersonId: null,
+        action: "intercom_ticket_sync.epic_ticket_closed_without_request",
+        entityType: "TechRequest",
+        entityId: updated.id,
+        before: { status: existing.status },
+        after: { status, number: updated.number, source: "intercom" },
+      });
+    }
+  }
 
   await recordAudit({
     actorPersonId: null,

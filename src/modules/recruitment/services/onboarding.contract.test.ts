@@ -9,10 +9,14 @@ import { revokeAcceptance, RecruitmentAuthError } from "./review";
 import type { ContractLayout } from "../contract/layout";
 import type { SignatureInput } from "../contract/signatures";
 import * as storage from "@/platform/storage";
+import sharp from "sharp";
 
 /** A minimal valid 1x1 PNG data URL: passes decodeSignaturePng's magic-byte check. */
 const REAL_SIG_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQAY3Y2wAAAAAElFTkSuQmCC";
 const realSig = (name = "Ada Lovelace"): SignatureInput => ({ dataUrl: REAL_SIG_PNG, method: "draw", name });
+/** A real, decodable image for the profile photo. REAL_SIG_PNG only has to pass
+ *  the signature magic-byte check, and libpng refuses to decode it. */
+const PHOTO_PNG = await sharp({ create: { width: 8, height: 8, channels: 3, background: "#808080" } }).png().toBuffer();
 
 /** A layout mirroring the real DIRECTOR_LAYOUT shape closely enough to exercise
  *  department-gated agreements + a checkbox agreement + the epic_needed_self
@@ -401,9 +405,266 @@ describe("submitContract visibility and Epic resolution", () => {
       // second_department is required:true unconditionally; epic_needed_self
       // is hidden (requirement is ALL, not SOME) so it is deliberately omitted.
       customAnswers: { second_department: "no" },
+      // The director default asks for a profile photo too.
+      photoFile: { fileName: "me.png", mimeType: "image/png", bytes: PHOTO_PNG },
     });
     expect(res.status).toBe("SUBMITTED");
     expect(res.epicNeeded).toBe(true);
+  });
+});
+
+describe("submitContract scheduling answers and name parts", () => {
+  /** layoutFor() plus the two scheduling blocks, frozen onto a pending contract. */
+  async function seedScheduling() {
+    const seeded = await seedPending({ deptCode: "BVHD", requiresEpicVolunteer: "ALL" });
+    const layout = layoutFor();
+    layout.blocks.push(
+      { kind: "system_field", systemKey: "shiftsWanted" },
+      { kind: "system_field", systemKey: "availabilityChange" },
+    );
+    await prisma.onboardingContract.update({ where: { id: seeded.contractId }, data: { templateSnapshot: layout as object } });
+    return seeded;
+  }
+  const answered: ContractSubmission = { ...base, signatures: {}, customAnswers: {}, confirmations: { dept_bvhd: true } };
+
+  it("requires both answers when their blocks are shown", async () => {
+    const { token } = await seedScheduling();
+    const err = await submitContract(token, answered).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ContractValidationError);
+    expect((err as ContractValidationError).fieldErrors).toEqual({
+      shiftsWanted: "required",
+      availabilityChangeNeeded: "required",
+    });
+  });
+
+  it("asks for neither when the layout carries no scheduling blocks", async () => {
+    const { token } = await seedPending({ deptCode: "BVHD", requiresEpicVolunteer: "ALL" });
+    const res = await submitContract(token, answered);
+    expect(res.shiftsWanted).toBeNull();
+    expect(res.availabilityChangeNeeded).toBeNull();
+    expect(res.availabilityChangeRequest).toBeNull();
+  });
+
+  it("refuses a shift count outside the listed options", async () => {
+    const { token } = await seedScheduling();
+    const err = await submitContract(token, { ...answered, shiftsWanted: "40", availabilityChangeNeeded: "no" }).catch((e: unknown) => e);
+    expect((err as ContractValidationError).fieldErrors).toEqual({ shiftsWanted: "Choose one of the listed options." });
+  });
+
+  it("requires an explanation when a change is requested, then stores it", async () => {
+    const { token } = await seedScheduling();
+    const err = await submitContract(token, { ...answered, shiftsWanted: "4", availabilityChangeNeeded: "yes" }).catch((e: unknown) => e);
+    expect((err as ContractValidationError).fieldErrors).toEqual({ availabilityChangeRequest: "required" });
+
+    const res = await submitContract(token, {
+      ...answered,
+      shiftsWanted: "8+",
+      availabilityChangeNeeded: "yes",
+      availabilityChangeRequest: "  I can no longer make Oct 17 (midterm).\nI can add Nov 7.  ",
+    });
+    expect(res.shiftsWanted).toBe("8+");
+    expect(res.availabilityChangeNeeded).toBe(true);
+    expect(res.availabilityChangeRequest).toBe("I can no longer make Oct 17 (midterm).\nI can add Nov 7.");
+  });
+
+  it("drops request text abandoned by answering no", async () => {
+    const { token } = await seedScheduling();
+    const res = await submitContract(token, {
+      ...answered, shiftsWanted: "3", availabilityChangeNeeded: "no", availabilityChangeRequest: "typed, then changed my mind",
+    });
+    expect(res.availabilityChangeNeeded).toBe(false);
+    expect(res.availabilityChangeRequest).toBeNull();
+  });
+
+  it("persists a legal middle name", async () => {
+    const { token } = await seedPending({ deptCode: "BVHD", requiresEpicVolunteer: "ALL" });
+    const res = await submitContract(token, { ...answered, legalMiddleName: " Augusta " });
+    expect(res.legalMiddleName).toBe("Augusta");
+  });
+
+  it("submits end-to-end against the real VOLUNTEER_LAYOUT, with pronouns prefilled from the application", async () => {
+    const term = await prisma.term.create({ data: { code: "FA26", name: "Fall", startDate: new Date(), endDate: new Date(), status: "PLANNING" } });
+    await prisma.department.create({ data: { code: "PATS", name: "Patient Services", requiresEpicVolunteer: "NONE", requiresEpicDirector: "NONE" } });
+    const srr = await prisma.person.create({ data: { name: "SRR", status: "ACTIVE" } });
+    const role = await prisma.role.create({ data: { name: "Rec Admin", grants: { create: [{ permission: "recruitment.review_all" }] } } });
+    await prisma.roleAssignment.create({ data: { personId: srr.id, roleId: role.id } });
+    const cycle = await prisma.recruitmentCycle.create({ data: { track: "VOLUNTEER", termId: term.id, title: "V", publicSlug: "v-real", departments: ["PATS"], createdById: srr.id, status: "OPEN" } });
+    const applicant = await prisma.applicant.create({ data: { cycleId: cycle.id, firstName: "Ada", lastName: "Lovelace", email: "ada-vol@yale.edu", emailLower: "ada-vol@yale.edu", netId: "al98" } });
+    const application = await prisma.application.create({ data: { cycleId: cycle.id, applicantId: applicant.id, answers: { pronouns: " she/her " }, applicantType: "NEW", departmentChoices: ["PATS"] } });
+    const acceptance = await prisma.acceptance.create({ data: { applicationId: application.id, departmentCode: "PATS", approvedById: srr.id } });
+    const contract = await createOrResendContract(acceptance.id, srr.id, "http://test");
+    expect(contract.pronouns).toBe("she/her");
+
+    const res = await submitContract(contract.token, {
+      ...base,
+      // The four initials agreements and the closing signature.
+      signatures: { agreement: realSig(), professionalism: realSig(), commitment: realSig(), training: realSig(), haven_agreement: realSig() },
+      customAnswers: {},
+      confirmations: {},
+      shiftsWanted: "4",
+      availabilityChangeNeeded: "no",
+      photoFile: { fileName: "me.png", mimeType: "image/png", bytes: PHOTO_PNG },
+    });
+    expect(res.status).toBe("SUBMITTED");
+    expect(res.shiftsWanted).toBe("4");
+    expect(res.photoStoredName).toMatch(/^photo-.+\.webp$/);
+    expect(res.availabilityChangeNeeded).toBe(false);
+  });
+});
+
+describe("submitContract profile photo", () => {
+  const PNG = PHOTO_PNG;
+  const photo = (bytes: Buffer, mimeType = "image/png") => ({ fileName: "me.png", mimeType, bytes });
+  /** layoutFor() plus the photo block, frozen onto a pending contract. */
+  async function seedPhoto() {
+    const seeded = await seedPending({ deptCode: "BVHD", requiresEpicVolunteer: "ALL" });
+    const layout = layoutFor();
+    layout.blocks.push({ kind: "system_field", systemKey: "photo" });
+    await prisma.onboardingContract.update({ where: { id: seeded.contractId }, data: { templateSnapshot: layout as object } });
+    return seeded;
+  }
+  const answered: ContractSubmission = { ...base, signatures: {}, customAnswers: {}, confirmations: { dept_bvhd: true } };
+
+  it("requires a photo whenever the block is shown", async () => {
+    const { token } = await seedPhoto();
+    const err = await submitContract(token, answered).catch((e: unknown) => e);
+    expect((err as ContractValidationError).fieldErrors).toEqual({ photo: "required" });
+  });
+
+  it("refuses a file type a profile photo cannot use", async () => {
+    const { token } = await seedPhoto();
+    const err = await submitContract(token, { ...answered, photoFile: photo(PNG, "image/gif") }).catch((e: unknown) => e);
+    expect((err as ContractValidationError).fieldErrors).toEqual({ photo: "Upload a PNG, JPEG, WebP, or HEIC image." });
+  });
+
+  it("explains a HEIC photo the browser could not convert", async () => {
+    const { token } = await seedPhoto();
+    const err = await submitContract(token, { ...answered, photoFile: { fileName: "IMG_1.HEIC", mimeType: "image/heic", bytes: PNG } }).catch((e: unknown) => e);
+    expect((err as ContractValidationError).fieldErrors).toEqual({ photo: "We couldn't read this HEIC photo. Choose a JPEG or PNG instead." });
+  });
+
+  it("refuses bytes that are not an image, before storing anything", async () => {
+    const { token } = await seedPhoto();
+    const put = vi.spyOn(storage, "putObject");
+    try {
+      const err = await submitContract(token, { ...answered, photoFile: photo(Buffer.from("not an image")) }).catch((e: unknown) => e);
+      expect((err as ContractValidationError).fieldErrors).toEqual({ photo: "Could not read that image. Use a PNG, JPEG, or WebP file." });
+      expect(put).not.toHaveBeenCalled();
+    } finally {
+      put.mockRestore();
+    }
+  });
+
+  it("stores the photo beside the contract, already normalized to a square WebP", async () => {
+    const { token, contractId } = await seedPhoto();
+    const res = await submitContract(token, { ...answered, photoFile: photo(PNG) });
+    expect(res.photoStoredName).toMatch(/^photo-.+\.webp$/);
+    const stored = await storage.getObject(`onboarding/${contractId}/${res.photoStoredName}`);
+    expect(await sharp(stored!).metadata()).toMatchObject({ format: "webp", width: 512, height: 512 });
+  });
+
+  it("removes the stored photo when the contract is withdrawn", async () => {
+    const { token, contractId, srrId } = await seedPhoto();
+    const res = await submitContract(token, { ...answered, photoFile: photo(PNG) });
+    await withdrawContract(contractId, srrId);
+    expect(await storage.getObject(`onboarding/${contractId}/${res.photoStoredName}`)).toBeNull();
+  });
+});
+
+describe("submitContract with records already on file", () => {
+  const DAY = 86_400_000;
+  /** layoutFor() plus the photo block, with a Person matching the applicant (netId
+   *  al99) who holds the given certificate and, optionally, a stored photo. */
+  async function seedOnFile(opts: { certCompletedDaysAgo?: number; photo?: boolean }) {
+    const seeded = await seedPending({ deptCode: "BVHD", requiresEpicVolunteer: "ALL" });
+    const layout = layoutFor();
+    layout.blocks.push({ kind: "system_field", systemKey: "photo" });
+    await prisma.onboardingContract.update({ where: { id: seeded.contractId }, data: { templateSnapshot: layout as object } });
+    const person = await prisma.person.create({
+      data: { name: "Ada Lovelace", netId: "al99", status: "ACTIVE", ...(opts.photo ? { photoKey: "people/ada", photoSource: "upload" } : {}) },
+    });
+    if (opts.certCompletedDaysAgo != null) {
+      await prisma.hipaaCertificate.create({
+        data: {
+          personId: person.id, fileName: "c.pdf", storedName: "c.pdf", size: 1, mimeType: "application/pdf",
+          completionDate: new Date(Date.now() - opts.certCompletedDaysAgo * DAY), verifiedAt: new Date(),
+        },
+      });
+    }
+    return seeded;
+  }
+  const { hipaaCompletedAt: _hipaaCompletedAt, hipaaFile: _hipaaFile, ...noHipaa } = base;
+  const photoFile = { fileName: "me.png", mimeType: "image/png", bytes: PHOTO_PNG };
+  const answered: ContractSubmission = { ...noHipaa, signatures: {}, customAnswers: {}, confirmations: { dept_bvhd: true } };
+
+  it("lets a certificate on file that covers the term stand in for a new upload", async () => {
+    const { token } = await seedOnFile({ certCompletedDaysAgo: 30 });
+    const res = await submitContract(token, { ...answered, photoFile });
+    expect(res.status).toBe("SUBMITTED");
+    expect(res.hipaaStoredName).toBeNull();
+    expect(res.reviewContext).toMatchObject({ onFile: { hipaa: { pendingVerification: false }, photo: false } });
+  });
+
+  it("still asks for a certificate that would run out during the term", async () => {
+    const { token } = await seedOnFile({ certCompletedDaysAgo: 340 });
+    const err = await submitContract(token, { ...answered, photoFile }).catch((e: unknown) => e);
+    expect((err as ContractValidationError).fieldErrors).toEqual({ hipaaCompletedAt: "required", hipaaFile: "required" });
+  });
+
+  it("makes a new photo optional when one is already on their profile", async () => {
+    const { token } = await seedOnFile({ certCompletedDaysAgo: 30, photo: true });
+    const res = await submitContract(token, answered);
+    expect(res.status).toBe("SUBMITTED");
+    expect(res.photoStoredName).toBeNull();
+    expect(res.reviewContext).toMatchObject({ onFile: { photo: true } });
+  });
+});
+
+describe("submitContract required and optional system fields", () => {
+  /** layoutFor() plus the given system field blocks, frozen onto a pending contract. */
+  async function seedWith(...extra: ContractLayout["blocks"]) {
+    const seeded = await seedPending({ deptCode: "BVHD", requiresEpicVolunteer: "ALL" });
+    const layout = layoutFor();
+    layout.blocks.push(...extra);
+    await prisma.onboardingContract.update({ where: { id: seeded.contractId }, data: { templateSnapshot: layout as object } });
+    return seeded;
+  }
+  const answered: ContractSubmission = { ...base, signatures: {}, customAnswers: {}, confirmations: { dept_bvhd: true } };
+
+  it("requires a field a director marked required", async () => {
+    const { token } = await seedWith({ kind: "system_field", systemKey: "phone", required: true });
+    const err = await submitContract(token, answered).catch((e: unknown) => e);
+    expect((err as ContractValidationError).fieldErrors).toEqual({ phone: "required" });
+  });
+
+  it("does not require a field left at its optional default", async () => {
+    const { token } = await seedWith({ kind: "system_field", systemKey: "phone" });
+    expect((await submitContract(token, answered)).status).toBe("SUBMITTED");
+  });
+
+  it("lets a director make the photo, shift count, and availability check optional", async () => {
+    const { token } = await seedWith(
+      { kind: "system_field", systemKey: "photo", required: false },
+      { kind: "system_field", systemKey: "shiftsWanted", required: false },
+      { kind: "system_field", systemKey: "availabilityChange", required: false },
+    );
+    const res = await submitContract(token, answered);
+    expect(res.status).toBe("SUBMITTED");
+    expect(res.shiftsWanted).toBeNull();
+    expect(res.availabilityChangeNeeded).toBeNull();
+    expect(res.photoStoredName).toBeNull();
+  });
+
+  it("still checks an optional field's answer when one is given", async () => {
+    const { token } = await seedWith(
+      { kind: "system_field", systemKey: "shiftsWanted", required: false },
+      { kind: "system_field", systemKey: "availabilityChange", required: false },
+    );
+    const err = await submitContract(token, { ...answered, shiftsWanted: "40", availabilityChangeNeeded: "yes" }).catch((e: unknown) => e);
+    expect((err as ContractValidationError).fieldErrors).toEqual({
+      shiftsWanted: "Choose one of the listed options.",
+      availabilityChangeRequest: "required",
+    });
   });
 });
 

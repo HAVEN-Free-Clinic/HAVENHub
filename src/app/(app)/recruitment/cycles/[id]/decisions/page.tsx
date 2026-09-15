@@ -1,8 +1,10 @@
 import { notFound } from "next/navigation";
+import { PageBody } from "@/platform/ui/page-body";
 import { requirePermission } from "@/platform/auth/session";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { listConflicts, releaseSummary, rejectionSummary } from "@/modules/recruitment/services/decisions";
-import { releaseDecisionsAction, sendRejectionsAction } from "./actions";
+import { releaseDecisionsAction, sendRejectionsAction, keepBothDepartmentsAction } from "./actions";
+import { SubmitButton } from "@/platform/ui/submit-button";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
@@ -32,8 +34,11 @@ export default async function DecisionsPage({ params }: {
     rejectionSummary(id),
   ]);
 
+  // wide, not form: this holds a four-up StatCard grid over a conflicts list,
+  // which 42rem was cramping. Not `full` either -- four stat cards stretched
+  // across 72rem read as four thin bars, and the list below is prose-width.
   return (
-    <div className="max-w-2xl space-y-6">
+    <PageBody width="wide">
       <SetBreadcrumb
         trail={cycleTrail({
           cycleId: id,
@@ -54,6 +59,13 @@ export default async function DecisionsPage({ params }: {
         <StatCard label="Emailed" value={summary.emailed} />
       </div>
 
+      <p className="text-sm text-foreground-soft">
+        {summary.dualAppointments === 0
+          ? "No dual appointments."
+          : `${summary.dualAppointments} accepted ${summary.dualAppointments === 1 ? "applicant is" : "applicants are"} a dual appointment, accepted into two departments.`}{" "}
+        <TextLink href={`/recruitment/cycles/${id}/dual-appointments`}>Dual appointments</TextLink>
+      </p>
+
       <section>
         <SectionHeader>Conflicts to resolve</SectionHeader>
         {conflicts.length === 0 ? (
@@ -69,6 +81,24 @@ export default async function DecisionsPage({ params }: {
                   {c.applicantName}
                 </TextLink>{" "}
                 accepted by {c.departments.join(" + ")}
+                {/* The other way to resolve a conflict: keep both, when a strong
+                    volunteer really should serve in two departments. Revoking one
+                    is still on the applicant page. */}
+                {c.canBecomeDualAppointment && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    {c.departments
+                      .filter((d) => d !== c.routedDepartmentCode)
+                      .map((d) => (
+                        <form key={d} action={keepBothDepartmentsAction.bind(null, id)}>
+                          <input type="hidden" name="applicationId" value={c.applicationId} />
+                          <input type="hidden" name="departmentCode" value={d} />
+                          <SubmitButton size="sm" variant="outline" pendingLabel="Saving…">
+                            Keep both ({d} as dual appointment)
+                          </SubmitButton>
+                        </form>
+                      ))}
+                  </div>
+                )}
               </li>
             ))}
           </ul>
@@ -78,7 +108,8 @@ export default async function DecisionsPage({ params }: {
       <form action={releaseDecisionsAction.bind(null, id)} className="space-y-2">
         <ConfirmButton label="Release decisions" confirmLabel="Send acceptance emails?" />
         <p className="text-xs text-subtle-foreground">
-          Emails every accepted, non-conflicted applicant who hasn&apos;t been notified yet.
+          Emails every accepted, non-conflicted applicant who hasn&apos;t been notified yet. A dual appointment gets one
+          email naming both departments.
         </p>
       </form>
 
@@ -109,6 +140,6 @@ export default async function DecisionsPage({ params }: {
           </p>
         </form>
       </section>
-    </div>
+    </PageBody>
   );
 }

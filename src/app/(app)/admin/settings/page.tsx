@@ -7,12 +7,13 @@ import { Card } from "@/platform/ui/card";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Select } from "@/platform/ui/select";
 import { Input, Textarea, Field } from "@/platform/ui/input";
-import { FormActions } from "@/platform/ui/form";
+import { ROW_WIDTH } from "@/platform/ui/form";
+import { cx } from "@/platform/ui/cx";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { listCategories } from "@/platform/settings/registry";
 import {
   getCategory,
-  setSetting,
+  setSettings,
   resetSetting,
   SettingValidationError,
   type ResolvedSetting,
@@ -40,25 +41,45 @@ function coerce(input: ResolvedSetting["input"], raw: FormDataEntryValue | null)
 export default async function SettingsPage() {
   await requirePermission(PERMISSION);
 
-  async function updateAction(formData: FormData) {
+  /**
+   * One Save per category. The page used to carry a form and a Save button on
+   * every setting (about 66 of them, on a page 13,800px tall), so changing three
+   * related values meant three saves and three reloads.
+   *
+   * Only fields that moved are written: re-saving an untouched one would store
+   * an override equal to what it already was and audit a non-event. And the
+   * whole category is checked before any of it is written (setSettings), so one
+   * bad field does not leave the ones before it applied.
+   */
+  async function saveCategoryAction(formData: FormData) {
     "use server";
     const session = await requirePermission(PERMISSION);
-    const key = String(formData.get("__key"));
-    const groups = await Promise.all(listCategories().map((c) => getCategory(c)));
-    const def = groups.flat().find((s) => s.key === key);
-    if (!def) redirect(`/admin/settings?error=${encodeURIComponent("Unknown setting")}`);
-
-    const value = coerce(def.input, formData.get(key));
-    // A blank numeric field coerces to NaN, which Zod rejects with the raw
-    // "Expected number, received nan"; surface a human message instead.
-    if (def.input.type === "number" && Number.isNaN(value)) {
-      redirect(`/admin/settings?error=${encodeURIComponent(`${def.label}: enter a whole number.`)}`);
+    const category = String(formData.get("__category"));
+    if (!listCategories().includes(category)) {
+      redirect(`/admin/settings?error=${encodeURIComponent("Unknown settings group")}`);
     }
+    const settings = await getCategory(category);
+
+    const changes: { key: string; value: unknown }[] = [];
+    for (const s of settings) {
+      // Images save through their own upload forms, outside this one.
+      if (s.input.type === "image") continue;
+      const value = coerce(s.input, formData.get(s.key));
+      // A blank numeric field coerces to NaN, which Zod rejects with the raw
+      // "Expected number, received nan"; surface a human message instead.
+      if (s.input.type === "number" && Number.isNaN(value)) {
+        redirect(`/admin/settings?error=${encodeURIComponent(`${s.label}: enter a whole number.`)}`);
+      }
+      if (!sameValue(s.input, value, s.value)) changes.push({ key: s.key, value });
+    }
+    if (changes.length === 0) redirect("/admin/settings");
+
     try {
-      await setSetting(key, value, session.personId);
+      await setSettings(changes, session.personId);
     } catch (err) {
       if (err instanceof SettingValidationError) {
-        redirect(`/admin/settings?error=${encodeURIComponent(`${def.label}: ${err.message}`)}`);
+        const label = settings.find((s) => s.key === err.key)?.label ?? err.key;
+        redirect(`/admin/settings?error=${encodeURIComponent(`${label}: ${err.message}`)}`);
       }
       throw err;
     }
@@ -66,10 +87,13 @@ export default async function SettingsPage() {
     redirect("/admin/settings?saved=1");
   }
 
-  async function resetAction(formData: FormData) {
+  // Bound to its key per field (resetAction.bind(null, key)) rather than reading
+  // one from the form: Reset is a button on the category's shared form, and a
+  // bound argument does not depend on the clicked button's name/value riding
+  // along in the submission.
+  async function resetAction(key: string) {
     "use server";
     const session = await requirePermission(PERMISSION);
-    const key = String(formData.get("__key"));
     // Defensive: resetSetting throws (500) for an unregistered key. The key
     // comes from a server-rendered hidden input so this is unreachable in
     // practice, but guard it to match updateAction and fail gracefully.
@@ -147,89 +171,124 @@ export default async function SettingsPage() {
         description="Configure app behavior without redeploying. Changes are audited."
       />
 
-      {groups.map(({ category, settings }) => (
-        <section key={category} className="space-y-4">
-          <SectionHeader level="title">{category}</SectionHeader>
-          <div className="space-y-6">
-            {settings.map((s) => (
-              <Card key={s.key} pad={false} className="p-4">
-                {s.input.type === "image" ? (
-                  <BrandingImageField
-                    setting={s}
-                    uploadAction={uploadBrandingAction}
-                    removeAction={removeBrandingAction}
-                  />
-                ) : (
-                  <>
-                    {s.key === "email.transport" && (
-                      <RoutingGapAlert gap={routingGap} where="settings" />
-                    )}
-                    <form action={updateAction} className="space-y-2">
-                      <input type="hidden" name="__key" value={s.key} />
-                      <Field label={s.label} hint={s.help}>
-                        {s.input.type === "boolean" ? (
-                          <Checkbox
-                            name={s.key}
-                            defaultChecked={Boolean(s.value)}
-                          />
-                        ) : s.input.type === "select" ? (
-                          <Select name={s.key} defaultValue={String(s.value)}>
-                            {s.input.options.map((o) => (
-                              <option key={o.value} value={o.value}>
-                                {o.label}
-                              </option>
-                            ))}
-                          </Select>
-                        ) : s.input.type === "textarea" ? (
-                          <Textarea name={s.key} defaultValue={String(s.value)} />
-                        ) : s.input.type === "color" ? (
-                          <Input
-                            name={s.key}
-                            type="color"
-                            defaultValue={String(s.value)}
-                            className="h-9 w-16 p-1"
-                          />
-                        ) : (
-                          <Input
-                            name={s.key}
-                            type={s.input.type === "number" ? "number" : "text"}
-                            defaultValue={String(s.value)}
-                            min={s.input.type === "number" ? s.input.min : undefined}
-                            max={s.input.type === "number" ? s.input.max : undefined}
-                          />
+      {groups.map(({ category, settings }) => {
+        const fields = settings.filter((s) => s.input.type !== "image");
+        const images = settings.filter((s) => s.input.type === "image");
+        return (
+          <section key={category} className="space-y-4">
+            {fields.length === 0 && <SectionHeader level="title">{category}</SectionHeader>}
+            {fields.length > 0 && (
+              <Card>
+                <form action={saveCategoryAction}>
+                  <input type="hidden" name="__category" value={category} />
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border-subtle pb-3">
+                    <SectionHeader level="title">{category}</SectionHeader>
+                    {/* The FIRST submit button in this form, on purpose. Enter in
+                        any field submits with the form's first submit button, and
+                        the per-field Reset buttons below are submit buttons too;
+                        with Save after them, Enter would reset a setting.
+                        Outline, not primary: one per category, several on the
+                        page, so a brand fill would stop meaning "the thing to do
+                        here" (FilterBar's rule for a repeated control). */}
+                    <Button type="submit" variant="outline" size="sm">Save</Button>
+                  </div>
+                  <div className="grid gap-x-8 gap-y-6 pt-4 md:grid-cols-2">
+                    {fields.map((s) => (
+                      <div
+                        key={s.key}
+                        className={cx("space-y-2", (s.input.type === "textarea" || s.key === "email.transport") && "md:col-span-2")}
+                      >
+                        {s.key === "email.transport" && (
+                          <RoutingGapAlert gap={routingGap} where="settings" />
                         )}
-                      </Field>
-                      <FormActions>
-                        {/* Outline, not primary. This button renders once per
-                            setting and the registry defines roughly 65 of them
-                            (35 explicit, plus one per notification channel), so
-                            a brand fill here stacked ~65 identical Yale-blue
-                            calls to action down one page and stopped meaning
-                            "the thing to do here". FilterBar's doc comment
-                            already wrote this rule down for the Filter button:
-                            a repeated, non-leading control is not a page's
-                            primary action. */}
-                        <Button type="submit" variant="outline" size="sm">Save</Button>
+                        <Field label={s.label} hint={s.help}>
+                          {s.input.type === "boolean" ? (
+                            <Checkbox
+                              name={s.key}
+                              defaultChecked={Boolean(s.value)}
+                            />
+                          ) : s.input.type === "select" ? (
+                            <Select name={s.key} defaultValue={String(s.value)}>
+                              {s.input.options.map((o) => (
+                                <option key={o.value} value={o.value}>
+                                  {o.label}
+                                </option>
+                              ))}
+                            </Select>
+                          ) : s.input.type === "textarea" ? (
+                            <Textarea name={s.key} defaultValue={String(s.value)} />
+                          ) : s.input.type === "color" ? (
+                            <Input
+                              name={s.key}
+                              type="color"
+                              defaultValue={String(s.value)}
+                              className="h-9 w-16 p-1"
+                            />
+                          ) : s.input.type === "number" ? (
+                            // A one- or two-digit number in a full-width box read
+                            // as a text field. The width is a wrapper, not a class
+                            // on Input, which is w-full and has no tailwind-merge
+                            // to arbitrate a second width.
+                            <div className={ROW_WIDTH.numeric}>
+                              <Input
+                                name={s.key}
+                                type="number"
+                                defaultValue={String(s.value)}
+                                min={s.input.min}
+                                max={s.input.max}
+                              />
+                            </div>
+                          ) : (
+                            <Input name={s.key} type="text" defaultValue={String(s.value)} />
+                          )}
+                        </Field>
                         {s.isOverridden && (
-                          <span className="text-xs text-muted-foreground">Currently overriding the default</span>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-xs text-muted-foreground">Overriding the default</span>
+                            {/* Ghost, so Save stays the louder of the two. Its own
+                                action on the shared form; formNoValidate so an
+                                invalid value elsewhere cannot block a reset. */}
+                            <Button
+                              type="submit"
+                              variant="ghost"
+                              size="sm"
+                              formAction={resetAction.bind(null, s.key)}
+                              formNoValidate
+                            >
+                              Reset to default
+                            </Button>
+                          </div>
                         )}
-                      </FormActions>
-                    </form>
-                    {s.isOverridden && (
-                      <form action={resetAction} className="pt-2">
-                        <input type="hidden" name="__key" value={s.key} />
-                        {/* Ghost, so Save stays the louder of the two now that
-                            it is outline as well. */}
-                        <Button type="submit" variant="ghost" size="sm">Reset to default</Button>
-                      </form>
-                    )}
-                  </>
-                )}
+                      </div>
+                    ))}
+                  </div>
+                </form>
+              </Card>
+            )}
+            {images.map((s) => (
+              <Card key={s.key} pad={false} className="p-4">
+                <BrandingImageField
+                  setting={s}
+                  uploadAction={uploadBrandingAction}
+                  removeAction={removeBrandingAction}
+                />
               </Card>
             ))}
-          </div>
-        </section>
-      ))}
+          </section>
+        );
+      })}
     </div>
   );
+}
+
+/**
+ * Whether a submitted value is the one the field rendered with. Loose where the
+ * browser rewrites an untouched field: a textarea submits its newlines as CRLF,
+ * and a colour input submits lowercase hex. Either would otherwise read as an
+ * edit on every save of the category.
+ */
+function sameValue(input: ResolvedSetting["input"], submitted: unknown, current: unknown): boolean {
+  const norm = (v: unknown) =>
+    typeof v !== "string" ? v : input.type === "color" ? v.toLowerCase() : v.replace(/\r\n/g, "\n");
+  return JSON.stringify(norm(submitted)) === JSON.stringify(norm(current));
 }

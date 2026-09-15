@@ -10,6 +10,7 @@
  */
 
 import type { Track } from "@prisma/client";
+import { comparePersonName } from "@/platform/person-name";
 import { prisma } from "@/platform/db";
 import { buildTermOptions, type TermOption } from "@/platform/terms/term-options";
 import { loadClearanceMap } from "@/modules/onboarding/services/clearance";
@@ -27,6 +28,8 @@ export type { RollupGroupKind } from "./epic-rollup-classify";
 export type EpicRollupRow = {
   personId: string;
   name: string;
+  legalFirstName: string;
+  lastName: string;
   netId: string | null;
   contactEmail: string | null;
   epicId: string | null;
@@ -84,7 +87,18 @@ export async function loadTermEpicRollup(termId: string): Promise<EpicRollup> {
   const memberships = await prisma.termMembership.findMany({
     where: { termId, status: "ACTIVE" },
     include: {
-      person: { select: { id: true, name: true, netId: true, contactEmail: true, epicId: true, status: true } },
+      person: {
+        select: {
+          id: true,
+          name: true,
+          legalFirstName: true,
+          lastName: true,
+          netId: true,
+          contactEmail: true,
+          epicId: true,
+          status: true,
+        },
+      },
       department: {
         select: { id: true, name: true, requiresEpicDirector: true, requiresEpicVolunteer: true },
       },
@@ -237,6 +251,8 @@ export async function loadTermEpicRollup(termId: string): Promise<EpicRollup> {
     groups[kind].push({
       personId,
       name: person.name,
+      legalFirstName: person.legalFirstName,
+      lastName: person.lastName,
       netId: person.netId,
       contactEmail: person.contactEmail,
       epicId: person.epicId,
@@ -265,7 +281,7 @@ export async function loadTermEpicRollup(termId: string): Promise<EpicRollup> {
   }
 
   for (const key of ["NEW", "MODIFY", "RENEW"] as RollupGroupKind[]) {
-    groups[key].sort((a, b) => a.name.localeCompare(b.name));
+    groups[key].sort(comparePersonName);
   }
 
   return {

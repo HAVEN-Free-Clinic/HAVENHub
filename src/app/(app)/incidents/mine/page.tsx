@@ -67,14 +67,21 @@ export default async function MyReportsPage() {
 
   return (
     <div>
-      <PageHeader title="My reports" description="Incident reports you have filed." />
+      {/* Always here, not only on an empty list: "Report a concern" is no tab
+          of its own any more, so this is its way in from the module. */}
+      <PageHeader
+        title="My reports"
+        description="Incident reports you have filed."
+        action={
+          <Link href="/incidents/new" className={buttonClasses("primary", "sm")}>
+            Report a concern
+          </Link>
+        }
+      />
 
       {rows.length === 0 ? (
         <div className="mt-12 flex flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground">
           <p>You have not filed any incident reports.</p>
-          <Link href="/incidents/new" className={buttonClasses("primary", "sm")}>
-            Report a concern
-          </Link>
         </div>
       ) : (
         <div className="mt-8">

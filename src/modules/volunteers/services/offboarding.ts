@@ -34,6 +34,7 @@ import { manageableDepartmentIds } from "@/platform/departments";
 import { setPersonStatusField, OFFBOARDABLE_TERM } from "@/platform/people";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { assertNotLastActiveAdminTx } from "@/platform/rbac/last-admin";
+import { comparePersonName } from "@/platform/person-name";
 
 // ---------------------------------------------------------------------------
 // Typed errors
@@ -362,7 +363,7 @@ export async function offboardingView(viewerPersonId: string): Promise<{
 
     departments = deptRows.map((d) => {
       const members = (deptMap.get(d.id) ?? []).sort((a, b) =>
-        (a.person.name ?? "").localeCompare(b.person.name ?? "")
+        comparePersonName(a.person, b.person)
       );
       return { department: d, members };
     });

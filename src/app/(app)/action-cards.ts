@@ -39,7 +39,6 @@ export type ActionCardInput = {
    * under. The card still appears; only the nudge is dropped.
    */
   suppressComplianceNudge?: boolean;
-  backfill: ActionCard[]; // module shortcuts, in preference order, priority 0
   limit?: number; // default 4
 };
 
@@ -109,9 +108,13 @@ function swapCard(input: ActionCardInput): ActionCard {
 /**
  * Ranked smart action feed for the dashboard. Pure: all inputs are plain data,
  * so this is unit-tested without a database. Real (personal + role) actions rank
- * by urgency; module shortcuts in `backfill` fill any remaining slots. Capped at
- * `limit` (default 4). Array.sort is stable, so equal-priority cards keep their
- * insertion order.
+ * by urgency, capped at `limit` (default 4). Array.sort is stable, so
+ * equal-priority cards keep their insertion order.
+ *
+ * Real actions only, even when that is fewer than the limit. Module shortcuts
+ * used to backfill the empty slots, which put Volunteers, Recruitment and Admin
+ * on the home page a third time (the toolbar and the old module tile grid were
+ * the other two) and made a shortcut look like a thing to do.
  */
 export function buildActionCards(input: ActionCardInput): ActionCard[] {
   const cards: ActionCard[] = [];
@@ -159,5 +162,5 @@ export function buildActionCards(input: ActionCardInput): ActionCard[] {
   cards.sort((a, b) => b.priority - a.priority);
 
   const limit = input.limit ?? 4;
-  return [...cards, ...input.backfill].slice(0, limit);
+  return cards.slice(0, limit);
 }

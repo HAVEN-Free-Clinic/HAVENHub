@@ -74,6 +74,23 @@ export async function backfillPersonNames(
           lastName: parts.lastName,
           preferredFirstName: parts.preferredFirstName,
           nameNeedsReview: parts.needsReview,
+          // A GUESS MUST NOT REACH THE DISPLAY COLUMN.
+          //
+          // The client extension derives `name` from the parts, which is right
+          // for a split we can read but wrong for one we cannot: the production
+          // dry run would have rewritten 44 people, and every one of them was
+          // already correct. "Dariana Gil Hernandez" is a compound surname and
+          // "Hye Young Choi" a two-part given name; the guesses ("Dariana
+          // Hernandez", "Hye Choi") are worse than the strings they replace, and
+          // they would have shipped to rosters, badges, email and wallet passes
+          // and stayed there until somebody worked the queue.
+          //
+          // So a flagged row keeps the name it already had. The parts still take
+          // the guess, because the review queue needs something to show and to
+          // correct. Only a confident split re-renders the display name, which is
+          // the whole point of the pass: "Jonathan (Jack) Carney" -> "Jack
+          // Carney".
+          ...(parts.needsReview ? { name: person.name } : {}),
         },
       });
     }
@@ -81,9 +98,15 @@ export async function backfillPersonNames(
     rows.push({
       id: person.id,
       before: person.name,
-      after: [parts.preferredFirstName ?? parts.legalFirstName, parts.lastName]
-        .filter(Boolean)
-        .join(" "),
+      // What will ACTUALLY be written, which for a flagged row is the name it
+      // already has. Deriving this from the parts regardless would print a
+      // rename the pass is not going to perform, and this report is what an
+      // operator reads before typing --apply.
+      after: parts.needsReview
+        ? person.name
+        : [parts.preferredFirstName ?? parts.legalFirstName, parts.lastName]
+            .filter(Boolean)
+            .join(" "),
       legalFirstName: parts.legalFirstName,
       lastName: parts.lastName,
       preferredFirstName: parts.preferredFirstName,

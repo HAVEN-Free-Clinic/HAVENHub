@@ -32,10 +32,20 @@ const IMAGE_SECURITY_HEADERS = {
 /** The initials placeholder, never cached so a real photo can replace it. */
 async function initialsResponse(personId: string): Promise<Response> {
   const person = await prisma.person
-    .findUnique({ where: { id: personId }, select: { name: true } })
+    .findUnique({
+      where: { id: personId },
+      // The parts as well as the display name: the name alone cannot tell a
+      // compound surname from a middle name, and the initials would be wrong.
+      select: {
+        name: true,
+        legalFirstName: true,
+        lastName: true,
+        preferredFirstName: true,
+      },
+    })
     .catch(() => null);
 
-  return new Response(initialsSvg(person?.name ?? null), {
+  return new Response(initialsSvg(person?.name ?? null, person ?? undefined), {
     status: 200,
     headers: {
       "Content-Type": "image/svg+xml",

@@ -139,6 +139,39 @@ const nextConfig: NextConfig = {
       // describe the same limit.
       bodySizeLimit: "4.5mb",
     },
+    // Off, and so is supportsImmutableAssets below: together they shipped a
+    // production deploy whose stylesheet was a file from an earlier build.
+    // Both became defaults in Next 16.3 (the 7dfe01e8 bump, 2026-09-09).
+    //
+    // With immutable assets on, CSS and JS are served from one namespace
+    // shared by EVERY deployment (/_next/static/immutable/*, no ?dpl), under a
+    // truncated content hash, and the platform uploads a file only when that
+    // name is new. The deploy of #842 referenced a CSS name an earlier build had
+    // already claimed, so production kept serving the old bytes (x-vercel-cache
+    // HIT, last-modified before the merge) and the builder's new
+    // bg-available / bg-unavailable classes were simply absent. A no-cache
+    // redeploy is not a fix: a build that emits the same name is skipped again.
+    //
+    // Which half emitted the stale name, the build cache Vercel restores into
+    // .next/cache or the immutable naming, could not be isolated: a local warm
+    // build names and fills the file correctly, and neither half runs outside a
+    // Vercel production build. PR previews use neither, which is why #842 looked
+    // right on its preview. Turning both off returns production to the per-
+    // deployment asset URLs it had before 16.3, at the cost of a few seconds of
+    // compile and browsers re-fetching assets after a deploy.
+    turbopackFileSystemCacheForBuild: false,
+  },
+  supportsImmutableAssets: false,
+  async redirects() {
+    return [
+      // /clinic has one page. Its page.tsx redirect ran under clinic/loading.tsx,
+      // so the loading shell streamed first and the redirect happened in the
+      // browser afterwards: a flash of skeleton for every visitor, and on a busy
+      // CI runner slow enough to time out e2e/smoke.spec.ts. A config redirect
+      // fires before any render. Temporary (307), since it is only where the
+      // module's one page lives today; the page.tsx redirect stays as a fallback.
+      { source: "/clinic", destination: "/clinic/avs", permanent: false },
+    ];
   },
   async rewrites() {
     return [

@@ -7,9 +7,10 @@ import { Checkbox } from "@/platform/ui/checkbox";
 import { SignaturePad } from "@/platform/ui/signature-pad";
 import { FieldPreview } from "@/modules/recruitment/components/field-preview";
 import { Prose } from "@/modules/recruitment/contract/prose";
-import { SYSTEM_FIELDS, systemFieldOptions } from "@/modules/recruitment/contract/system-fields";
+import { AVAILABILITY_CHANGE_OPTIONS, SYSTEM_FIELDS, isSystemFieldRequired, systemFieldOptions } from "@/modules/recruitment/contract/system-fields";
 import type { ContractBlock } from "@/modules/recruitment/contract/layout";
 import { UploadSizeField } from "@/platform/ui/upload-size-field";
+import { ProfilePhotoField } from "./photo-field";
 
 // todayIso is stamped once on the server and passed down, so the HIPAA date
 // bounds are identical between the server render and client hydration (a
@@ -22,8 +23,18 @@ type Ctx = {
   trainingDate: string; trainingLocation: string;
   department: string | null; track: Track; epicRequirement: EpicRequirement;
   storedEpicId: string | null;
+  /** The clinic dates the applicant chose on their application, already
+   *  labelled, for the availability check. Resolved on the server so the list
+   *  hydrates identically. The live page always supplies it; a render without
+   *  it (the builder preview of a global template) shows the empty state. */
+  applicationAvailability?: string[];
+  /** A HIPAA certificate already on file that covers the term, dates formatted
+   *  on the server. When set, the upload becomes optional. */
+  hipaaOnFile?: { completionDate: string; expiresAt: string; pendingVerification: boolean } | null;
+  /** The person's stored profile photo as a data URI. When set, a new photo is optional. */
+  photoOnFile?: string | null;
 };
-type Prefill = { firstName: string; lastName: string; preferredFirstName: string; email: string; netId: string; phone: string; yaleAffiliation: string; gradYear: string };
+type Prefill = { firstName: string; legalMiddleName?: string; lastName: string; preferredFirstName: string; email: string; netId: string; phone: string; pronouns?: string; yaleAffiliation: string; gradYear: string; staffTitle?: string };
 
 function renderVars(text: string, ctx: Ctx): string {
   // Escaped-text output only; substitutes {{firstName}} / {{orgName}} /
@@ -40,6 +51,81 @@ function renderVars(text: string, ctx: Ctx): string {
 // systemFieldOptions (in system-fields.ts) supplies the choice list and
 // prepends any stored value the canonical list does not know, so a prefill
 // outside the list still renders selected instead of silently blanking out.
+
+/**
+ * The availability check. Shows the clinic dates the applicant chose on their
+ * application and asks whether any of them need to change. A change is a
+ * REQUEST: it is stored on the contract for the department's directors to read
+ * in the schedule builder, and nothing applies it to the schedule, so the copy
+ * says so before they write one.
+ *
+ * Neither answer feeds the visibility answers map (no onAnswer) and the server
+ * leaves both out of its map too, so no block can gate on them and client and
+ * server stay in agreement. The follow-up is revealed by local state and
+ * required server-side whenever the submitted answer is "yes".
+ */
+function AvailabilityChangeField({
+  label, dates, err, required,
+}: {
+  label: string;
+  dates: string[];
+  err: (k: string) => string | undefined;
+  /** Whether the yes/no must be answered. The explanation is required after a "yes" either way. */
+  required: boolean;
+}) {
+  const [needed, setNeeded] = useState("");
+  return (
+    <div className="space-y-3">
+      <p className="text-sm font-medium text-foreground">{label}</p>
+      {dates.length > 0 ? (
+        <div className="space-y-1.5">
+          <p className="text-sm text-foreground-soft">
+            On your application, you said you can volunteer on these clinic dates:
+          </p>
+          <ul className="flex flex-wrap gap-1.5">
+            {dates.map((d) => (
+              <li key={d} className="rounded-md border border-border bg-muted px-2 py-0.5 text-xs font-medium text-foreground">
+                {d}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : (
+        <p className="text-sm text-foreground-soft">
+          We do not have any clinic dates from your application on file.
+        </p>
+      )}
+      <p className="text-sm text-foreground-soft">
+        Changes to your availability can only be made by request. If something has changed since you
+        applied, request the change below and explain why. Your directors will review it, and your
+        schedule does not change until they do.
+      </p>
+      <FieldPreview
+        f={{
+          key: "availabilityChangeNeeded",
+          label: "Do you need to make any last-minute changes to your availability?",
+          helpText: null, type: "SINGLE_SELECT", required,
+          options: AVAILABILITY_CHANGE_OPTIONS, validation: null,
+        }}
+        departments={[]}
+        fieldError={err("availabilityChangeNeeded")}
+        onValueChange={(_key, value) => setNeeded(typeof value === "string" ? value : "")}
+      />
+      {needed === "yes" && (
+        <FieldPreview
+          f={{
+            key: "availabilityChangeRequest",
+            label: "Which dates need to change, and why?",
+            helpText: "List each date, say whether you can no longer make it or can now add it, and explain the reason.",
+            type: "LONG_TEXT", required: true, options: null, validation: null,
+          }}
+          departments={[]}
+          fieldError={err("availabilityChangeRequest")}
+        />
+      )}
+    </div>
+  );
+}
 
 export function ContractField({
   block, prefill, ctx, err, onAnswer, departments = [], maxUploadMb = 4,
@@ -200,34 +286,75 @@ export function ContractField({
       const maxHipaa = ctx.todayIso;
       const [ty, tm, td] = ctx.todayIso.split("-");
       const minHipaa = `${Number(ty) - 5}-${tm}-${td}`;
-      return (
-        <div className="space-y-2">
-          <p className="text-sm font-medium text-foreground">{label}</p>
-          {block.helpText && <Prose text={renderVars(block.helpText, ctx)} />}
-          <Field label="HIPAA completion date" required error={err("hipaaCompletedAt")}>
-            <Input name="hipaaCompletedAt" type="date" required min={minHipaa} max={maxHipaa} />
+      const instructions = block.helpText ? <Prose text={renderVars(block.helpText, ctx)} /> : null;
+      // Required only when no certificate on file covers the term; submitContract
+      // applies the same rule. UploadSizeField, not a raw input: over the
+      // platform's ~4.5 MB Server Action limit the edge answers the POST itself,
+      // so the file has to be refused in the browser.
+      const inputs = (required: boolean) => (
+        <>
+          <Field label="HIPAA completion date" required={required} error={err("hipaaCompletedAt")}>
+            <Input name="hipaaCompletedAt" type="date" required={required} min={minHipaa} max={maxHipaa} />
           </Field>
-          {/* UploadSizeField, not a raw input. The disable comment here used to
-              say "no file primitive exists"; it does, and this was the one
-              upload path still posting an oversized file at the edge.
-
-              Over the platform's ~4.5 MB Server Action limit the edge answers
-              the POST itself, so `submitContract` never runs and its own
-              "max N MB" field error never fires -- the applicant gets the
-              generic retry message and retrying re-sends the same file forever.
-              `accept="image/*"` invites exactly the phone photo that trips it,
-              at the end of a contract they have just filled in and signed. */}
-          <Field label="HIPAA certificate (PDF)" required error={err("hipaaFile")}>
+          <Field label="HIPAA certificate (PDF)" required={required} error={err("hipaaFile")}>
             <UploadSizeField
               name="hipaaFile"
               maxMb={maxUploadMb}
               accept="application/pdf,image/*"
-              required
+              required={required}
             />
           </Field>
+        </>
+      );
+      if (ctx.hipaaOnFile) {
+        const { completionDate, expiresAt, pendingVerification } = ctx.hipaaOnFile;
+        // Open when the server rejected a half-finished replacement, so the error shows.
+        const replacing = Boolean(err("hipaaCompletedAt") || err("hipaaFile"));
+        return (
+          <div className="space-y-2">
+            <p className="text-sm font-medium text-foreground">{label}</p>
+            <p className="text-sm text-foreground-soft">
+              {pendingVerification
+                ? `We already have the HIPAA certificate you completed on ${completionDate}. It is waiting to be verified, so there is no need to upload it again.`
+                : `Your HIPAA certificate, completed on ${completionDate}, is on file and valid through ${expiresAt}, so there is no need to upload it again.`}
+            </p>
+            <details open={replacing} className="rounded-lg border border-border px-3 py-2">
+              <summary className="cursor-pointer text-sm font-medium text-foreground">Upload a newer certificate instead</summary>
+              <div className="mt-3 space-y-2">
+                {instructions}
+                {inputs(false)}
+              </div>
+            </details>
+          </div>
+        );
+      }
+      return (
+        <div className="space-y-2">
+          <p className="text-sm font-medium text-foreground">{label}</p>
+          {instructions}
+          {inputs(true)}
         </div>
       );
     }
+    case "photoBlock":
+      return (
+        <ProfilePhotoField
+          label={label}
+          error={err("photo")}
+          maxUploadMb={maxUploadMb}
+          currentPhoto={ctx.photoOnFile ?? null}
+          required={isSystemFieldRequired(block)}
+        />
+      );
+    case "availabilityBlock":
+      return (
+        <AvailabilityChangeField
+          label={label}
+          dates={ctx.applicationAvailability ?? []}
+          err={err}
+          required={isSystemFieldRequired(block)}
+        />
+      );
     case "checkbox":
       // "spanish" is no longer emitted by either default layout (the Spanish
       // field was dropped from Prefill along with it), but the system key
@@ -253,13 +380,22 @@ export function ContractField({
         gradYear: prefill.gradYear,
       };
       const current = selectDefaults[block.systemKey] ?? "";
+      // Required per the director's choice or the field's default; submitContract
+      // reads the same rule.
+      const required = isSystemFieldRequired(block);
       return (
-        <Field label={label} error={err(inputName)}>
+        <Field
+          label={label}
+          hint={block.helpText ? renderVars(block.helpText, ctx) : undefined}
+          required={required}
+          error={err(inputName)}
+        >
           {/* onChange feeds the answers map so a visibleWhen keyed on this
               field (e.g. staffTitle on yaleAffiliation) matches server-side. */}
           <Select
             name={inputName}
             defaultValue={current}
+            required={required}
             onChange={(e) => onAnswer(inputName, e.target.value)}
           >
             <option value="">Select…</option>
@@ -271,19 +407,24 @@ export function ContractField({
       );
     }
     case "date": case "email": case "tel": case "text": default: {
-      // "name" is special: two inputs (first + last).
+      // "name" is special: the legal parts, then the name they go by. The
+      // contract is a signed record and feeds the Epic request, so it asks for
+      // the name of record; "Goes by" is what the clinic reads.
       if (block.systemKey === "name") {
         return (
           <div className="space-y-4">
-            <Field label="First name" required error={err("firstName")}>
+            <Field label="Legal first name" required error={err("firstName")}>
               <Input name="firstName" defaultValue={prefill.firstName} required />
             </Field>
-            <Field label="Last name" required error={err("lastName")}>
+            <Field label="Legal middle name" hint="Optional." error={err("legalMiddleName")}>
+              <Input name="legalMiddleName" defaultValue={prefill.legalMiddleName ?? ""} />
+            </Field>
+            <Field label="Legal last name" required error={err("lastName")}>
               <Input name="lastName" defaultValue={prefill.lastName} required />
             </Field>
             <Field
               label="Goes by"
-              hint="Leave blank if your first name is what you go by. This is the name we will use on rosters, badges, and email."
+              hint="Leave blank if your legal first name is what you go by. This is the name we will use on rosters, badges, and email."
               error={err("preferredFirstName")}
             >
               <Input
@@ -317,8 +458,10 @@ export function ContractField({
         email: prefill.email,
         netId: prefill.netId,
         phone: prefill.phone,
+        pronouns: prefill.pronouns ?? "",
+        staffTitle: prefill.staffTitle ?? "",
       };
-      const required = block.systemKey === "email";
+      const required = isSystemFieldRequired(block);
       const inputName = nameByKey[block.systemKey];
       return (
         <Field label={label} required={required} error={err(inputName)}>

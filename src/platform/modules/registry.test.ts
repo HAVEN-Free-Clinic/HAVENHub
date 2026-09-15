@@ -113,6 +113,18 @@ describe("module registry", () => {
     );
   });
 
+  it("folds a page only under a real, unfolded tab of its own module", () => {
+    // ModuleNav marks `underTab` active on a folded page. An href that names no
+    // tab -- a typo, a tab since renamed, a folded page, another module -- would
+    // light nothing, and the section you are in would silently vanish from the row.
+    for (const m of MODULES) {
+      const tabs = new Set(m.nav.filter((n) => !n.underTab).map((n) => n.href));
+      for (const n of m.nav.filter((n) => n.underTab)) {
+        expect(tabs.has(n.underTab!), `${m.id} "${n.label}" folds under ${n.underTab}, which is not a tab`).toBe(true);
+      }
+    }
+  });
+
   it("uses dynamicGate only where a gate genuinely is not a permission string", () => {
     // The global nav is deliberately under-inclusive for these and only these:
     // every other tab must stay resolvable from permissions alone, or the
@@ -175,8 +187,9 @@ describe("module registry", () => {
   });
 
   it("gives the onboarding contract editor a nav entry so it is not orphaned", () => {
-    const admin = MODULES.find((m) => m.id === "admin")!;
-    expect(admin.nav.map((n) => n.href)).toContain("/admin/contract");
+    // In Recruitment now, beside the cycles whose contracts start from it.
+    const recruitment = MODULES.find((m) => m.id === "recruitment")!;
+    expect(recruitment.nav.map((n) => n.href)).toContain("/recruitment/contract");
   });
 
   // The guard that used to live here -- "never nest one tab's href under

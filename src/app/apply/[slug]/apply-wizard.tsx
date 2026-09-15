@@ -510,9 +510,14 @@ export function ApplyWizard({
           <>
             <Card className="space-y-4">
               <FormSection
-                title={`Are you a new or returning ${roleNoun}?`}
+                // With one option there is no question to ask: offering a single
+                // radio under "new or returning?" read as a missing choice.
+                // applicantType is always NEW then (see autoIneligible above), so
+                // hiding the radio changes nothing that is saved.
+                title={applicantOptions.length > 1 ? `Are you a new or returning ${roleNoun}?` : `You are applying as a new ${roleNoun}`}
                 description={`Returning means you served as a ${roleNoun} in the term right before this one, without a break. Summer is the one exception: taking the summer off does not end your run, so a spring ${roleNoun} applying for the fall still counts as returning. If you have been away for a full fall or spring term, apply as a new applicant.`}
               >
+                {applicantOptions.length > 1 && (
                 <RadioGroup>
                   {applicantOptions.map((opt) => (
                     <Radio
@@ -530,6 +535,7 @@ export function ApplyWizard({
                     />
                   ))}
                 </RadioGroup>
+                )}
 
                 {ineligibleNote && (
                   <Alert tone="warning">We do not see a current {roleNoun} membership for your account, so we have set you up as a new applicant. Your name and email are filled in below.</Alert>

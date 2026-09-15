@@ -123,10 +123,13 @@ export function InvitePanel({ rows, createAction, revokeAction }: InvitePanelPro
                   <TD className="text-muted-foreground">
                     {row.claimedByEmailLower ?? <span className="text-subtle-foreground">-</span>}
                   </TD>
+                  {/* The date on one line and the issuer under it: run together,
+                      "Sep 3, 2026, 4:12 PM by <name>" wrapped onto four lines. */}
                   <TD className="text-muted-foreground">
-                    {row.createdAtLabel} by {row.createdByName}
+                    <span className="whitespace-nowrap">{row.createdAtLabel}</span>
+                    <span className="block text-xs text-subtle-foreground">by {row.createdByName}</span>
                   </TD>
-                  <TD className="text-muted-foreground">
+                  <TD className="whitespace-nowrap text-muted-foreground">
                     {row.expiresAtLabel ?? "Never"}
                   </TD>
                   <TD>

@@ -5,11 +5,12 @@ import { affiliationOptionsWith } from "@/platform/affiliation";
 export const SYSTEM_FIELD_KEYS = [
   "name", "email", "netId", "phone", "dob", "dietary", "yaleAffiliation",
   "gradYear", "pronouns", "staffTitle", "epic", "epicIdExpiration", "spanish",
-  "licensedRN", "hipaa", "initials",
+  "licensedRN", "hipaa", "initials", "shiftsWanted", "availabilityChange", "photo",
 ] as const;
 
 export type SystemRenderKind =
-  | "text" | "email" | "tel" | "date" | "select" | "checkbox" | "epicBlock" | "hipaaBlock";
+  | "text" | "email" | "tel" | "date" | "select" | "checkbox" | "epicBlock" | "hipaaBlock"
+  | "availabilityBlock" | "photoBlock";
 
 export type SystemFieldSpec = {
   key: (typeof SYSTEM_FIELD_KEYS)[number];
@@ -19,6 +20,9 @@ export type SystemFieldSpec = {
   columns: string[];
   /** Choice list for `render: "select"`. Values are machine keys; labels are applicant-facing. */
   options?: TemplateOption[];
+  /** Whether the field must be answered when shown and the layout block does not
+   *  say (its `required` flag unset). Only meaningful where canToggleRequired. */
+  defaultRequired?: boolean;
 };
 
 // Alias for the canonical Yale-affiliation option list. The applicant's stored
@@ -27,8 +31,25 @@ export type SystemFieldSpec = {
 // not a parallel hand-written copy that would drift and blank out prefills.
 export const YALE_AFFILIATION_OPTIONS = YALE_AFFILIATION;
 
+/**
+ * Choices for the shiftsWanted question. The value is stored verbatim on
+ * OnboardingContract.shiftsWanted and the schedule builder renders it as
+ * "<value> shifts", so every value has to read correctly there too ("8+").
+ */
+export const SHIFTS_WANTED_OPTIONS: TemplateOption[] = [
+  { value: "1", label: "1 shift" },
+  ...["2", "3", "4", "5", "6", "7"].map((n) => ({ value: n, label: `${n} shifts` })),
+  { value: "8+", label: "8 or more shifts" },
+];
+
+/** The availability check's yes/no. submitContract accepts exactly these values. */
+export const AVAILABILITY_CHANGE_OPTIONS: TemplateOption[] = [
+  { value: "no", label: "No changes needed" },
+  { value: "yes", label: "Yes, I need to request a change" },
+];
+
 export const SYSTEM_FIELDS: Record<(typeof SYSTEM_FIELD_KEYS)[number], SystemFieldSpec> = {
-  name:             { key: "name", core: true, defaultLabel: "Your name", render: "text", columns: ["firstName", "lastName"] },
+  name:             { key: "name", core: true, defaultLabel: "Your name", render: "text", columns: ["firstName", "legalMiddleName", "lastName", "preferredFirstName"] },
   email:            { key: "email", core: true, defaultLabel: "Email", render: "email", columns: ["email"] },
   netId:            { key: "netId", core: false, defaultLabel: "NetID", render: "text", columns: ["netId"] },
   phone:            { key: "phone", core: false, defaultLabel: "Phone", render: "tel", columns: ["phone"] },
@@ -36,7 +57,7 @@ export const SYSTEM_FIELDS: Record<(typeof SYSTEM_FIELD_KEYS)[number], SystemFie
   dietary:          { key: "dietary", core: false, defaultLabel: "Dietary restrictions", render: "text", columns: ["dietaryRestrictions"] },
   yaleAffiliation:  { key: "yaleAffiliation", core: false, defaultLabel: "Yale affiliation", render: "select", columns: ["yaleAffiliation"], options: YALE_AFFILIATION },
   gradYear:         { key: "gradYear", core: false, defaultLabel: "Graduation year", render: "select", columns: ["gradYear"], options: GRAD_YEAR },
-  pronouns:         { key: "pronouns", core: false, defaultLabel: "Pronouns (optional)", render: "text", columns: ["pronouns"] },
+  pronouns:         { key: "pronouns", core: false, defaultLabel: "Pronouns", render: "text", columns: ["pronouns"] },
   staffTitle:       { key: "staffTitle", core: false, defaultLabel: "If you are a staff member, please list your official employee title and office or department", render: "text", columns: ["staffTitle"] },
   epic:             { key: "epic", core: true, defaultLabel: "Epic access", render: "epicBlock", columns: ["epicNeeded", "hasEpic", "existingEpicId", "epicAccessType", "worksWithYnhh"] },
   epicIdExpiration: { key: "epicIdExpiration", core: false, defaultLabel: "Epic ID expiration", render: "date", columns: ["epicIdExpiration"] },
@@ -44,7 +65,37 @@ export const SYSTEM_FIELDS: Record<(typeof SYSTEM_FIELD_KEYS)[number], SystemFie
   licensedRN:       { key: "licensedRN", core: false, defaultLabel: "I am a licensed RN", render: "checkbox", columns: ["licensedRN"] },
   hipaa:            { key: "hipaa", core: true, defaultLabel: "HIPAA", render: "hipaaBlock", columns: ["hipaaCompletedAt", "hipaaFile"] },
   initials:         { key: "initials", core: false, defaultLabel: "Initials", render: "text", columns: ["initials"] },
+  shiftsWanted:     { key: "shiftsWanted", core: false, defaultLabel: "How many shifts would you like to work this term?", render: "select", columns: ["shiftsWanted"], options: SHIFTS_WANTED_OPTIONS, defaultRequired: true },
+  availabilityChange: { key: "availabilityChange", core: false, defaultLabel: "Your availability", render: "availabilityBlock", columns: ["availabilityChangeNeeded", "availabilityChangeRequest"], defaultRequired: true },
+  photo:            { key: "photo", core: false, defaultLabel: "Profile photo", render: "photoBlock", columns: ["photoStoredName"], defaultRequired: true },
 };
+
+/**
+ * Whether a director may switch this field between required and optional.
+ *
+ * Not the core fields (name, email, Epic, HIPAA), which are always required. Not
+ * the yes/no checkboxes (Spanish, licensed RN), where "required" would mean
+ * "must tick yes". Not initials, which are a signature and always required when
+ * shown.
+ */
+export function canToggleRequired(key: (typeof SYSTEM_FIELD_KEYS)[number]): boolean {
+  const spec = SYSTEM_FIELDS[key];
+  return !spec.core && spec.render !== "checkbox" && key !== "initials";
+}
+
+/**
+ * Whether a shown system field must be answered. The ONE rule the onboarding
+ * form (to mark and enforce the input) and submitContract (to validate) both
+ * read, so they cannot disagree about what may be left blank.
+ *
+ * A director's choice on the block wins; otherwise the field's default.
+ */
+export function isSystemFieldRequired(block: { systemKey: (typeof SYSTEM_FIELD_KEYS)[number]; required?: boolean }): boolean {
+  const spec = SYSTEM_FIELDS[block.systemKey];
+  if (spec.core || block.systemKey === "initials") return true;
+  if (!canToggleRequired(block.systemKey)) return false;
+  return block.required ?? spec.defaultRequired ?? false;
+}
 
 /**
  * Choice list to render for a system field, or `[]` if it isn't a choice list.

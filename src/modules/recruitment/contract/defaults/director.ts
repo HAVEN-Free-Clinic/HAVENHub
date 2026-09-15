@@ -25,6 +25,9 @@ Please complete this form to confirm your participation in the {{orgName}} Board
     { kind: "system_field", systemKey: "staffTitle",
       visibleWhen: { field: "yaleAffiliation", op: "is", value: "staff" } },
     { kind: "system_field", systemKey: "dietary" },
+    // Required whenever shown (submitContract), and becomes the person's
+    // profile photo at roster build.
+    { kind: "system_field", systemKey: "photo" },
 
     { kind: "section", id: "sec_contracts", title: "Director Contracts", body: "" },
     { kind: "agreement", id: "board_responsibilities", title: "Board Responsibilities",
@@ -71,8 +74,10 @@ A tardy is defined as late to the extent that it impacts patient care or the wor
       type: "DEPARTMENT_CHOICE", required: true,
       visibleWhen: { field: "second_department", op: "is", value: "yes" } },
 
-    { kind: "section", id: "sec_hipaa", title: "HIPAA Training", body: HIPAA_INSTRUCTIONS },
-    { kind: "system_field", systemKey: "hipaa" },
+    { kind: "section", id: "sec_hipaa", title: "HIPAA Training", body: "" },
+    // The instructions ride on the block rather than the section, so they fold
+    // away with the upload when a certificate on file already covers the term.
+    { kind: "system_field", systemKey: "hipaa", helpText: HIPAA_INSTRUCTIONS },
 
     { kind: "agreement", id: "data_privacy", title: "{{orgName}} Data Privacy Statement",
       confirmKind: "signature", signatureLabel: "type your full name",
@@ -81,17 +86,13 @@ A tardy is defined as late to the extent that it impacts patient care or the wor
       confirmKind: "signature", signatureLabel: "type your full name",
       body: HAVEN_AGREEMENT_SIGNATURE },
 
-    // The Epic section hides for a department that never uses Epic when the
-    // applicant has no id on file (epicSection derived in contract/visibility.ts).
+    // Epic follows the department: shown only when the accepted department uses
+    // Epic for this track, and the volunteer is never asked whether they need it.
+    // The block confirms an Epic ID already on file, or collects an existing one.
     { kind: "section", id: "sec_epic", title: "Epic Access", body: EPIC_ACCESS_GUIDANCE,
-      visibleWhen: { field: "epicSection", op: "is", value: "show" } },
-    { kind: "custom_question", key: "epic_needed_self",
-      label: "Is Epic access required for your role at {{orgName}}?",
-      type: "SINGLE_SELECT", required: true,
-      options: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }],
-      visibleWhen: { field: "epicAsk", op: "is", value: "yes" } },
+      visibleWhen: { field: "epicRequirement", op: "is", value: "ALL" } },
     { kind: "system_field", systemKey: "epic",
-      visibleWhen: { field: "epicSection", op: "is", value: "show" } },
+      visibleWhen: { field: "epicRequirement", op: "is", value: "ALL" } },
 
     { kind: "agreement", id: "training", title: "Director Training",
       confirmKind: "checkbox", signatureLabel: "I will be attending",

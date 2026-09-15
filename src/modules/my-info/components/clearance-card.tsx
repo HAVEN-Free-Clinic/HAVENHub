@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/platform/ui/badge";
 import { Card } from "@/platform/ui/card";
+import { StatusBanner } from "@/platform/ui/status-banner";
 import { TextLink } from "@/platform/ui/text-link";
 import type { ComplianceStatus } from "@/platform/compliance/rules";
 import type { OnboardingTaskState } from "@/platform/compliance/task-state";
@@ -119,37 +120,31 @@ export function ClearanceCard({
 
   return (
     <Card pad={false} className="overflow-hidden">
-      {/* Status banner */}
+      {/* The same banner /training shows, on the shared scale. This one had
+          text-[17px] over text-[13px] and a rounded-[13px] chip: a pixel off on
+          both lines and on the radius, which reads as a rendering bug rather
+          than a decision. Neither number is on any scale this app has.
+
+          surface="attached" because the checklist below is the same object:
+          a second border between the two would read as two cards. */}
       {cleared ? (
-        <div className="flex items-center gap-4 border-b border-border bg-muted px-5 py-4">
-          <span className="grid h-12 w-12 shrink-0 place-items-center rounded-[13px] bg-success text-white">
-            <ShieldCheck aria-hidden className="h-6 w-6" />
-          </span>
-          <div className="min-w-0">
-            <p className="text-xs font-bold uppercase tracking-wider text-success-foreground">Cleared</p>
-            <p className="mt-0.5 text-[17px] font-bold tracking-tight text-foreground">
-              You&apos;re fully cleared{forTerm}
-            </p>
-            <p className="mt-0.5 text-[13px] leading-snug text-foreground-soft">
-              Your onboarding and compliance items are all complete.
-            </p>
-          </div>
-        </div>
+        <StatusBanner
+          surface="attached"
+          tone="success"
+          icon={ShieldCheck}
+          eyebrow="Cleared"
+          title={<>You&apos;re fully cleared{forTerm}</>}
+          description="Your onboarding and compliance items are all complete."
+        />
       ) : (
-        <div className="flex items-center gap-4 border-b border-border bg-muted px-5 py-4">
-          <span className="grid h-12 w-12 shrink-0 place-items-center rounded-[13px] bg-warning text-white">
-            <AlertTriangle aria-hidden className="h-6 w-6" />
-          </span>
-          <div className="min-w-0">
-            <p className="text-xs font-bold uppercase tracking-wider text-warning-foreground">Not yet cleared</p>
-            <p className="mt-0.5 text-[17px] font-bold tracking-tight text-foreground">
-              A few steps left{forTerm}
-            </p>
-            <p className="mt-0.5 text-[13px] leading-snug text-foreground-soft">
-              Finish the unchecked items below to be fully cleared.
-            </p>
-          </div>
-        </div>
+        <StatusBanner
+          surface="attached"
+          tone="warning"
+          icon={AlertTriangle}
+          eyebrow="Not yet cleared"
+          title={<>A few steps left{forTerm}</>}
+          description="Finish the unchecked items below to be fully cleared."
+        />
       )}
 
       {/* Requirements checklist. A row with a href is a link across its whole

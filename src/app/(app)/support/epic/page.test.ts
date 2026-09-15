@@ -21,6 +21,7 @@ const loaders = vi.hoisted(() => ({
   listEpicAuthorizers: vi.fn(async () => []),
   listIncidentPeople: vi.fn(async () => []),
   listPendingEpicRequests: vi.fn(async () => []),
+  listEpicTicketsWithoutRequest: vi.fn(async () => []),
   listLinkableTechRequests: vi.fn(async () => []),
 }));
 
@@ -134,7 +135,10 @@ describe("/support/epic loaders", () => {
 
     for (const fn of Object.values(loaders)) fn.mockClear();
     await visit("pending");
-    expect(called()).toEqual(["listPendingEpicRequests"]);
+    // Two loaders, not one: the orphan list -- EPIC tickets nobody attached a
+    // request to -- renders beside the queue on this tab and nowhere else, so it
+    // is scoped exactly like the queue itself rather than run on every visit.
+    expect(called()).toEqual(["listEpicTicketsWithoutRequest", "listPendingEpicRequests"]);
 
     for (const fn of Object.values(loaders)) fn.mockClear();
     await visit("term-batch");

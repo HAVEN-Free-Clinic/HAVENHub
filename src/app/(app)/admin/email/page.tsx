@@ -46,11 +46,13 @@ import { DeliveryLogTable } from "@/modules/admin/components/delivery-log-table"
 import { Pagination } from "@/platform/ui/pagination";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Alert } from "@/platform/ui/alert";
+import { getCronHealth } from "@/platform/cron-heartbeat";
 import { StatCard } from "@/platform/ui/stat-card";
 import { Card } from "@/platform/ui/card";
 import { DateTime } from "@/platform/dates/display";
 import { EmptyState } from "@/platform/ui/empty-state";
-import { TextLink } from "@/platform/ui/text-link";
+import Link from "next/link";
+import { buttonClasses } from "@/platform/ui/button";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -92,6 +94,11 @@ type PageProps = {
 
 export default async function EmailPage({ searchParams }: PageProps) {
   const { personId } = await requirePermission("admin.manage_sync");
+  // Externally-scheduled jobs whose last success is stale (schedule dropped,
+  // secret rotated). They feed the delivery logs on this page and on the
+  // notification log, and admin.manage_sync is who can act on them. This used to
+  // be the one thing on the Admin "Overview", which is gone.
+  const staleCrons = (await getCronHealth()).filter((c) => c.stale);
   const sp = await searchParams;
 
   // The header links target pages with their own, independently-grantable
@@ -279,22 +286,41 @@ export default async function EmailPage({ searchParams }: PageProps) {
         title="Email"
         description="Monitor outgoing email logs. Retry failed messages to re-queue them for the next drain pass."
         action={
-          canCampaigns || canTemplates ? (
-            <div className="flex gap-4">
-              {canCampaigns && (
-                <TextLink href="/outreach/campaigns" size="sm" className="font-medium">
-                  Campaigns
-                </TextLink>
-              )}
-              {canTemplates && (
-                <TextLink href="/admin/email/templates" size="sm" className="font-medium">
-                  Manage templates
-                </TextLink>
-              )}
-            </div>
-          ) : undefined
+          // Button-shaped, like the action slot on the other thirteen pages
+          // that use it. Two underlined words in the top right read as prose
+          // that happens to be clickable, not as the controls a reader has
+          // learned to look for there.
+          //
+          // Outline, not primary: these navigate to sibling surfaces, they
+          // are not this page's own action. The notification log and the
+          // templates are folded under this tab (registry underTab), so these
+          // buttons are their way in from here.
+          <div className="flex flex-wrap gap-2">
+            <Link href="/admin/notifications" className={buttonClasses("outline", "sm")}>
+              Notification log
+            </Link>
+            {canTemplates && (
+              <Link href="/admin/email/templates" className={buttonClasses("outline", "sm")}>
+                Manage templates
+              </Link>
+            )}
+            {canCampaigns && (
+              <Link href="/outreach/campaigns" className={buttonClasses("outline", "sm")}>
+                Campaigns
+              </Link>
+            )}
+          </div>
         }
       />
+
+      {staleCrons.length > 0 && (
+        <Alert tone="error">
+          {/* Admin-facing copy, so no repo paths. The runbook for this alert is
+              docs/DEPLOY.md. */}
+          Scheduled jobs may not be running: {staleCrons.map((c) => c.label).join(", ")}. They are
+          started by an outside scheduler, so check that it is still set up and running.
+        </Alert>
+      )}
 
       {/* Mailer connection panel */}
       <Card className="flex flex-wrap items-center justify-between gap-3">
@@ -366,17 +392,17 @@ export default async function EmailPage({ searchParams }: PageProps) {
                   aria-label={`${cat.label} display name`}
                 />
               </div>
-              {/* Both buttons post this one form (Send test overrides the action
-                  via formAction), and useFormStatus reports the FORM's pending
-                  state, not the clicked button's. So neither may swap to a verb:
-                  "Saving…" sitting next to an in-flight test send states the
-                  wrong thing about what the server is doing. Each button keeps
-                  its own word as its pendingLabel, and the spinner, the disabled
-                  state and aria-busy carry the feedback instead. */}
-              <SubmitButton variant="outline" size="sm" pendingLabel="Save">
+              {/* Save carries an explicit formAction even though it is already
+                  the form's, because that is what tells SubmitButton which
+                  button is running: `pending` is form-wide, but `action` is the
+                  submitter's own formAction, compared by reference. Drop it and
+                  Save claims every submit and says "Saving…" through a test
+                  send. Neither button takes a name/value, which is the one thing
+                  a formAction may not be paired with. */}
+              <SubmitButton formAction={saveSenderAction} variant="outline" size="sm" pendingLabel="Saving…">
                 Save
               </SubmitButton>
-              <SubmitButton formAction={testSenderAction} variant="ghost" size="sm" pendingLabel="Send test">
+              <SubmitButton formAction={testSenderAction} variant="ghost" size="sm" pendingLabel="Sending…">
                 Send test
               </SubmitButton>
               </FormRow>

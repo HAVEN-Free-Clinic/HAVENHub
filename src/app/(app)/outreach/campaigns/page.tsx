@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireAnyPermission } from "@/platform/auth/session";
 import { listCampaigns } from "@/platform/email/campaigns/service";
-import { isoDateKey } from "@/platform/dates";
+import { DateOnly } from "@/platform/dates/display";
 import { PageHeader } from "@/platform/ui/page-header";
 import { buttonClasses } from "@/platform/ui/button";
 import { Badge } from "@/platform/ui/badge";
@@ -74,7 +74,8 @@ export default async function EmailCampaignsPage() {
                   </TextLink>
                 </TD>
                 <TD className="whitespace-nowrap text-muted-foreground">
-                  {isoDateKey(c.createdAt)}
+                  {/* The same date format as every other list, not "2026-09-10". */}
+                  <DateOnly value={c.createdAt} />
                 </TD>
                 <TD>
                   <Badge tone={STATUS_TONES[c.status] ?? "default"}>

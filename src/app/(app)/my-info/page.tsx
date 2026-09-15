@@ -387,6 +387,7 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
 
         {/* Service record */}
         <section>
+          <SectionHeader className="mb-4">Service record</SectionHeader>
           <ServiceRecordCard
             orgName={orgName}
             brandColor={brandColor}

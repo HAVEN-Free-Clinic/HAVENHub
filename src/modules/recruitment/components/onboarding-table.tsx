@@ -1,5 +1,6 @@
 "use client";
 
+import type { Tone } from "@/platform/ui/badge";
 import { useMemo, useState } from "react";
 import { TextLink } from "@/platform/ui/text-link";
 import { TD, TH, THead, TR, Table, TableEmpty } from "@/platform/ui/table";
@@ -19,8 +20,6 @@ import {
   type OnboardingFilters, type OnboardingRow, type OnboardingRowState,
 } from "@/modules/recruitment/engine/onboarding-rows";
 
-type Tone = "default" | "brand" | "success" | "warning" | "critical";
-
 const STATE_LABELS: Record<OnboardingRowState, { label: string; tone: Tone }> = {
   NO_CONTRACT: { label: "No contract", tone: "default" },
   SENT: { label: "Sent", tone: "brand" },
@@ -28,10 +27,11 @@ const STATE_LABELS: Record<OnboardingRowState, { label: string; tone: Tone }> = 
   SUBMITTED: { label: "Submitted", tone: "warning" },
   PROMOTED: { label: "Promoted", tone: "success" },
   CONFLICT: { label: "Conflict", tone: "warning" },
+  DUAL: { label: "Dual appointment", tone: "brand" },
 };
 
 const STATUS_ORDER: OnboardingRowState[] = [
-  "NO_CONTRACT", "SENT", "EXPIRED", "SUBMITTED", "PROMOTED", "CONFLICT",
+  "NO_CONTRACT", "SENT", "EXPIRED", "SUBMITTED", "PROMOTED", "CONFLICT", "DUAL",
 ];
 
 export function OnboardingTable({
@@ -182,7 +182,14 @@ export function OnboardingTable({
                     </dl>
                   )}
                 </TD>
-                <TD className="text-foreground-soft">{r.departmentCode}</TD>
+                <TD className="text-foreground-soft">
+                  {r.departmentCode}
+                  {/* A dual appointment's second department: its onboarding is the
+                      other row's contract, so this row has nothing to send. */}
+                  {r.onboardsWith && (
+                    <span className="block text-xs text-subtle-foreground">Onboards with {r.onboardsWith}</span>
+                  )}
+                </TD>
                 <TD>
                   <Badge tone={s.tone}>{s.label}</Badge>
                   {r.onRoster && <span className="ml-2 text-xs text-subtle-foreground">on roster</span>}
@@ -245,9 +252,11 @@ export function OnboardingTable({
         <SubmitButton size="sm" formAction={promote} pendingLabel="Promoting…" disabled={counts.promote === 0}>
           Promote ({counts.promote})
         </SubmitButton>
-        {/* No formAction: this rides the form's default action (withdraw). See the
-            per-row comment above for why a button with its own name/value pair
-            cannot also carry a formAction. name="bulkWithdraw" value="1" marks this
+        {/* No formAction: this rides the form's default action (withdraw). A
+            button with its own name/value pair cannot also carry a formAction --
+            react-dom drops the submitter when it takes an action off it, so the
+            name/value reaches nothing; `submit-button.guard.test.ts` fences the
+            pairing repo-wide after it shipped once on /support/epic. name="bulkWithdraw" value="1" marks this
             as a deliberate bulk-withdraw click; withdrawAction refuses any
             submission carrying neither this marker nor onlyAcceptanceId, so a
             future submit button added to this form without its own formAction is

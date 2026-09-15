@@ -10,6 +10,7 @@
  * critical.
  */
 
+import type { Tone } from "@/platform/ui/badge";
 import type { TechRequestStatus } from "@prisma/client";
 import { Badge } from "@/platform/ui/badge";
 
@@ -25,8 +26,6 @@ export const STATUS_LABELS: Record<TechRequestStatus, string> = {
   CLOSED: "Closed",
   CANCELLED: "Cancelled",
 };
-
-type Tone = "default" | "brand" | "success" | "warning" | "critical";
 
 const STATUS_TONES: Record<TechRequestStatus, Tone> = {
   SUBMITTED: "default",

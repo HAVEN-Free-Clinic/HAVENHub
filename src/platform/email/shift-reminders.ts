@@ -7,7 +7,7 @@ import { getSetting } from "@/platform/settings/service";
 import { departmentAttendingsForDates } from "@/platform/attendings/coverage";
 import { closedClinicDates } from "@/platform/attendings/open-clinic-date";
 import { CLINIC_DATE_LONG, formatCalendarDate, isoDateKey } from "@/platform/dates";
-import { firstNameOf } from "@/platform/person-name";
+import { firstNameOf, comparePersonName } from "@/platform/person-name";
 import { selectCurrentClinicDate, getCurrentClinicChannelLink } from "@/platform/teams/channel-link";
 import { notify } from "@/platform/notifications/notify";
 import { renderEmail } from "./templates/renderEmail";
@@ -31,7 +31,14 @@ export type ReminderAssignment = {
    */
   tags: { cc: boolean; triage: boolean };
   department: { id: string; code: string; name: string };
-  person: { id: string; name: string; contactEmail: string | null; entraObjectId: string | null };
+  person: {
+    id: string;
+    name: string;
+    legalFirstName: string;
+    lastName: string;
+    contactEmail: string | null;
+    entraObjectId: string | null;
+  };
 };
 
 export type PreparedReminder = {
@@ -226,7 +233,7 @@ export function buildShiftReminders(input: BuildShiftRemindersInput): PreparedRe
     });
   }
 
-  prepared.sort((a, b) => a.person.name.localeCompare(b.person.name));
+  prepared.sort((a, b) => comparePersonName(a.person, b.person));
   return prepared;
 }
 
@@ -345,7 +352,7 @@ export function buildRoleReminders(input: BuildShiftRemindersInput): PreparedRol
 
   prepared.sort(
     (a, b) =>
-      a.person.name.localeCompare(b.person.name) || a.spec.templateKey.localeCompare(b.spec.templateKey),
+      comparePersonName(a.person, b.person) || a.spec.templateKey.localeCompare(b.spec.templateKey),
   );
   return prepared;
 }
@@ -410,7 +417,7 @@ export async function runShiftReminders(now: Date = new Date()): Promise<ShiftRe
       cc: true,
       triage: true,
       department: { select: { id: true, code: true, name: true } },
-      person: { select: { id: true, name: true, contactEmail: true, entraObjectId: true } },
+      person: { select: { id: true, name: true, legalFirstName: true, lastName: true, contactEmail: true, entraObjectId: true } },
     },
   });
   const dated = rows.filter((r) => isoDateKey(r.clinicDate) === targetKey);

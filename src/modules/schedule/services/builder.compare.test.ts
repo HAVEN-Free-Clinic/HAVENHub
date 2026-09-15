@@ -3,18 +3,26 @@
  * builder's member lists (Day view "Available to assign" pool and the grid).
  *
  * Pure function, no database: directors come first, then volunteers, with each
- * group sorted alphabetically by name.
+ * group ordered by SURNAME (comparePersonName), like every other list of people.
  */
 
 import { describe, expect, it } from "vitest";
 import { compareBuilderMembers } from "./builder";
 
-type Member = { kind: "DIRECTOR" | "VOLUNTEER"; person: { name: string } };
+// The comparator keys on the name PARTS now, so the fixture supplies them.
+// `name` here is written "Given Surname" and split on the space.
+type Member = {
+  kind: "DIRECTOR" | "VOLUNTEER";
+  person: { name: string; legalFirstName: string; lastName: string };
+};
 
-const member = (kind: Member["kind"], name: string): Member => ({
-  kind,
-  person: { name },
-});
+const member = (kind: Member["kind"], name: string): Member => {
+  const parts = name.split(" ");
+  return {
+    kind,
+    person: { name, legalFirstName: parts[0], lastName: parts.slice(1).join(" ") },
+  };
+};
 
 const order = (members: Member[]) =>
   [...members].sort(compareBuilderMembers).map((m) => m.person.name);

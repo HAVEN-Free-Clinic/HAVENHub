@@ -5,7 +5,9 @@ export type AssignmentPair = { applicationId: string; scorerId: string };
 export type AllocateInput = {
   /** Applications still open to committee scoring, in roster order. The
    *  allocator touches NOTHING outside this list, so a routed or decided
-   *  application keeps whatever assignments it already had. */
+   *  application keeps whatever assignments it already had. `applicantPersonId`
+   *  is whoever the application belongs to, linked or matched (see
+   *  applicationOwnerAmong), so nobody is handed their own. */
   applications: { id: string; applicantPersonId: string | null }[];
   /** The cycle's scorer pool. */
   scorerIds: string[];
@@ -68,9 +70,9 @@ function addTo(map: Map<string, Set<string>>, key: string, value: string): void 
  * Divide a cycle's applications among its scorer pool so each one is read by
  * `target` people.
  *
- * Incremental by design: run it after every pool or roster change and it tops
- * up what is short without disturbing what is already settled. Two rules make
- * that safe.
+ * Incremental by design: run it after every pool, roster, or target change and
+ * it tops up what is short and takes back what is over, without disturbing what
+ * is already settled. Two rules make that safe.
  *
  * A recorded score is never undone. It counts toward the target even when its
  * author is outside the pool (a lead scoring from the detail page is a real
@@ -91,12 +93,17 @@ export function allocateAssignments(input: AllocateInput): AllocateResult {
     if (eligible.has(s.applicationId)) addTo(scoredBy, s.applicationId, s.scorerId);
   }
 
+  const ownerOf = new Map(input.applications.map((a) => [a.id, a.applicantPersonId]));
   const assignedBy = new Map<string, Set<string>>();
   const load = new Map<string, number>();
   const remove: AssignmentPair[] = [];
   for (const e of input.existing) {
     if (!eligible.has(e.applicationId)) continue;
-    if (!inPool.has(e.scorerId) && !scoredBy.get(e.applicationId)?.has(e.scorerId)) {
+    // Unscored work comes back from a scorer who left the pool, and from one
+    // handed their own application before it could be recognised as theirs.
+    const leftPool = !inPool.has(e.scorerId);
+    const ownApplication = ownerOf.get(e.applicationId) === e.scorerId;
+    if ((leftPool || ownApplication) && !scoredBy.get(e.applicationId)?.has(e.scorerId)) {
       remove.push(e);
       continue;
     }
@@ -105,6 +112,33 @@ export function allocateAssignments(input: AllocateInput): AllocateResult {
   }
 
   const target = Math.max(0, Math.trunc(input.target));
+
+  // A lowered target leaves applications over it. Take the surplus back before
+  // topping anything up, so the top-ups see the piles as they will really be.
+  // Only unstarted work comes back, and each assignment comes off whichever of
+  // its scorers holds the biggest pile, so every pile shrinks evenly rather
+  // than one person's emptying.
+  for (const application of input.applications) {
+    const assigned = assignedBy.get(application.id);
+    if (!assigned) continue;
+    const scorers = scoredBy.get(application.id);
+    const surplus = new Set([...assigned, ...(scorers ?? [])]).size - target;
+    if (surplus <= 0) continue;
+    const ordered = [...assigned]
+      .filter((s) => !scorers?.has(s))
+      .sort(
+        (a, b) =>
+          (load.get(b) ?? 0) - (load.get(a) ?? 0) ||
+          tieBreak(a, application.id) - tieBreak(b, application.id) ||
+          (a < b ? -1 : 1),
+      );
+    for (const scorerId of ordered.slice(0, surplus)) {
+      remove.push({ applicationId: application.id, scorerId });
+      assigned.delete(scorerId);
+      load.set(scorerId, (load.get(scorerId) ?? 0) - 1);
+    }
+  }
+
   const add: AssignmentPair[] = [];
   for (const application of input.applications) {
     const covered = new Set([

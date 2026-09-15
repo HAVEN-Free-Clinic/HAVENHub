@@ -237,7 +237,10 @@ async function lane() {
   const lead = await prisma.person.create({ data: { name: "Lead" } });
   const [pats, educ] = await Promise.all([
     prisma.department.create({
-      data: { code: "PATS", name: "Patient Services", assessLanguageBeforeAcceptance: true },
+      data: {
+        code: "PATS", name: "Patient Services",
+        assessLanguageBeforeAcceptance: true, assessSpanishRegardlessOfClaim: true,
+      },
     }),
     prisma.department.create({ data: { code: "EDUC", name: "Education" } }),
   ]);
@@ -257,7 +260,11 @@ async function lane() {
   return { lead, pats, educ, term, cycle };
 }
 
-/** One submitted application in the seeded cycle. */
+/**
+ * One submitted application in the seeded cycle, claiming Spanish unless
+ * overridden. An applicant who claimed nothing has nothing to queue, so an
+ * "ignores X" test built without a claim would pass without testing anything.
+ */
 async function apply(
   ctx: Awaited<ReturnType<typeof lane>>,
   email: string,
@@ -275,7 +282,7 @@ async function apply(
     // real column names, and a typo surfaces immediately as a failing assertion.
     data: {
       cycleId: ctx.cycle.id, applicantId: applicant.id, answers: {},
-      applicantType: "NEW", departmentChoices: ["PATS"],
+      applicantType: "NEW", departmentChoices: ["PATS"], languagesClaimed: ["es"],
       status: "SUBMITTED", submittedAt: new Date(),
       ...overrides,
     } as never,
@@ -284,7 +291,7 @@ async function apply(
 }
 
 describe("listApplicantLanguageQueue", () => {
-  it("queues Spanish for a flagged-department applicant who claimed nothing", async () => {
+  it("queues a flagged-department applicant for the language they ticked", async () => {
     const ctx = await lane();
     await apply(ctx, "ada@yale.edu");
 
@@ -295,7 +302,7 @@ describe("listApplicantLanguageQueue", () => {
     expect(rows[0].departments).toEqual(["PATS"]);
   });
 
-  it("queues every other language the applicant claimed alongside Spanish", async () => {
+  it("queues Spanish and every other language a PATS applicant claimed", async () => {
     const ctx = await lane();
     await apply(ctx, "ada@yale.edu", { languagesClaimed: ["fr", "ht"] });
 
@@ -317,13 +324,67 @@ describe("listApplicantLanguageQueue", () => {
       data: { code: "INTP", name: "Interpreting", assessLanguageBeforeAcceptance: true },
     });
     await apply(ctx, "ada@yale.edu", {
-      departmentChoices: ["EDUC"], dualRoleDepartments: ["INTP"],
+      departmentChoices: ["EDUC"], dualRoleDepartments: ["INTP"], languagesClaimed: ["ht"],
     });
 
     const rows = await listApplicantLanguageQueue();
 
-    expect(rows).toHaveLength(1);
+    expect(rows.map((r) => r.language)).toEqual(["ht"]);
     expect(rows[0].dualRoleDepartments).toEqual(["INTP"]);
+  });
+
+  // PATS assesses every applicant's Spanish; INTP assesses only the languages an
+  // applicant ticked, because an INTP applicant may interpret another language.
+  // Department.assessSpanishRegardlessOfClaim is what tells the two apart. Adding
+  // Spanish for every lane applicant put 60 people who never ticked it in front
+  // of the interpreting department in Fall 2026.
+  describe("Spanish regardless of claim", () => {
+    async function queuedFor(overrides: Record<string, unknown>) {
+      const ctx = await lane();
+      await prisma.department.create({
+        data: { code: "INTP", name: "Interpreting", assessLanguageBeforeAcceptance: true },
+      });
+      await apply(ctx, "ada@yale.edu", overrides);
+      return (await listApplicantLanguageQueue()).map((r) => r.language).sort();
+    }
+
+    it("is queued for a PATS applicant who claimed nothing", async () => {
+      expect(await queuedFor({ languagesClaimed: [], answers: { spanish_proficiency: "none" } }))
+        .toEqual(["es"]);
+    });
+
+    it("is queued alongside another language a PATS applicant claimed", async () => {
+      expect(await queuedFor({ languagesClaimed: ["zh"] })).toEqual(["es", "zh"]);
+    });
+
+    it("is queued for an applicant routed to PATS from an unflagged choice", async () => {
+      expect(await queuedFor({
+        departmentChoices: ["EDUC"], routedDepartmentCode: "PATS", languagesClaimed: [],
+      })).toEqual(["es"]);
+    });
+
+    it("is not queued for an INTP applicant who interprets in another language", async () => {
+      expect(await queuedFor({ departmentChoices: ["INTP"], languagesClaimed: ["ar"] })).toEqual(["ar"]);
+    });
+
+    it("is not queued for an INTP dual-role offer that claimed another language", async () => {
+      expect(await queuedFor({
+        departmentChoices: ["EDUC"], dualRoleDepartments: ["INTP"], languagesClaimed: ["hi"],
+      })).toEqual(["hi"]);
+    });
+
+    it("is not queued for an INTP applicant from a self-rating alone, however fluent", async () => {
+      expect(await queuedFor({
+        departmentChoices: ["INTP"], languagesClaimed: [], answers: { spanish_proficiency: "fluent_native" },
+      })).toEqual([]);
+    });
+
+    it("does nothing for a department carrying the flag outside the lane", async () => {
+      await prisma.department.create({
+        data: { code: "SOSE", name: "Social Services", assessSpanishRegardlessOfClaim: true },
+      });
+      expect(await queuedFor({ departmentChoices: ["SOSE"], languagesClaimed: [] })).toEqual([]);
+    });
   });
 
   it("ignores a withdrawn application", async () => {
@@ -481,7 +542,7 @@ describe("listApplicantLanguageQueue", () => {
 
   it("drops a language already assessed on this application", async () => {
     const ctx = await lane();
-    const { application } = await apply(ctx, "ada@yale.edu", { languagesClaimed: ["fr"] });
+    const { application } = await apply(ctx, "ada@yale.edu", { languagesClaimed: ["es", "fr"] });
     await prisma.applicationLanguageAssessment.create({
       data: {
         applicationId: application.id, language: "es",
@@ -512,7 +573,7 @@ describe("listApplicantLanguageQueue", () => {
     await prisma.application.create({
       data: {
         cycleId: ctx.cycle.id, applicantId: applicant.id, answers: {},
-        applicantType: "NEW", departmentChoices: ["PATS"],
+        applicantType: "NEW", departmentChoices: ["PATS"], languagesClaimed: ["es"],
         status: "SUBMITTED", submittedAt: new Date(),
       },
     });

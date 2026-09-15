@@ -390,6 +390,11 @@ const SCOPE_DETAIL_PATHNAME = "/outreach/scopes/*";
  *  at platform/email/templates/registry.ts is a closed list and none of its keys
  *  has one (they are hyphen- and dot-cased). */
 const EMAIL_TEMPLATE_PATHNAME = "/admin/email/templates/*";
+/** recruitment/cycles/[id]/emails/[key]/page.tsx's own route. Same editor
+ *  component as the admin template route above, and the same two actions, but a
+ *  cycle override rather than the app-wide template -- so it needs its own two
+ *  entries and its own words, not a widening of the admin scope. */
+const CYCLE_EMAIL_PATHNAME = "/recruitment/cycles/*/emails/*";
 
 /**
  * Explicit entries for flash shapes the `error`/`*Error` convention cannot express: a flag
@@ -468,6 +473,18 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
     message: () => "Returned to the recruitment lead for re-routing.",
   },
   {
+    // recruitment/cycles/[id]/applicants/actions.ts (decideRoutedAction, a REJECT
+    // that fell through to a dual-role department; see planDualFallback in
+    // services/routing.ts). Same two landing pages as saved=returned, for the same
+    // reason: the application moves to another department, so a department
+    // director loses sight of it. Not "Decision recorded.": no rejection stands.
+    params: ["saved"],
+    matchValues: { saved: "dual_fallback" },
+    pathnames: [APPLICANT_DETAIL_PATHNAME, APPLICANT_ROSTER_PATHNAME],
+    tone: "success",
+    message: () => "Not selected here. Passed to the dual-role department they ticked.",
+  },
+  {
     // recruitment/cycles/[id]/applicants/[applicationId]/page.tsx:263 and
     // recruitment/interviews/[interviewId]/page.tsx:30-37 (savedMessage.rescind). Byte-identical
     // text on both pages.
@@ -476,6 +493,37 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
     pathnames: [APPLICANT_DETAIL_PATHNAME, INTERVIEW_DETAIL_PATHNAME],
     tone: "success",
     message: () => "Acceptance rescinded.",
+  },
+  {
+    // recruitment/cycles/[id]/applicants/actions.ts (the Dual appointment card).
+    // A director's request waits for a recruitment manager; a manager's add is
+    // already approved. Distinct wordings because the two mean different things.
+    params: ["saved"],
+    matchValues: { saved: "dual_requested" },
+    pathnames: [APPLICANT_DETAIL_PATHNAME],
+    tone: "success",
+    message: () => "Dual appointment requested. A recruitment manager will approve or decline it.",
+  },
+  {
+    params: ["saved"],
+    matchValues: { saved: "dual_approved" },
+    pathnames: [APPLICANT_DETAIL_PATHNAME],
+    tone: "success",
+    message: () => "Dual appointment approved. They are accepted into both departments.",
+  },
+  {
+    params: ["saved"],
+    matchValues: { saved: "dual_declined" },
+    pathnames: [APPLICANT_DETAIL_PATHNAME],
+    tone: "success",
+    message: () => "Dual appointment request declined.",
+  },
+  {
+    params: ["saved"],
+    matchValues: { saved: "dual_cancelled" },
+    pathnames: [APPLICANT_DETAIL_PATHNAME],
+    tone: "success",
+    message: () => "Dual appointment cancelled.",
   },
   {
     // recruitment/interviews/[interviewId]/page.tsx:30-37 (savedMessage.schedule).
@@ -542,6 +590,16 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
     pathnames: [EMAIL_TEMPLATE_PATHNAME],
     tone: "success",
     message: () => "Reverted to the built-in template.",
+  },
+  {
+    // recruitment/cycles/[id]/emails/[key]/page.tsx (resetAction). Same group
+    // again, third disjoint scope. The page's own header calls the un-overridden
+    // state "Using the default", so that is the word the toast uses.
+    params: ["saved"],
+    matchValues: { saved: "reset" },
+    pathnames: [CYCLE_EMAIL_PATHNAME],
+    tone: "success",
+    message: () => "Reverted to the default.",
   },
   {
     params: ["saved"],
@@ -623,7 +681,7 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
     // admin/departments/[id]/page.tsx (via department-form.tsx:32) and
     // admin/subcommittees/[id]/page.tsx (via subcommittee-form.tsx:21). Byte-identical text.
     params: ["saved"],
-    pathnames: ["/admin/departments/*", "/admin/subcommittees/*"],
+    pathnames: ["/admin/departments/*", "/recruitment/subcommittees/*"],
     tone: "success",
     message: () => "Changes saved.",
   },
@@ -655,6 +713,17 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
     pathnames: [EMAIL_TEMPLATE_PATHNAME],
     tone: "success",
     message: () => "Template saved.",
+  },
+  {
+    // recruitment/cycles/[id]/emails/[key]/page.tsx (saveAction). The editor
+    // re-renders byte-identically after a save -- the only thing that moves is
+    // the PageHeader description, from "Using the default" to "Customized for
+    // this cycle", and only on the FIRST save. Without this the second save and
+    // every one after it looked like nothing happened.
+    params: ["saved"],
+    pathnames: [CYCLE_EMAIL_PATHNAME],
+    tone: "success",
+    message: () => "Cycle email saved.",
   },
 
   {
@@ -921,8 +990,15 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
     // convention above, so without this entry a page's failures vanished and its
     // successes stayed pinned to the URL through refresh, back-navigation and a
     // shared link -- opposite lifetimes for the two halves of one action.
+    // Also the cycle's dual appointments page, and the Decisions page's "keep both
+    // departments" action, which carry the same kind of ready-made sentence.
     params: ["ok"],
-    pathnames: ["/volunteers/spanish-review", "/volunteers/dual-roles"],
+    pathnames: [
+      "/volunteers/spanish-review",
+      "/volunteers/dual-roles",
+      "/recruitment/cycles/*/dual-appointments",
+      "/recruitment/cycles/*/decisions",
+    ],
     tone: "success",
     message: (values) => values.get("ok") ?? "Saved.",
   },
@@ -996,6 +1072,33 @@ function groupRegistry(
 }
 
 const FLASH_REGISTRY_GROUPS = groupRegistry(FLASH_REGISTRY);
+
+/**
+ * Every param name this module treats as action feedback, derived from the
+ * registry rather than restated.
+ *
+ * Exported for platform/lists/page-href.ts, which must strip these from a
+ * pagination link: they describe a one-shot event, so carrying one forward
+ * re-fires its toast on every Prev/Next click. That file used to name four of
+ * them by hand with a comment claiming they were "the ones flash.ts already
+ * treats as action feedback". They were not -- there are thirty-one, and
+ * `retried` (admin/email, admin/notifications) leaked through onto two lists
+ * that page their results.
+ *
+ * A Set of strings, not the message registry: a caller needs to know a param IS
+ * feedback, not what it says.
+ */
+export const FLASH_PARAM_NAMES: ReadonlySet<string> = new Set([
+  ERROR_PARAM,
+  MESSAGE_PARAM,
+  ...FLASH_REGISTRY.flatMap((entry) => entry.params),
+]);
+
+/** True for any param that carries action feedback, including the `*Error`
+ *  family the registry does not enumerate. */
+export function isFlashParamName(name: string): boolean {
+  return FLASH_PARAM_NAMES.has(name) || ERROR_SUFFIX.test(name);
+}
 
 /**
  * Classifies the params on a URL into the toasts they should pop and the param names to strip.

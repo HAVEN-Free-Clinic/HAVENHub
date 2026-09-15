@@ -167,10 +167,69 @@ describe("yaleAffiliation audience field", () => {
   });
 });
 
+/**
+ * "Full name" is the field an admin reaches for when they mean "this person".
+ * Person.name holds only the DISPLAY name now, so a segment on a legal first
+ * name silently dropped everyone who goes by something else, and the campaign
+ * just did not reach them. The person picker in this same subsystem already
+ * spans the name columns (audience/resolve.ts); this makes the two agree.
+ */
+describe("full name spans the stored name columns", () => {
+  it("contains matches a legal name the display name no longer shows", () => {
+    expect(personFieldWhere({ field: "name", op: "contains", value: "Jonathan" }, ctx)).toEqual({
+      OR: [
+        { name: { contains: "Jonathan", mode: "insensitive" } },
+        { legalFirstName: { contains: "Jonathan", mode: "insensitive" } },
+        { lastName: { contains: "Jonathan", mode: "insensitive" } },
+        // Guarded because it is nullable: see personNameSearchClauses.
+        {
+          AND: [
+            { legalMiddleName: { not: null } },
+            { legalMiddleName: { contains: "Jonathan", mode: "insensitive" } },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("notContains excludes on any of them, so a negation cannot leak someone back in", () => {
+    expect(personFieldWhere({ field: "name", op: "notContains", value: "Jonathan" }, ctx)).toEqual({
+      NOT: {
+        OR: [
+          { name: { contains: "Jonathan", mode: "insensitive" } },
+          { legalFirstName: { contains: "Jonathan", mode: "insensitive" } },
+          { lastName: { contains: "Jonathan", mode: "insensitive" } },
+          // The IS NOT NULL guard is what makes THIS negation correct: without
+          // it, everyone with no middle name would drop out of the result.
+          {
+            AND: [
+              { legalMiddleName: { not: null } },
+              { legalMiddleName: { contains: "Jonathan", mode: "insensitive" } },
+            ],
+          },
+        ],
+      },
+    });
+  });
+
+  // Everything else still means the display name. "eq" against a part would
+  // never match ("Jane Doe" is not a legalFirstName), and isEmpty is about
+  // whether the person has a rendered name at all.
+  it("leaves the exact-match and emptiness operators on the display name", () => {
+    expect(personFieldWhere({ field: "name", op: "eq", value: "Jane Doe" }, ctx)).toEqual({
+      name: { equals: "Jane Doe", mode: "insensitive" },
+    });
+    expect(personFieldWhere({ field: "name", op: "isEmpty" }, ctx)).toEqual({ name: "" });
+  });
+});
+
 describe("text operators", () => {
+  // Uses netId, not name: "Full name" deliberately spans the stored name
+  // columns now (see the describe above), so it is the wrong field to pin the
+  // generic single-column operator against.
   it("contains -> case-insensitive contains", () => {
-    expect(personFieldWhere({ field: "name", op: "contains", value: "jane" }, ctx)).toEqual({
-      name: { contains: "jane", mode: "insensitive" },
+    expect(personFieldWhere({ field: "netId", op: "contains", value: "jane" }, ctx)).toEqual({
+      netId: { contains: "jane", mode: "insensitive" },
     });
   });
 

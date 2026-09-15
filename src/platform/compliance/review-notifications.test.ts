@@ -35,7 +35,8 @@ describe("notifyDatelessCertReview", () => {
     // The body names the volunteer and the link points at the review queue.
     for (const note of notes) {
       expect(note.body).toContain("Val Volunteer");
-      expect(note.link).toMatch(/\/volunteers\/master$/);
+      // The one compliance roster (the master view merged into /volunteers).
+      expect(note.link).toMatch(/\/volunteers$/);
     }
   });
 
@@ -77,7 +78,8 @@ describe("notifyCertNeedsVerification", () => {
     expect(notes.map((n) => n.personId).sort()).toEqual([m1.id, m2.id].sort());
     for (const note of notes) {
       expect(note.body).toContain("Val Volunteer");
-      expect(note.link).toMatch(/\/volunteers\/master$/);
+      // The one compliance roster (the master view merged into /volunteers).
+      expect(note.link).toMatch(/\/volunteers$/);
     }
   });
 

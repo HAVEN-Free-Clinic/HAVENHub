@@ -21,6 +21,7 @@ import {
   parseBulkAssessmentEntries,
   recordLanguageAssessmentsInBulk,
 } from "@/platform/languages/bulk-assessment";
+import { reviewLaterFlash, setReviewLater } from "@/platform/languages/review-later";
 import {
   ASSESSMENT_SEASONS,
   addPersonToSpanishHistory,
@@ -59,8 +60,9 @@ import { Pagination } from "@/platform/ui/pagination";
  * permission means re-granting it in production, and the reviewers who hold it
  * are exactly the people who should assess any language.
  *
- * Three tabs:
+ * Four tabs:
  *   - queue      the claims awaiting assessment, one flat queue for everyone
+ *   - later      queue rows a reviewer set aside to come back to, still unassessed
  *   - history    every INTP Spanish assessment, back to Spring 2012
  *   - crosscheck people flagged in Hub whose assessment does not back it up
  *
@@ -74,7 +76,7 @@ import { Pagination } from "@/platform/ui/pagination";
 
 const BASE_PATH = "/volunteers/spanish-review";
 
-type Tab = "queue" | "history" | "crosscheck";
+type Tab = "queue" | "later" | "history" | "crosscheck";
 
 type PageProps = {
   searchParams: Promise<{
@@ -97,7 +99,7 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
   const viewer = await requirePermission("volunteers.verify_spanish");
   const sp = await searchParams;
   const activeTab: Tab =
-    sp.tab === "history" ? "history" : sp.tab === "crosscheck" ? "crosscheck" : "queue";
+    sp.tab === "later" || sp.tab === "history" || sp.tab === "crosscheck" ? sp.tab : "queue";
   const search = sp.q ?? "";
   // "All terms" is the default. The previous default of the ACTIVE term meant
   // opening the tab in a term with no assessments yet showed an empty table with
@@ -105,10 +107,14 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
   const termFilter = sp.term ?? "";
   const page = Number.parseInt(sp.page ?? "1", 10) || 1;
 
-  const [queueRows, activeTerm] = await Promise.all([
-    activeTab === "queue" ? listLanguageReviewQueue() : Promise.resolve([]),
+  // Both review tabs read the one queue and split it, so each tab's badge can
+  // count the other.
+  const [reviewRows, activeTerm] = await Promise.all([
+    activeTab === "queue" || activeTab === "later" ? listLanguageReviewQueue() : Promise.resolve([]),
     getActiveTerm(),
   ]);
+  const queueRows = reviewRows.filter((r) => r.reviewLater === null);
+  const laterRows = reviewRows.filter((r) => r.reviewLater !== null);
 
   const history =
     activeTab === "history"
@@ -145,6 +151,7 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
   async function assessMemberAction(formData: FormData) {
     "use server";
     const actor = await requirePermission("volunteers.verify_spanish");
+    const back = reviewTabOf(formData);
     const personId = String(formData.get("personId") ?? "");
     const language = String(formData.get("language") ?? "");
     const verified = formData.get("verified") === "true";
@@ -163,15 +170,16 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
         ...(score === undefined ? {} : { score }),
       });
     } catch (err) {
-      redirect(tabHref("queue", { error: messageFor(err, "Could not record that assessment.") }));
+      redirect(tabHref(back, { error: messageFor(err, "Could not record that assessment.") }));
     }
     revalidatePath(BASE_PATH);
-    redirect(tabHref("queue", { ok: "Assessment recorded." }));
+    redirect(tabHref(back, { ok: "Assessment recorded." }));
   }
 
   async function assessApplicantAction(formData: FormData) {
     "use server";
     const actor = await requirePermission("volunteers.verify_spanish");
+    const back = reviewTabOf(formData);
     const applicationId = String(formData.get("applicationId") ?? "");
     const language = String(formData.get("language") ?? "");
     const verified = formData.get("verified") === "true";
@@ -185,10 +193,10 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
         score,
       });
     } catch (err) {
-      redirect(tabHref("queue", { error: messageFor(err, "Could not record that assessment.") }));
+      redirect(tabHref(back, { error: messageFor(err, "Could not record that assessment.") }));
     }
     revalidatePath(BASE_PATH);
-    redirect(tabHref("queue", { ok: "Assessment recorded." }));
+    redirect(tabHref(back, { ok: "Assessment recorded." }));
   }
 
   /**
@@ -199,6 +207,7 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
   async function bulkAssessAction(formData: FormData) {
     "use server";
     const actor = await requirePermission("volunteers.verify_spanish");
+    const back = reviewTabOf(formData);
     const verified = formData.get("verified") === "true";
     let flash: { ok: string } | { error: string } = { error: "Could not record those assessments." };
     try {
@@ -208,10 +217,27 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
         verified,
       );
     } catch (err) {
-      redirect(tabHref("queue", { error: messageFor(err, "Could not record those assessments.") }));
+      redirect(tabHref(back, { error: messageFor(err, "Could not record those assessments.") }));
     }
     revalidatePath(BASE_PATH);
-    redirect(tabHref("queue", flash));
+    redirect(tabHref(back, flash));
+  }
+
+  /**
+   * Review later, and back again. Each serves a single row's button and the
+   * bulk bar alike, since both post `entry` fields in the bulk verdict's shape.
+   * A move records nothing about the assessment; see setReviewLater.
+   */
+  async function reviewLaterAction(formData: FormData) {
+    "use server";
+    const actor = await requirePermission("volunteers.verify_spanish");
+    redirect(await moveReviewRows(actor.personId, formData, true));
+  }
+
+  async function backToQueueAction(formData: FormData) {
+    "use server";
+    const actor = await requirePermission("volunteers.verify_spanish");
+    redirect(await moveReviewRows(actor.personId, formData, false));
   }
 
   async function updateHistoryAction(formData: FormData) {
@@ -331,17 +357,22 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
         isActive={(item) => item.href === tabHref(activeTab)}
         items={[
           { label: "Review queue", href: tabHref("queue"), badge: queueRows.length || undefined },
+          { label: "Review later", href: tabHref("later"), badge: laterRows.length || undefined },
           { label: "Assessment history", href: tabHref("history") },
           { label: "Flag cross-check", href: tabHref("crosscheck") },
         ]}
       />
 
-      {activeTab === "queue" && (
+      {/* Keyed on the tab so ticked rows and edited scores do not carry across. */}
+      {(activeTab === "queue" || activeTab === "later") && (
         <QueueTab
-          rows={queueRows}
+          key={activeTab}
+          view={activeTab}
+          rows={activeTab === "queue" ? queueRows : laterRows}
           assessMemberAction={assessMemberAction}
           assessApplicantAction={assessApplicantAction}
           bulkAssessAction={bulkAssessAction}
+          moveAction={activeTab === "queue" ? reviewLaterAction : backToQueueAction}
         />
       )}
 
@@ -684,4 +715,26 @@ function ModifierOptions({ name, defaultValue }: { name: string; defaultValue?: 
 /** The user-facing half of a thrown error, without leaking an internal message. */
 function messageFor(err: unknown, fallback: string): string {
   return err instanceof LanguageValidationError ? err.message : fallback;
+}
+
+/** The review tab a verdict form was posted from, so assessing on Review later stays there. */
+function reviewTabOf(formData: FormData): Tab {
+  return formData.get("returnTab") === "later" ? "later" : "queue";
+}
+
+/**
+ * Run a Review later move and return where to land, flash included. Returned
+ * rather than redirected from inside, because redirect() throws and the catch
+ * here would swallow it.
+ */
+async function moveReviewRows(actorPersonId: string, formData: FormData, later: boolean): Promise<string> {
+  const from: Tab = later ? "queue" : "later";
+  try {
+    const entries = parseBulkAssessmentEntries(formData.getAll("entry"));
+    const moved = await setReviewLater(actorPersonId, entries, later);
+    revalidatePath(BASE_PATH);
+    return tabHref(from, reviewLaterFlash(moved, later));
+  } catch (err) {
+    return tabHref(from, { error: messageFor(err, "Could not move those rows.") });
+  }
 }

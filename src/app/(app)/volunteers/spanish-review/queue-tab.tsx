@@ -8,12 +8,17 @@ import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { EmptyState } from "@/platform/ui/empty-state";
 import { useBulkSelection } from "@/platform/ui/use-bulk-selection";
+import { useTimeZone } from "@/platform/dates/client";
+import { formatDateOnly } from "@/platform/dates/format";
 // Type-only, so the server module is erased at compile time and never bundled.
 import type { LanguageReviewRow } from "@/platform/languages";
 import { SPANISH, formatSpanishScore, spanishScoreTone } from "@/platform/languages/catalog";
 import { ScoreOptions } from "@/platform/ui/score-options";
 
 type Action = (formData: FormData) => Promise<void>;
+
+/** The two tabs this component draws. Both list rows still owed an assessment. */
+export type ReviewView = "queue" | "later";
 
 /**
  * The review queue, over both sources.
@@ -27,18 +32,29 @@ type Action = (formData: FormData) => Promise<void>;
  * Client component so rows can be ticked and assessed together. Each row's own
  * Verify / Not verified form is unchanged; the bulk bar posts one `entry` per
  * ticked row, carrying the same fields that row's form would.
+ *
+ * Draws the Review later tab too. Its rows are the same unassessed rows and are
+ * assessed the same way; only the move differs. The queue sets a row aside to
+ * review later, and Review later moves it back. A move records nothing about
+ * the assessment.
  */
 export function QueueTab({
+  view,
   rows,
   assessMemberAction,
   assessApplicantAction,
   bulkAssessAction,
+  moveAction,
 }: {
+  view: ReviewView;
   rows: LanguageReviewRow[];
   assessMemberAction: Action;
   assessApplicantAction: Action;
   bulkAssessAction: Action;
+  /** Review later from the queue, back to the queue from Review later. Reads `entry` fields. */
+  moveAction: Action;
 }) {
+  const zone = useTimeZone();
   const selection = useBulkSelection({ rows, idOf: (r) => r.id });
 
   // The score each Spanish row's select shows, keyed by row id, only once the
@@ -62,24 +78,42 @@ export function QueueTab({
   return (
     <section>
       <div className="mb-3">
-        <h2 className="text-sm font-semibold text-foreground">Language review queue</h2>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          Everyone awaiting assessment. Applicants come first: their departments assess before
-          accepting, so a verdict here goes straight onto the application. Record a 1-5 proficiency
-          score for Spanish speakers before verifying: departments differ on the score they will
-          staff, so a conversational speaker is useful to someone even when they are below the
-          clinic-wide interpreting bar. The score is internal and is never shown to the volunteer.
-          Anyone with an assessment already on file does not appear.
-        </p>
+        {view === "queue" ? (
+          <>
+            <h2 className="text-sm font-semibold text-foreground">Language review queue</h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Everyone awaiting assessment. Applicants come first: their departments assess before
+              accepting, so a verdict here goes straight onto the application. Record a 1-5
+              proficiency score for Spanish speakers before verifying: departments differ on the
+              score they will staff, so a conversational speaker is useful to someone even when they
+              are below the clinic-wide interpreting bar. The score is internal and is never shown to
+              the volunteer. Anyone with an assessment already on file does not appear. Not ready to
+              assess someone yet? Review later sets them aside without recording anything.
+            </p>
+          </>
+        ) : (
+          <>
+            <h2 className="text-sm font-semibold text-foreground">Review later</h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              People set aside from the queue to come back to. Nothing has been recorded for them, so
+              they are still owed an assessment. Assess them here the same way as in the queue, or
+              move them back to it.
+            </p>
+          </>
+        )}
       </div>
       {rows.length === 0 ? (
-        <EmptyState title="No one is awaiting language review." bordered />
+        <EmptyState
+          title={view === "queue" ? "No one is awaiting language review." : "No one is set aside to review later."}
+          bordered
+        />
       ) : (
         <>
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <form action={bulkAssessAction}>
               {entries}
               <input type="hidden" name="verified" value="true" />
+              <input type="hidden" name="returnTab" value={view} />
               <SubmitButton variant="primary" size="sm" disabled={count === 0} pendingLabel="Saving…">
                 {count === 0 ? "Verify selected" : `Verify ${count} selected`}
               </SubmitButton>
@@ -89,12 +123,19 @@ export function QueueTab({
             <form action={bulkAssessAction}>
               {entries}
               <input type="hidden" name="verified" value="false" />
+              <input type="hidden" name="returnTab" value={view} />
               <ConfirmButton
                 size="sm"
                 disabled={count === 0}
                 label={count === 0 ? "Mark not verified" : `Mark ${count} not verified`}
                 confirmLabel={`Mark ${count} not verified?`}
               />
+            </form>
+            <form action={moveAction}>
+              {entries}
+              <SubmitButton variant="outline" size="sm" disabled={count === 0} pendingLabel="Moving…">
+                {bulkMoveLabel(view, count)}
+              </SubmitButton>
             </form>
             <p className="text-xs text-muted-foreground">
               {count === 0
@@ -112,7 +153,7 @@ export function QueueTab({
                     checked={selection.allSelected}
                     indeterminate={selection.someSelected}
                     onChange={selection.toggleAll}
-                    aria-label="Select everyone in the queue"
+                    aria-label={view === "queue" ? "Select everyone in the queue" : "Select everyone set aside"}
                   />
                   <span className="sr-only">Select</span>
                 </TH>
@@ -143,6 +184,12 @@ export function QueueTab({
                       <span>{r.name}</span>
                       {r.source === "applicant" && <Badge tone="warning">Applicant</Badge>}
                     </div>
+                    {r.reviewLater && (
+                      <div className="mt-0.5 text-xs font-normal text-muted-foreground">
+                        Set aside {formatDateOnly(r.reviewLater.since, zone)}
+                        {r.reviewLater.byName ? ` by ${r.reviewLater.byName}` : ""}
+                      </div>
+                    )}
                   </TD>
                   <TD>
                     <Badge>{r.languageLabel}</Badge>
@@ -166,13 +213,27 @@ export function QueueTab({
                     )}
                   </TD>
                   <TD>
-                    <AssessForm
-                      row={r}
-                      action={r.source === "applicant" ? assessApplicantAction : assessMemberAction}
-                      withScore={r.language === SPANISH}
-                      score={scoreOf(r)}
-                      onScoreChange={(value) => setScores((prev) => ({ ...prev, [r.id]: value }))}
-                    />
+                    <div className="flex flex-wrap items-end gap-2">
+                      <AssessForm
+                        row={r}
+                        action={r.source === "applicant" ? assessApplicantAction : assessMemberAction}
+                        returnTab={view}
+                        withScore={r.language === SPANISH}
+                        score={scoreOf(r)}
+                        onScoreChange={(value) => setScores((prev) => ({ ...prev, [r.id]: value }))}
+                      />
+                      {/* A form of its own rather than a third button in
+                          AssessForm. A second action in one form needs a
+                          formAction on every submit, and Verify / Not verified
+                          carry name/value, which a formAction silently drops
+                          (see SubmitButton). */}
+                      <form action={moveAction}>
+                        <input type="hidden" name="entry" value={bulkEntry(r, scoreOf(r))} />
+                        <SubmitButton variant="ghost" size="sm" pendingLabel="Moving…">
+                          {view === "queue" ? "Review later" : "Back to queue"}
+                        </SubmitButton>
+                      </form>
+                    </div>
                   </TD>
                 </TR>
               ))}
@@ -182,6 +243,12 @@ export function QueueTab({
       )}
     </section>
   );
+}
+
+/** The bulk move button. Distinct from the per-row labels even with nothing ticked. */
+function bulkMoveLabel(view: ReviewView, count: number): string {
+  if (view === "queue") return count === 0 ? "Review selected later" : `Review ${count} later`;
+  return count === 0 ? "Move selected back" : `Move ${count} back to queue`;
 }
 
 /**
@@ -209,12 +276,15 @@ function bulkEntry(row: LanguageReviewRow, score: string): string {
 function AssessForm({
   row,
   action,
+  returnTab,
   withScore,
   score,
   onScoreChange,
 }: {
   row: LanguageReviewRow;
   action: Action;
+  /** Which tab to land back on, so assessing from Review later stays there. */
+  returnTab: ReviewView;
   withScore: boolean;
   score: string;
   onScoreChange: (value: string) => void;
@@ -229,6 +299,7 @@ function AssessForm({
         <input type="hidden" name="personId" value={row.personId ?? ""} />
       )}
       <input type="hidden" name="language" value={row.language} />
+      <input type="hidden" name="returnTab" value={returnTab} />
       {withScore && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <span className="shrink-0">Score:</span>

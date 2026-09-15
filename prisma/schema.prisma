@@ -1921,6 +1921,8 @@ model PersonLanguage {
   updatedAt    DateTime  @updatedAt
   /// Cascade: the claim belongs to the person.
   person       Person    @relation("personLanguages", fields: [personId], references: [id], onDelete: Cascade)
+  /// Set while a reviewer has this claim parked on the Review later tab.
+  reviewLater  LanguageReviewDeferral?
 
   @@unique([personId, language])
   @@index([language])
@@ -1965,6 +1967,37 @@ model ApplicationLanguageAssessment {
 
   @@unique([applicationId, language])
   @@index([language])
+}
+
+/// A reviewer's "review later" on one row of the language review queue.
+///
+/// Parks the row on the queue page's Review later tab WITHOUT recording a
+/// verdict: the person is still owed an assessment, and PersonLanguage.verifiedAt
+/// (member) or the absence of an ApplicationLanguageAssessment (applicant) still
+/// says so. Deleting the row puts them back in the queue, and recording a
+/// verdict deletes it too.
+///
+/// Two shapes, because the queue has two sources and only one of them has a row
+/// to point at. A member deferral points at its PersonLanguage claim. An
+/// applicant deferral names the application and the language, because the
+/// applicant half of the queue is derived and stores nothing until a verdict.
+/// A CHECK in the migration holds each row to exactly one shape.
+model LanguageReviewDeferral {
+  id               String   @id @default(cuid())
+  /// Member rows. Unique: a claim is either set aside or it is not.
+  personLanguageId String?  @unique
+  /// Applicant rows, always together with `language`.
+  applicationId    String?
+  language         String?
+  /// Bare id (no FK), mirroring PersonLanguage.verifiedById.
+  deferredById     String
+  createdAt        DateTime @default(now())
+
+  /// Cascade: the deferral belongs to the queue row it parks.
+  personLanguage PersonLanguage? @relation(fields: [personLanguageId], references: [id], onDelete: Cascade)
+  application    Application?    @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@unique([applicationId, language])
 }
 
 /// One INTP Spanish proficiency assessment, of one person, in one term. Covers
@@ -2747,6 +2780,7 @@ model Application {
   dualRoleInterests      DualRoleInterest[]
   interviews             Interview[]
   languageAssessments    ApplicationLanguageAssessment[]
+  languageReviewLater    LanguageReviewDeferral[]
   committeeScores        CommitteeScore[]
   scoreAssignments       ScoreAssignment[]
   assignedSubcommittee   Subcommittee?      @relation("applicationAssignedSubcommittee", fields: [assignedSubcommitteeId], references: [id], onDelete: SetNull)

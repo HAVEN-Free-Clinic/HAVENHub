@@ -15,6 +15,7 @@
 import { prisma, type TransactionClient } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { LanguageValidationError, SPANISH, isLanguageCode, isSpanishScore, languageLabel } from "./catalog";
+import { clearApplicantReviewLater } from "./review-later";
 
 /** One human verdict on one language, whatever record it came from. */
 export type LanguageVerdict = {
@@ -527,6 +528,7 @@ export async function recordApplicationLanguageAssessment(
       score,
     },
   });
+  await clearApplicantReviewLater(input.applicationId, input.language);
 
   await recordAudit({
     actorPersonId,

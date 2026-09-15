@@ -5,6 +5,7 @@ import { prisma, withDbRetry } from "@/platform/db";
 import { getActivePerson, resolvePersonForLogin } from "./match-person";
 import { can, getEffectivePermissions } from "@/platform/rbac/engine";
 import { getActiveTerm } from "@/platform/terms/active-term";
+import { getAccessTerm } from "@/platform/terms/access-term";
 import { getModule } from "@/platform/modules/registry";
 import { canAccessModule } from "@/platform/modules/access";
 import { isAllowlistedPath } from "./onboarding-allowlist";
@@ -40,15 +41,19 @@ async function enforceOnboarding(personId: string): Promise<void> {
   if (!path || isAllowlistedPath(path)) return;
 
   // Resolve the active term up front (React-cache memoized, so near-free -- the page
-  // and nav already resolve it). No active term means no onboarding requirement, and
-  // nothing to key the cache on.
+  // and nav already resolve it). No active term means no onboarding requirement.
   const activeTerm = await getActiveTerm();
   if (!activeTerm) return;
+  // The term this person is onboarding onto: the live one, or the next one for a new
+  // member added to its roster ahead of the switch (getAccessTerm). The same term
+  // their role grants and getOnboardingStatus resolve, so the gate checks the roster
+  // and the tasks of the term they are actually joining.
+  const term = (await getAccessTerm(personId)) ?? activeTerm;
 
   // Term-scoped cache key: activating a new term implicitly invalidates a person's
   // old-term "cleared" entry, so clearance is re-evaluated for the new term instead
   // of coasting on a stale personId-only entry for up to the cache TTL.
-  const cacheKey = `${activeTerm.id}:${personId}`;
+  const cacheKey = `${term.id}:${personId}`;
 
   // Fast path: a recently-cleared person skips the ~9-query onboarding status.
   if (isGateClearedCached(cacheKey)) return;
@@ -81,7 +86,7 @@ async function enforceOnboarding(personId: string): Promise<void> {
   // allowlisted path -- admitting an (app) path is the trap ONBOARDING_ALLOWLIST
   // documents.
   const onRoster = await prisma.termMembership.findFirst({
-    where: { personId, termId: activeTerm.id, status: "ACTIVE" },
+    where: { personId, termId: term.id, status: "ACTIVE" },
     select: { id: true },
   });
   if (!onRoster) {

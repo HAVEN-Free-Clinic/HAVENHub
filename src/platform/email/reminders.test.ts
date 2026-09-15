@@ -825,3 +825,91 @@ describe("weekly clearance digest", () => {
     expect(digest.html).toContain("Ghost");
   });
 });
+
+// ---------------------------------------------------------------------------
+// New members on the next term's roster, ahead of the switch
+// ---------------------------------------------------------------------------
+
+describe("new members on the next term's roster", () => {
+  async function createNextTerm() {
+    return prisma.term.create({
+      data: {
+        code: "FA26",
+        name: "Fall 2026",
+        startDate: new Date("2026-10-03T00:00:00.000Z"),
+        endDate: new Date("2027-01-01T00:00:00.000Z"),
+        status: "PLANNING",
+      },
+    });
+  }
+  /** Covers Fall's end plus the buffer, so the HIPAA leg stays quiet. */
+  const COVERS_FALL = new Date("2026-05-15T12:00:00.000Z");
+
+  it("reminds a next-term-only member about that term's outstanding items", async () => {
+    await createTerm();
+    const next = await createNextTerm();
+    const dept = await createDepartment("PCAR");
+    const person = await createPerson("Nova", "nova@example.com");
+    await prisma.person.update({ where: { id: person.id }, data: { phone: null } });
+    await addMembership(person.id, next.id, dept.id, "VOLUNTEER");
+    await addCert(person.id, COVERS_FALL);
+    await backdateMemberships(person.id, LONG_AGO);
+
+    const result = await runClearanceReminders(NOW);
+
+    expect(result.onboardingRemindersSent).toBe(1);
+    expect(result.hipaaRemindersSent).toBe(0);
+    expect(await emailLogCount("onboarding-reminder")).toBe(1);
+  });
+
+  it("judges a next-term member's HIPAA certificate against that term's end", async () => {
+    await createTerm();
+    const next = await createNextTerm();
+    const dept = await createDepartment("PCAR");
+    const person = await createPerson("Nova", "nova@example.com");
+    await addMembership(person.id, next.id, dept.id, "VOLUNTEER");
+    // Covers Summer, but not Fall's end plus the buffer.
+    await addCert(person.id, COMPLIANT_COMPLETION);
+    await backdateMemberships(person.id, LONG_AGO);
+
+    const result = await runClearanceReminders(NOW);
+
+    expect(result.hipaaRemindersSent).toBe(1);
+  });
+
+  it("keeps a member on both rosters on the live term, reminded once", async () => {
+    const live = await createTerm();
+    const next = await createNextTerm();
+    const dept = await createDepartment("PCAR");
+    const person = await createPerson("Remy", "remy@example.com");
+    await prisma.person.update({ where: { id: person.id }, data: { phone: null } });
+    await addMembership(person.id, live.id, dept.id, "VOLUNTEER");
+    await addMembership(person.id, next.id, dept.id, "VOLUNTEER");
+    await addCert(person.id, COMPLIANT_COMPLETION);
+    await backdateMemberships(person.id, LONG_AGO);
+
+    const result = await runClearanceReminders(NOW);
+
+    expect(result.onboardingRemindersSent).toBe(1);
+    // Judged against Summer, which this certificate covers.
+    expect(result.hipaaRemindersSent).toBe(0);
+  });
+
+  it("leaves next-term members out of the live term's director digest", async () => {
+    const live = await createTerm();
+    const next = await createNextTerm();
+    const dept = await createDepartment("PCAR");
+    const director = await createPerson("Dana", "dana@example.com");
+    await addMembership(director.id, live.id, dept.id, "DIRECTOR");
+    await addCert(director.id, COMPLIANT_COMPLETION);
+    const person = await createPerson("Nova", "nova@example.com");
+    await prisma.person.update({ where: { id: person.id }, data: { phone: null } });
+    await addMembership(person.id, next.id, dept.id, "VOLUNTEER");
+    await backdateMemberships(person.id, LONG_AGO);
+    await backdateMemberships(director.id, LONG_AGO);
+
+    await runClearanceReminders(NOW);
+
+    expect(await emailLogCount("clearance-digest")).toBe(0);
+  });
+});

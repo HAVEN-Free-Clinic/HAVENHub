@@ -3,6 +3,7 @@ import type { Term } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { getActiveTerm } from "@/platform/terms/active-term";
+import { getAccessTerm } from "@/platform/terms/access-term";
 import { getPersonTerms } from "@/platform/terms/person-terms";
 import { effectiveComplianceStatus } from "@/platform/compliance/rules";
 import { listMyCertificates } from "@/modules/my-info/services/my-info";
@@ -140,22 +141,24 @@ export async function computeOnboardingForTerm(
 }
 
 /**
- * The live-term onboarding gate. Returns a dormant (onboarded:true, cleared:true)
- * status when there is no live term, so the gate never blocks. This drives
- * enforceOnboarding and any hard clearance decision. Next-term work is
- * intentionally excluded here; see getMyOnboarding for the merged, multi-term
- * display.
+ * The onboarding gate, for the term the person is onboarding onto: the live term,
+ * or the next term for a new member added to its roster ahead of the switch
+ * (getAccessTerm). Returns a dormant (onboarded:true, cleared:true) status when
+ * there is no live term, so the gate never blocks. This drives enforceOnboarding
+ * and any hard clearance decision. A returner's next-term work is not folded in
+ * here; see getMyOnboarding for the merged, multi-term display.
  */
 export const getOnboardingStatus = cache(async function getOnboardingStatus(
   personId: string
 ): Promise<OnboardingStatus> {
   const exempt = await can(personId, EXEMPT_PERMISSION);
 
-  const term = await getActiveTerm();
-  if (!term) {
+  const live = await getActiveTerm();
+  if (!live) {
     return { hasActiveTerm: false, exempt, tasks: [], completedCount: 0, totalCount: 0, onboarded: true, cleared: true };
   }
 
+  const term = (await getAccessTerm(personId)) ?? live;
   return computeOnboardingForTerm(personId, term, exempt);
 });
 

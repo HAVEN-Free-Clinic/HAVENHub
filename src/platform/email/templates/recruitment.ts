@@ -254,6 +254,31 @@ export const recruitmentDescriptors: TemplateDescriptor[] = [
       '<p>Congratulations {{ firstName }},</p><p>You\'ve completed your HAVEN onboarding for {{ cycleTitle }}. Here is what happens next:</p><ul><li>{{ signInText }}</li>{{#if training}}<li>{{ training }}</li>{{/if}}{{#if epic}}<li>{{ epic }}</li>{{/if}}<li>{{ review }}</li></ul><p><a href="{{ loginUrl }}">HAVEN Hub sign-in page</a></p>',
   },
   {
+    key: "recruitment.roster_welcome",
+    name: "Recruitment: added to the roster",
+    category: "transactional",
+    group: "recruitment",
+    // Sent by promoteContracts once a recruitment lead adds someone to the roster,
+    // which is the moment they can sign in. isNew and isReturning are both passed
+    // (exactly one is true) so the body uses two plain {{#if}} blocks instead of
+    // nesting. A reactivated alum counts as new: they get the introduction.
+    // signInText is the next-steps module's sign-in sentence for someone who now
+    // has an account. training is empty once the in-person training date passed.
+    variables: [
+      { name: "firstName", label: "First name", sampleValue: "Sam" },
+      { name: "cycleTitle", label: "Cycle title", sampleValue: "Volunteer Fall 2026 Recruitment" },
+      { name: "departmentName", label: "Department name", sampleValue: "Patient Services" },
+      { name: "isNew", label: "New to HAVEN Hub (true or empty)", sampleValue: "true" },
+      { name: "isReturning", label: "Already a HAVEN Hub member (true or empty)", sampleValue: "" },
+      { name: "signInText", label: "How to sign in", sampleValue: "Sign in with your Yale NetID." },
+      { name: "training", label: "In-person training line, empty once the date has passed", sampleValue: "Attend in-person training on Saturday, September 19 in the HAVEN clinic." },
+      { name: "hubUrl", label: "HAVEN Hub URL", sampleValue: "https://hub.havenfreeclinic.com" },
+    ],
+    defaultSubject: "{{#if isReturning}}You are on the {{ cycleTitle }} roster{{else}}Welcome to HAVEN Hub, {{ firstName }}{{/if}}",
+    defaultBody:
+      '{{#if isNew}}<p>Hi {{ firstName }},</p><p>Welcome to HAVEN! You are officially on the {{ cycleTitle }} roster for <strong>{{ departmentName }}</strong>, and your HAVEN Hub account is ready.</p><p><strong>What is HAVEN Hub?</strong> HAVEN Hub is HAVEN Free Clinic\'s volunteer platform. It is where you will see your clinic shifts and request swaps, keep your HIPAA certificate and required trainings up to date, and get updates from HAVEN.</p>{{/if}}{{#if isReturning}}<p>Hi {{ firstName }},</p><p>Welcome back! You are on the {{ cycleTitle }} roster for <strong>{{ departmentName }}</strong>.</p>{{/if}}<p><strong>Sign in:</strong> {{ signInText }}</p><p>Finish these before your first shift.{{#if isNew}} When you sign in, HAVEN Hub walks you through each one.{{/if}}{{#if isReturning}} Your dashboard shows what is left for the new term.{{/if}}</p><ul><li>Confirm your profile and contact details.</li><li>Make sure your HIPAA certificate is on file and valid for the term.</li>{{#if training}}<li>{{ training }}</li>{{/if}}<li>Complete the Yale EHS trainings listed in HAVEN Hub.</li></ul><p><a href="{{ hubUrl }}">Open HAVEN Hub</a></p>',
+  },
+  {
     key: "recruitment.application_received",
     name: "Recruitment: application received",
     category: "transactional",

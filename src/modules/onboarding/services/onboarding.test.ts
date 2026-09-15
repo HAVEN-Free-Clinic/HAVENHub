@@ -88,7 +88,7 @@ it("getMyOnboarding returns one entry per term the member belongs to, live first
   expect(mine[1].term.endDate.getTime()).toBe(next.endDate.getTime());
 });
 
-it("a next-term-only recruit is not gated (live gate empty) but sees next-term onboarding", async () => {
+it("a next-term-only recruit is gated on the next term they are onboarding onto", async () => {
   const { next } = await seed();
   const dept = await prisma.department.findUniqueOrThrow({ where: { code: "SRHD" } });
   // Profile + HIPAA cert are person-level, not term-scoped, so they're satisfied
@@ -101,7 +101,9 @@ it("a next-term-only recruit is not gated (live gate empty) but sees next-term o
   await prisma.termMembership.create({ data: { personId: recruit.id, termId: next.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" } });
 
   const gate = await getOnboardingStatus(recruit.id);
-  expect(gate.onboarded).toBe(true); // no live-term membership -> no live training task -> not blocked
+  // Not on the live roster, so their gate is Fall, whose training is still outstanding.
+  expect(gate.tasks.some((t) => t.key === "training")).toBe(true);
+  expect(gate.onboarded).toBe(false);
 
   const mine = await getMyOnboarding(recruit.id);
   expect(mine.map((m) => m.term.name)).toEqual(["Fall"]);

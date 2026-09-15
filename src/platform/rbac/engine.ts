@@ -1,7 +1,7 @@
 import { cache } from "react";
 import type { Track } from "@prisma/client";
 import { prisma } from "@/platform/db";
-import { getActiveTerm } from "@/platform/terms/active-term";
+import { getAccessTerm } from "@/platform/terms/access-term";
 
 type MembershipRow = { departmentId: string; kind: Track };
 
@@ -66,16 +66,23 @@ const loadAssignmentContext = cache(
   },
 );
 
-/** The active term's id, or null when no term is active. */
-async function activeTermId(): Promise<string | null> {
-  return (await getActiveTerm())?.id ?? null;
+/**
+ * The term a person's term-scoped roles resolve through when the caller names none:
+ * the live term, or the next term for a new member on that roster but not the live
+ * one (see getAccessTerm). This is what gives a member accepted ahead of the term
+ * switch their access from the moment they are added to the roster, while everyone
+ * on the live roster, returners and members who are not coming back included,
+ * resolves exactly as before.
+ */
+async function accessTermId(personId: string): Promise<string | null> {
+  return (await getAccessTerm(personId))?.id ?? null;
 }
 
 /**
  * Union of:
- *  - roles assigned directly to the person (global, or scoped to the active term)
- *  - roles assigned to departments the person actively belongs to in the active term
- *  - roles assigned to the person's active-term membership kinds (DIRECTOR/VOLUNTEER)
+ *  - roles assigned directly to the person (global, or scoped to their access term)
+ *  - roles assigned to departments the person actively belongs to in that term
+ *  - roles assigned to the person's membership kinds in that term (DIRECTOR/VOLUNTEER)
  *
  * Baseline Director/Volunteer access is provisioned as kind-target RoleAssignment
  * rows (see prisma/seed.ts and the backfill migration), NOT auto-attached in code,
@@ -88,7 +95,7 @@ async function activeTermId(): Promise<string | null> {
  */
 export const getEffectivePermissions = cache(
   async (personId: string): Promise<Set<string>> => {
-    const { assignments } = await loadAssignmentContext(personId, await activeTermId());
+    const { assignments } = await loadAssignmentContext(personId, await accessTermId(personId));
 
     const permissions = new Set<string>();
     for (const a of assignments) for (const g of a.role.grants) permissions.add(g.permission);
@@ -103,7 +110,7 @@ export const getEffectivePermissions = cache(
  */
 export const roleIdsForPerson = cache(
   async (personId: string): Promise<string[]> => {
-    const { assignments } = await loadAssignmentContext(personId, await activeTermId());
+    const { assignments } = await loadAssignmentContext(personId, await accessTermId(personId));
     return [...new Set(assignments.map((a) => a.role.id))];
   },
 );
@@ -127,14 +134,14 @@ export const roleIdsForPerson = cache(
  * hasPermission(). Returns [] when there is no term, the person holds no active
  * membership in it, or no assignment grants the permission.
  *
- * `termId` defaults to the ACTIVE term. Pass an explicit term to ask the question
+ * `termId` defaults to the person's access term (accessTermId). Pass an explicit term to ask the question
  * about a non-live term (e.g. a shift request filed against next term).
  */
 export const permissionDepartmentIds = cache(
   async (personId: string, permission: string, termId?: string): Promise<string[]> => {
     const { memberships, assignments } = await loadAssignmentContext(
       personId,
-      termId ?? (await activeTermId()),
+      termId ?? (await accessTermId(personId)),
     );
     if (memberships.length === 0) return [];
 
@@ -190,7 +197,7 @@ export const permissionDepartmentIds = cache(
  */
 export const hasPlatformScope = cache(
   async (personId: string, permission: string, termId?: string): Promise<boolean> => {
-    const { assignments } = await loadAssignmentContext(personId, termId ?? (await activeTermId()));
+    const { assignments } = await loadAssignmentContext(personId, termId ?? (await accessTermId(personId)));
     return assignments.some(
       (a) =>
         a.personId === personId &&

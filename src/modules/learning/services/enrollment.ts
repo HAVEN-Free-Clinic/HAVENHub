@@ -2,6 +2,7 @@ import type { CourseRecurrence } from "@prisma/client";
 import { prisma, runSerializable, type TransactionClient } from "@/platform/db";
 import { log } from "@/platform/logging";
 import { getActiveTerm } from "@/platform/terms/active-term";
+import { getAccessTerm } from "@/platform/terms/access-term";
 import { captureEvent, flushEvents } from "@/platform/posthog/capture";
 import { activeTermGroup } from "@/platform/posthog/groups";
 import { coursesForMember, coursesSatisfiableInTerm, splitByRecurrence, type AssignableCourse, type MemberMembership } from "../engine/assignment";
@@ -10,6 +11,14 @@ import type { ScoEntry } from "../engine/manifest";
 import { LearningAuthError, LearningValidationError } from "./errors";
 
 /** Active term used for assignment (newest ACTIVE term). */
+/** The term a person's course ASSIGNMENT resolves through by default: their access
+ *  term, so a new member added to the next term's roster ahead of the switch sees
+ *  and can open the courses that term assigns them. Where PER_TERM progress is
+ *  recorded is a separate question and stays on the active term (activeTermId). */
+async function assignmentTermId(personId: string): Promise<string | null> {
+  return (await getAccessTerm(personId))?.id ?? null;
+}
+
 async function activeTermId(): Promise<string | null> {
   const term = await getActiveTerm();
   return term?.id ?? null;
@@ -31,7 +40,7 @@ async function memberMemberships(personId: string, termId: string): Promise<Memb
  * "not cleared" banner agree about learning requirements.
  */
 async function assignedCourseIds(personId: string, termIdOverride?: string): Promise<string[]> {
-  const termId = termIdOverride ?? (await activeTermId());
+  const termId = termIdOverride ?? (await assignmentTermId(personId));
   if (!termId) return [];
   const memberships = await memberMemberships(personId, termId);
   const courses = await prisma.course.findMany({
@@ -61,7 +70,7 @@ async function assignedCourseIds(personId: string, termIdOverride?: string): Pro
  * route (one indexed lookup + the memberships query, not a full course scan per request).
  */
 export async function isCourseAssignedTo(personId: string, courseId: string): Promise<boolean> {
-  const termId = await activeTermId();
+  const termId = await assignmentTermId(personId);
   if (!termId) return false;
   const course = await prisma.course.findUnique({
     where: { id: courseId },

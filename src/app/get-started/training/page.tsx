@@ -3,7 +3,7 @@ import { requirePersonSession } from "@/platform/auth/session";
 import { Alert } from "@/platform/ui/alert";
 import { getMyTrainingForTerm } from "@/modules/recruitment/services/training";
 import { makeupOpensOn } from "@/modules/recruitment/services/makeup-window";
-import { getActiveTerm } from "@/platform/terms/active-term";
+import { getAccessTerm } from "@/platform/terms/access-term";
 import { getOnboardingStatus } from "@/modules/onboarding/services/onboarding";
 import { formatDateOnly } from "@/platform/dates";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
@@ -17,9 +17,11 @@ export default async function OnboardingTrainingPage({ searchParams }: { searchP
 
   const sp = await searchParams;
   const track = sp.track === "director" ? "DIRECTOR" : "VOLUNTEER";
-  const liveTerm = await getActiveTerm();
-  if (!liveTerm) redirect("/get-started");
-  const trainings = await getMyTrainingForTerm(person.personId, liveTerm);
+  // The term they are onboarding onto: for a new member added ahead of the switch that
+  // is the next term (getAccessTerm), matching the checklist that sent them here.
+  const onboardingTerm = await getAccessTerm(person.personId);
+  if (!onboardingTerm) redirect("/get-started");
+  const trainings = await getMyTrainingForTerm(person.personId, onboardingTerm);
   const my = trainings.find((m) => m.track === track);
   if (!my || my.state === "COMPLETE") redirect("/get-started");
   const zone = await getDisplayTimeZone();

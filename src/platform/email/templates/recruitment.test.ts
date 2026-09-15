@@ -12,6 +12,7 @@ const KEYS = [
   "recruitment.review_digest",
   "recruitment.onboarding",
   "recruitment.onboarding_confirmation",
+  "recruitment.roster_welcome",
   "recruitment.application_received",
   "recruitment.draft_reminder",
   "recruitment.portal_link",

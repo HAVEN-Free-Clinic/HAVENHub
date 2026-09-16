@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isAcceptanceConflict, joinNames, onboardingAnchor } from "./dual-appointments";
+import { isAcceptanceConflict, joinCodes, joinNames, onboardingAnchor } from "./dual-appointments";
 import { findAcceptanceConflicts } from "./conflicts";
 
 describe("isAcceptanceConflict", () => {
@@ -89,5 +89,26 @@ describe("joinNames", () => {
     expect(joinNames(["Food Pantry", "Quality Improvement"])).toBe("Food Pantry and Quality Improvement");
     expect(joinNames(["A", "B", "C"])).toBe("A, B and C");
     expect(joinNames(["A", "A", ""])).toBe("A");
+  });
+
+  it("drops the joining 'and' when a department name contains one of its own", () => {
+    // "Food Pharmacy and Quality Assurance and Quality Improvement" reads as three.
+    expect(joinNames(["Food Pharmacy", "Quality Assurance and Quality Improvement"])).toBe(
+      "Food Pharmacy, Quality Assurance and Quality Improvement",
+    );
+    expect(joinNames(["Food Pharmacy", "Quality Assurance and Quality Improvement", "Referrals"])).toBe(
+      "Food Pharmacy, Quality Assurance and Quality Improvement, Referrals",
+    );
+    // "Navigation" is not "and": only the whole word counts.
+    expect(joinNames(["Referrals", "Patient Navigation"])).toBe("Referrals and Patient Navigation");
+  });
+});
+
+describe("joinCodes", () => {
+  it("is a terse comma list for a subject line", () => {
+    expect(joinCodes([])).toBe("");
+    expect(joinCodes(["FOOD"])).toBe("FOOD");
+    expect(joinCodes(["FOOD", "QAQI", "REFF"])).toBe("FOOD, QAQI, REFF");
+    expect(joinCodes(["FOOD", "FOOD", ""])).toBe("FOOD");
   });
 });

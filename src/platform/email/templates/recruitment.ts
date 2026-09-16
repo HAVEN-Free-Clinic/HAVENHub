@@ -177,9 +177,17 @@ export const recruitmentDescriptors: TemplateDescriptor[] = [
     variables: [
       { name: "firstName", label: "Applicant first name", sampleValue: "Sam" },
       { name: "cycleTitle", label: "Cycle title", sampleValue: "Volunteer SU26" },
-      { name: "departmentName", label: "Department name", sampleValue: "Student Run Health Department" },
+      { name: "departmentName", label: "Department name(s), written out", sampleValue: "Student Run Health Department" },
+      {
+        // Codes, not names, because a subject line has to stay short and several
+        // department names are a sentence on their own. Someone accepted into
+        // more than one gets "FOOD, QAQI" here and the full names in the body.
+        name: "departmentCodes",
+        label: "Department code(s), for the subject line",
+        sampleValue: "SRHD, QAQI",
+      },
     ],
-    defaultSubject: "You've been accepted to HAVEN: {{ departmentName }}",
+    defaultSubject: "You've been accepted to HAVEN: {{ departmentCodes }}",
     defaultBody:
       "<p>Congratulations {{ firstName }},</p><p>You've been accepted into <strong>{{ departmentName }}</strong> for {{ cycleTitle }}. We'll follow up shortly with onboarding next steps.</p>",
   },

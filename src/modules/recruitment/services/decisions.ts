@@ -3,7 +3,7 @@ import { can } from "@/platform/rbac/engine";
 import { queueEmail } from "@/platform/email/send";
 import { recordAudit } from "@/platform/audit";
 import { findAcceptanceConflicts } from "../engine/conflicts";
-import { joinNames, MAX_APPOINTED_DEPARTMENTS } from "../engine/dual-appointments";
+import { joinCodes, joinNames, MAX_APPOINTED_DEPARTMENTS } from "../engine/dual-appointments";
 import { rosterDecision } from "../engine/decision-summary";
 import { resolveCycleEmail, renderResolvedEmail, type EmailSources } from "../email/render";
 import { RecruitmentAuthError, AcceptanceError } from "./review";
@@ -144,7 +144,9 @@ async function claimAndQueueAcceptanceEmail(input: {
     const email = renderResolvedEmail(input.sources, {
       firstName: input.firstName,
       cycleTitle: input.cycleTitle,
+      // Written out in the body, abbreviated in the subject.
       departmentName: joinNames(claimed.map(input.departmentName)),
+      departmentCodes: joinCodes(claimed),
     });
     await queueEmail(tx, { to: input.to, subject: email.subject, html: email.html, template: "recruitment.acceptance" });
     return true;

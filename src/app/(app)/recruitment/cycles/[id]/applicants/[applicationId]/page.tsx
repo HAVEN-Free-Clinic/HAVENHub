@@ -12,6 +12,7 @@ import { reviewScope, listAcceptances, canViewApplication, recordApplicationView
 import { can } from "@/platform/rbac/engine";
 import { scheduleInterviewAction, committeeScoreAction, routeAction, decideRoutedAction, reopenDecisionAction, rescindAcceptanceAction, reopenWithdrawnAction, excuseApplicantAbsenceAction, clearApplicantExcuseAction, assessApplicantLanguageAction, requestDualAppointmentFromApplicantAction, decideDualAppointmentFromApplicantAction } from "../actions";
 import { listDualAppointments, type DualAppointmentRow } from "@/modules/recruitment/services/dual-appointments";
+import { MAX_APPOINTED_DEPARTMENTS } from "@/modules/recruitment/engine/dual-appointments";
 import { getApplicantAbsenceExcuse } from "@/modules/recruitment/services/training";
 import { languagesToAssessBeforeAcceptance, priorLanguageVerdicts } from "@/platform/languages";
 import { nextDualFallback } from "@/platform/dual-roles/catalog";
@@ -188,18 +189,23 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
     app.cycle.track === "VOLUNTEER" && (scope.all || scope.departmentCodes.length > 0)
       ? await listDualAppointments({ cycleId: id, applicationId }, person.personId)
       : [];
-  const dualInPlay = dualRows.some((r) => r.status === "PENDING" || r.status === "APPROVED");
+  // Departments already in play for them, and whether that plus the routed one
+  // has reached the cap. Below the cap another department may still ask.
+  const dualInPlayCodes = dualRows
+    .filter((r) => r.status === "PENDING" || r.status === "APPROVED")
+    .map((r) => r.departmentCode);
+  const dualAtCap = (app.routedDepartmentCode ? 1 : 0) + dualInPlayCodes.length >= MAX_APPOINTED_DEPARTMENTS;
   // Where this viewer could put them as a second department: any active
   // department for a manager, their own for a director, never the routed one.
   const dualChoices =
-    app.cycle.track === "VOLUNTEER" && app.status === "SUBMITTED" && !dualInPlay && (scope.all || scope.departmentCodes.length > 0)
+    app.cycle.track === "VOLUNTEER" && app.status === "SUBMITTED" && !dualAtCap && (scope.all || scope.departmentCodes.length > 0)
       ? (
           await prisma.department.findMany({
             where: scope.all ? { isActive: true } : { isActive: true, code: { in: scope.departmentCodes } },
             select: { code: true, name: true },
             orderBy: { name: "asc" },
           })
-        ).filter((d) => d.code !== app.routedDepartmentCode)
+        ).filter((d) => d.code !== app.routedDepartmentCode && !dualInPlayCodes.includes(d.code))
       : [];
   const scheduleChoices = choices.filter((d) => !interviewedDepts.has(d));
   const answers = (app.answers ?? {}) as Record<string, unknown>;

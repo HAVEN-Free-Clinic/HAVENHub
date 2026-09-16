@@ -10,6 +10,7 @@ import {
   type DualAppointmentRow,
 } from "@/modules/recruitment/services/dual-appointments";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
+import { MAX_APPOINTED_DEPARTMENTS } from "@/modules/recruitment/engine/dual-appointments";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { formatDateOnly } from "@/platform/dates";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
@@ -259,7 +260,7 @@ export default async function DualAppointmentsPage({ params }: { params: Promise
           <SectionHeader>{isManager ? "Add a dual appointment" : "Ask for a volunteer"}</SectionHeader>
           <p className="text-sm text-muted-foreground">
             {isManager
-              ? "Approved as soon as you add it. They must hold an active application in this cycle, and a volunteer can serve in two departments at most."
+              ? `Approved as soon as you add it. They must hold an active application in this cycle, and a volunteer can serve in ${MAX_APPOINTED_DEPARTMENTS} departments at most.`
               : "For someone who is not listed above. Enter the email or NetID they applied with."}
           </p>
           <form action={request} className="space-y-4">

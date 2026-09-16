@@ -36,6 +36,9 @@ async function seed() {
   const food = await prisma.department.create({ data: { code: "FOOD", name: "Food Pantry" } });
   const qaqi = await prisma.department.create({ data: { code: "QAQI", name: "Quality Improvement" } });
   const jctp = await prisma.department.create({ data: { code: "JCTP", name: "Junior Clinicians" } });
+  // A fourth department, for the cap: it is deliberately NOT one of the cycle's
+  // own, because a second department need not be recruiting this cycle.
+  const intp = await prisma.department.create({ data: { code: "INTP", name: "Interpreting" } });
   const manager = await prisma.person.create({ data: { name: "Morgan Manager", contactEmail: "manager@yale.edu", status: "ACTIVE" } });
   const role = await prisma.role.create({
     data: { name: "Volunteer Operations Manager", grants: { create: [{ permission: "recruitment.review_all" }] } },
@@ -63,7 +66,7 @@ async function seed() {
     },
   });
   await prisma.acceptance.create({ data: { applicationId: app.id, departmentCode: "FOOD", approvedById: manager.id } });
-  return { term, food, qaqi, jctp, manager, director, cycle, applicant, app };
+  return { term, food, qaqi, jctp, intp, manager, director, cycle, applicant, app };
 }
 
 const acceptedCodes = async (applicationId: string) =>
@@ -111,13 +114,19 @@ describe("requests and approvals", () => {
     await expect(approveDualAppointment(s.director.id, req.id)).rejects.toThrow(RecruitmentAuthError);
   });
 
-  it("a manager's add is approved at once, and a volunteer serves in two departments at most", async () => {
+  it("a manager's add is approved at once, and a volunteer serves in three departments at most", async () => {
     const s = await seed();
     const added = await requestDualAppointment(s.manager.id, { applicationId: s.app.id, departmentCode: "QAQI" });
     expect(added.status).toBe("APPROVED");
+    // FOOD (routed) + QAQI + JCTP is the cap, and none of it is a conflict.
+    const third = await requestDualAppointment(s.manager.id, { applicationId: s.app.id, departmentCode: "JCTP" });
+    expect(third.status).toBe("APPROVED");
+    expect(await acceptedCodes(s.app.id)).toEqual(["FOOD", "JCTP", "QAQI"]);
+    expect(await listConflicts(s.cycle.id)).toEqual([]);
+    // A fourth is one too many.
     await expect(
-      requestDualAppointment(s.manager.id, { applicationId: s.app.id, departmentCode: "JCTP" }),
-    ).rejects.toThrow(/two departments at most/);
+      requestDualAppointment(s.manager.id, { applicationId: s.app.id, departmentCode: "INTP" }),
+    ).rejects.toThrow(/3 departments at most/);
     await expect(
       requestDualAppointment(s.manager.id, { applicationId: s.app.id, departmentCode: "FOOD" }),
     ).rejects.toThrow(/already routed/);
@@ -131,17 +140,28 @@ describe("requests and approvals", () => {
     ).rejects.toThrow(/volunteer cycles/);
   });
 
-  it("the database refuses a second dual appointment in play on one application", async () => {
+  it("a cancelled dual appointment frees its slot", async () => {
     const s = await seed();
-    await prisma.dualAppointment.create({ data: { applicationId: s.app.id, departmentCode: "QAQI", requestedById: s.manager.id } });
+    await requestDualAppointment(s.manager.id, { applicationId: s.app.id, departmentCode: "QAQI" });
+    const second = await requestDualAppointment(s.manager.id, { applicationId: s.app.id, departmentCode: "JCTP" });
     await expect(
-      prisma.dualAppointment.create({ data: { applicationId: s.app.id, departmentCode: "JCTP", requestedById: s.manager.id } }),
-    ).rejects.toThrow();
-    // A declined request no longer holds the slot.
-    await prisma.dualAppointment.updateMany({ where: { applicationId: s.app.id, departmentCode: "QAQI" }, data: { status: "DECLINED" } });
+      requestDualAppointment(s.manager.id, { applicationId: s.app.id, departmentCode: "INTP" }),
+    ).rejects.toThrow(/departments at most/);
+
+    await cancelDualAppointment(s.manager.id, second.id, "Not this term after all");
+
+    const replacement = await requestDualAppointment(s.manager.id, { applicationId: s.app.id, departmentCode: "INTP" });
+    expect(replacement.status).toBe("APPROVED");
+    expect(await acceptedCodes(s.app.id)).toEqual(["FOOD", "INTP", "QAQI"]);
+  });
+
+  it("counts a pending request against the cap, so two directors cannot both be waiting on a third slot", async () => {
+    const s = await seed();
+    await requestDualAppointment(s.director.id, { applicationId: s.app.id, departmentCode: "QAQI", reason: "Keep" });
+    await requestDualAppointment(s.manager.id, { applicationId: s.app.id, departmentCode: "JCTP" });
     await expect(
-      prisma.dualAppointment.create({ data: { applicationId: s.app.id, departmentCode: "JCTP", requestedById: s.manager.id } }),
-    ).resolves.toBeTruthy();
+      requestDualAppointment(s.manager.id, { applicationId: s.app.id, departmentCode: "INTP" }),
+    ).rejects.toThrow(/3 departments at most/);
   });
 
   it("a declined request can be asked again, and the asking director can withdraw it", async () => {

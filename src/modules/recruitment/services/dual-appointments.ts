@@ -1,5 +1,5 @@
 import { Prisma, type DualAppointmentStatus } from "@prisma/client";
-import { prisma } from "@/platform/db";
+import { prisma, type TransactionClient } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { peopleWithPermission } from "@/platform/rbac/permission-holders";
 import { recordAudit } from "@/platform/audit";
@@ -11,7 +11,7 @@ import { firstNameOf, comparePersonName } from "@/platform/person-name";
 import { addMembership } from "@/platform/memberships/add";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { adoptIncomingShiftsTx, applicationAvailabilityDates } from "@/platform/recruitment/incoming-roster";
-import { ACTIVE_DUAL_APPOINTMENT_STATUSES, isAcceptanceConflict } from "../engine/dual-appointments";
+import { ACTIVE_DUAL_APPOINTMENT_STATUSES, MAX_APPOINTED_DEPARTMENTS, isAcceptanceConflict } from "../engine/dual-appointments";
 import { canViewApplication, reviewScope, RecruitmentAuthError } from "./review";
 
 /**
@@ -124,27 +124,63 @@ function assertAppointable(app: DualApplication | null | undefined): asserts app
 }
 
 /**
- * Refuse when this dual appointment would put the person in more than two
- * departments: another request or approval already holds the slot, or two
- * departments already accepted them without one.
+ * Refuse when this dual appointment would put the person in more departments
+ * than the cap allows, or when two departments accepted them with no dual
+ * appointment behind it.
+ *
+ * "In play" counts what the application is routed to, every department that has
+ * accepted it, and every dual appointment still standing (pending or approved),
+ * plus the one being asked for. `ignoreId` leaves out the row being decided, so
+ * approving a request does not count it twice.
  */
 function assertRoomFor(app: DualApplication, departmentCode: string, ignoreId?: string): void {
-  const other = app.dualAppointments.find(
-    (d) => d.id !== ignoreId && d.departmentCode !== departmentCode && ACTIVE.includes(d.status),
-  );
-  if (other) {
+  const others = app.dualAppointments
+    .filter((d) => d.id !== ignoreId && d.departmentCode !== departmentCode && ACTIVE.includes(d.status))
+    .map((d) => d.departmentCode);
+  const accepted = [...new Set(app.acceptances.map((a) => a.departmentCode))];
+  const inPlay = new Set<string>([
+    ...(app.routedDepartmentCode ? [app.routedDepartmentCode] : []),
+    ...accepted,
+    ...others,
+    departmentCode,
+  ]);
+  if (inPlay.size > MAX_APPOINTED_DEPARTMENTS) {
+    const already = [...inPlay].filter((c) => c !== departmentCode).sort().join(", ");
     throw new DualAppointmentError(
-      other.status === "PENDING"
-        ? `A dual appointment request for ${other.departmentCode} is already waiting. A volunteer can serve in two departments at most.`
-        : `They already have a dual appointment with ${other.departmentCode}. A volunteer can serve in two departments at most.`,
+      `That would put them in ${inPlay.size} departments (${already}, and ${departmentCode}). A volunteer can serve in ${MAX_APPOINTED_DEPARTMENTS} departments at most.`,
     );
   }
-  const accepted = [...new Set(app.acceptances.map((a) => a.departmentCode))];
-  if (isAcceptanceConflict([...accepted, departmentCode], [departmentCode])) {
+  // Every dual appointment in play counts as approved here: the question this
+  // asks is whether TWO departments accepted them with nothing agreed behind it.
+  if (isAcceptanceConflict([...accepted, departmentCode], [...others, departmentCode])) {
     throw new DualAppointmentError(
       `They are already accepted by ${accepted.filter((c) => c !== departmentCode).join(" and ")}. Resolve that on the Decisions page first.`,
     );
   }
+}
+
+/**
+ * Serialize everything that adds a department to one application.
+ *
+ * The cap is "at most N departments", which no unique index can express, so the
+ * Application row is what two callers contend on instead. Without this lock two
+ * concurrent requests could each read one department in play and each write the
+ * one that tips it over. Re-reads the dual appointments inside the lock and
+ * re-runs the cap check against them, because the caller's copy was read before
+ * the transaction began.
+ */
+async function lockAndRecheck(
+  tx: TransactionClient,
+  app: DualApplication,
+  departmentCode: string,
+  ignoreId?: string,
+): Promise<void> {
+  await tx.$queryRaw`SELECT id FROM "Application" WHERE id = ${app.id} FOR UPDATE`;
+  const live = await tx.dualAppointment.findMany({
+    where: { applicationId: app.id, status: { in: ACTIVE } },
+    select: { id: true, departmentCode: true, status: true },
+  });
+  assertRoomFor({ ...app, dualAppointments: live }, departmentCode, ignoreId);
 }
 
 async function activeDepartment(code: string): Promise<{ id: string; code: string; name: string }> {
@@ -234,11 +270,15 @@ export async function requestDualAppointment(
   let id: string;
   try {
     id = await prisma.$transaction(async (tx) => {
+      await lockAndRecheck(tx, app, departmentCode);
       // A declined or cancelled row for this department is reused: the pair is
-      // unique, and its history lives in the audit log.
-      const row = existing
-        ? await tx.dualAppointment.update({ where: { id: existing.id }, data })
-        : await tx.dualAppointment.create({ data: { ...data, applicationId: app.id, departmentCode } });
+      // unique, and its history lives in the audit log. Upserted on that pair so
+      // a concurrent request for the SAME department cannot raise a duplicate.
+      const row = await tx.dualAppointment.upsert({
+        where: { applicationId_departmentCode: { applicationId: app.id, departmentCode } },
+        update: data,
+        create: { ...data, applicationId: app.id, departmentCode },
+      });
       if (isManager) {
         await tx.acceptance.createMany({
           data: [{ applicationId: app.id, departmentCode, approvedById: actorId, notes: DUAL_APPOINTMENT_ACCEPTANCE_NOTE }],
@@ -248,10 +288,10 @@ export async function requestDualAppointment(
       return row.id;
     });
   } catch (err) {
-    // DualAppointment_one_active_per_application: a concurrent request for a
-    // different department got there first.
+    // Defensive: the upsert above closes the ordinary race on the unique
+    // (applicationId, departmentCode) pair, so this only fires if one slips past.
     if (isUniqueViolation(err)) {
-      throw new DualAppointmentError("Someone just made a dual appointment for this volunteer. Refresh and try again.");
+      throw new DualAppointmentError(`A dual appointment for ${departmentCode} was just created. Refresh and try again.`);
     }
     throw err;
   }
@@ -299,6 +339,9 @@ export async function approveDualAppointment(
   const decisionNote = trimmed(note);
 
   await prisma.$transaction(async (tx) => {
+    // Approving adds a department, so it takes the same lock as a request: two
+    // approvals racing could otherwise both pass the check taken above.
+    await lockAndRecheck(tx, app, row.departmentCode, row.id);
     const claimed = await tx.dualAppointment.updateMany({
       where: { id: row.id, status: "PENDING" },
       data: { status: "APPROVED", decidedById: actorId, decidedAt: new Date(), decisionNote },
@@ -780,10 +823,13 @@ export async function listDualAppointmentSuggestions(
   for (const app of apps) {
     const personId = app.applicant.applicantPersonId;
     if (!personId) continue;
-    // One dual appointment per application, so one already in play rules them out.
-    if (app.dualAppointments.some((d) => ACTIVE.includes(d.status))) continue;
+    // Rules them out only once the cap is reached: below it another department
+    // may still ask. A department already in play is skipped per code below.
+    const inPlay = app.dualAppointments.filter((d) => ACTIVE.includes(d.status)).map((d) => d.departmentCode);
+    if ((app.routedDepartmentCode ? 1 : 0) + inPlay.length >= MAX_APPOINTED_DEPARTMENTS) continue;
     for (const code of servingIn.get(personId) ?? []) {
       if (app.routedDepartmentCode === code) continue;
+      if (inPlay.includes(code)) continue;
       // Still unrouted but they chose this department: routing will likely send
       // them here anyway, so it is not a second department yet.
       if (!app.routedDepartmentCode && app.departmentChoices.includes(code)) continue;

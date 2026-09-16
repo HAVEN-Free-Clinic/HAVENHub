@@ -16,18 +16,25 @@ export type DualAppointmentStatus = "PENDING" | "APPROVED" | "DECLINED" | "CANCE
 /** The statuses that hold an application's one dual-appointment slot. */
 export const ACTIVE_DUAL_APPOINTMENT_STATUSES: readonly DualAppointmentStatus[] = ["PENDING", "APPROVED"];
 
-/** Most departments one person can be accepted into through one application. */
-export const MAX_APPOINTED_DEPARTMENTS = 2;
+/**
+ * Most departments one person can be accepted into through one application: the
+ * department they were routed to, plus up to two dual appointments.
+ *
+ * The cap is a judgement about how thin a volunteer can spread, not a structural
+ * limit, so it lives here as one constant. Raising it needs nothing else; the
+ * rules below and every caller are written against it.
+ */
+export const MAX_APPOINTED_DEPARTMENTS = 3;
 
 /**
  * Whether an application's acceptances are a conflict, given the departments
  * approved as its dual appointment.
  *
  * A conflict is more than one accepted department that is NOT an approved dual
- * appointment, or more departments than a dual appointment allows at all. So a
- * routed department plus its approved second department is fine, an approved
- * second department on its own is simply an acceptance, and two departments
- * with no approval are the conflict they always were.
+ * appointment, or more departments than the cap allows at all. So a routed
+ * department plus its approved dual appointments is fine, an approved dual
+ * appointment on its own is simply an acceptance, and two departments with no
+ * approval are the conflict they always were.
  */
 export function isAcceptanceConflict(
   acceptedDepartmentCodes: readonly string[],

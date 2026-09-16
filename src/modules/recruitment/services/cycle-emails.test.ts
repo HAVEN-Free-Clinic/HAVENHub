@@ -42,7 +42,7 @@ it("getCycleEmailForEdit returns the effective default when unset", async () => 
   const cycle = await makeCycle(mgr.id);
   const e = await getCycleEmailForEdit(cycle.id, "recruitment.acceptance");
   expect(e.hasOverride).toBe(false);
-  expect(e.subject).toBe("You've been accepted to HAVEN: {{ departmentName }}");
+  expect(e.subject).toBe("You've been accepted to HAVEN: {{ departmentCodes }}");
   expect(e.variables.map((v) => v.name)).toContain("departmentName");
   expect(e.layoutSource).toContain("{{{ body }}}");
 });

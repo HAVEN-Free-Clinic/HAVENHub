@@ -66,9 +66,27 @@ export function onboardingAnchor<T extends { departmentCode: string; hasContract
   return acceptances.find((a) => !approved.has(a.departmentCode)) ?? acceptances[0];
 }
 
-/** "A", "A and B", "A, B and C": department names as a sentence reads them. */
+/**
+ * Department names as a sentence reads them: "A", "A and B", "A, B and C".
+ *
+ * Except when a name contains "and" itself, which many do -- Quality Assurance
+ * and Quality Improvement, Medical Debt and Insurance Counseling, Sexual and
+ * Reproductive Health. "Food Pharmacy and Quality Assurance and Quality
+ * Improvement" reads as three departments, so a list holding any such name is
+ * separated by commas alone, where the reader can at least see the boundaries.
+ */
 export function joinNames(names: readonly string[]): string {
   const unique = [...new Set(names.filter((n) => n.trim() !== ""))];
   if (unique.length <= 1) return unique[0] ?? "";
+  if (unique.some((n) => /\band\b/i.test(n))) return unique.join(", ");
   return `${unique.slice(0, -1).join(", ")} and ${unique[unique.length - 1]}`;
+}
+
+/**
+ * The same list for a subject line, which wants to stay short: the department
+ * CODES, comma separated. Codes never contain "and", so they need none of the
+ * care above.
+ */
+export function joinCodes(codes: readonly string[]): string {
+  return [...new Set(codes.filter((c) => c.trim() !== ""))].join(", ");
 }

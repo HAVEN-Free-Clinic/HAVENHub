@@ -219,7 +219,54 @@ describe("decisions", () => {
     const emails = await prisma.emailLog.findMany({ where: { template: "recruitment.acceptance" } });
     expect(emails).toHaveLength(1);
     expect(emails[0].html).toContain("Food Pantry and Quality Improvement");
+    expect(emails[0].subject).toContain("FOOD, QAQI");
     expect(await prisma.acceptance.count({ where: { applicationId: s.app.id, emailedAt: null } })).toBe(0);
+  });
+
+  it("three departments: one acceptance email naming all three, one contract, three rosters", async () => {
+    const s = await seed();
+    await requestDualAppointment(s.manager.id, { applicationId: s.app.id, departmentCode: "QAQI" });
+    await requestDualAppointment(s.manager.id, { applicationId: s.app.id, departmentCode: "JCTP" });
+    // The real QAQI is "Quality Assurance and Quality Improvement": a department
+    // name with "and" inside it, which is what the comma fallback exists for.
+    await prisma.department.update({
+      where: { id: s.qaqi.id },
+      data: { name: "Quality Assurance and Quality Improvement" },
+    });
+    expect(await acceptedCodes(s.app.id)).toEqual(["FOOD", "JCTP", "QAQI"]);
+    expect(await listConflicts(s.cycle.id)).toEqual([]);
+
+    // Release: ONE email, naming every department that accepted them.
+    expect(await releaseDecisions(s.cycle.id, s.manager.id)).toEqual({ sent: 1, skippedConflicted: 0 });
+    const emails = await prisma.emailLog.findMany({ where: { template: "recruitment.acceptance" } });
+    expect(emails).toHaveLength(1);
+    // Written out in the body, and separated by commas alone: "Food Pantry and
+    // Quality Assurance and Quality Improvement" would read as two more departments.
+    expect(emails[0].html).toContain("Food Pantry, Quality Assurance and Quality Improvement, Junior Clinicians");
+    // Abbreviated in the subject, in the order the acceptances were claimed.
+    expect(emails[0].subject).toContain("FOOD, QAQI, JCTP");
+    expect(await prisma.acceptance.count({ where: { applicationId: s.app.id, emailedAt: null } })).toBe(0);
+
+    // Onboarding: the two dual appointments ride on the routed department's form.
+    const rows = await listOnboardingRows(s.cycle.id);
+    expect(rows.filter((r) => r.state === "DUAL").map((r) => r.departmentCode).sort()).toEqual(["JCTP", "QAQI"]);
+    const anchor = rows.find((r) => r.state !== "DUAL")!;
+    expect(anchor.departmentCode).toBe("FOOD");
+
+    const contract = await createOrResendContract(anchor.acceptanceId, s.manager.id, "https://hub.test");
+    await prisma.onboardingContract.update({ where: { id: contract.id }, data: { status: "SUBMITTED", submittedAt: new Date() } });
+    expect(await promoteContracts([contract.id], s.manager.id)).toMatchObject({ failed: 0, skipped: 0 });
+
+    const person = await prisma.person.findFirstOrThrow({ where: { contactEmail: "adrienne@yale.edu" } });
+    const memberships = await prisma.termMembership.findMany({
+      where: { personId: person.id, termId: s.term.id, status: "ACTIVE" },
+      select: { department: { select: { code: true } } },
+    });
+    expect(memberships.map((m) => m.department.code).sort()).toEqual(["FOOD", "JCTP", "QAQI"]);
+    const welcome = await prisma.emailLog.findFirstOrThrow({ where: { template: "recruitment.roster_welcome" } });
+    for (const name of ["Food Pantry", "Quality Assurance and Quality Improvement", "Junior Clinicians"]) {
+      expect(welcome.html).toContain(name);
+    }
   });
 
   it("rejecting the routed decision leaves the dual appointment's acceptance standing", async () => {

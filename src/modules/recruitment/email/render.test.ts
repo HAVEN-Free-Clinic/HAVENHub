@@ -18,8 +18,11 @@ afterEach(async () => { await resetDb(); });
 
 it("renders the descriptor default wrapped in the layout when there is no override", async () => {
   const cycle = await makeCycle();
-  const { subject, html } = await renderCycleEmail(cycle.id, "recruitment.acceptance", { firstName: "Ann", cycleTitle: "V", departmentName: "SRHD" });
+  // The sender supplies both halves: codes for the subject, written-out names
+  // for the body (services/decisions.ts).
+  const { subject, html } = await renderCycleEmail(cycle.id, "recruitment.acceptance", { firstName: "Ann", cycleTitle: "V", departmentName: "Sexual and Reproductive Health", departmentCodes: "SRHD" });
   expect(subject).toBe("You've been accepted to HAVEN: SRHD");
+  expect(html).toContain("Sexual and Reproductive Health");
   expect(html).toContain("Congratulations Ann,");
   expect(html).toContain("<!DOCTYPE html>"); // layout wrapper applied
 });

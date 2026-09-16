@@ -3,7 +3,7 @@ import { can } from "@/platform/rbac/engine";
 import { queueEmail } from "@/platform/email/send";
 import { recordAudit } from "@/platform/audit";
 import { findAcceptanceConflicts } from "../engine/conflicts";
-import { joinNames } from "../engine/dual-appointments";
+import { joinNames, MAX_APPOINTED_DEPARTMENTS } from "../engine/dual-appointments";
 import { rosterDecision } from "../engine/decision-summary";
 import { resolveCycleEmail, renderResolvedEmail, type EmailSources } from "../email/render";
 import { RecruitmentAuthError, AcceptanceError } from "./review";
@@ -16,8 +16,9 @@ export type Conflict = {
   departments: string[];
   /** Where the application is routed, when it is routed at all. */
   routedDepartmentCode: string | null;
-  /** A volunteer application accepted by exactly two departments can be settled
-   *  by approving one of them as a dual appointment instead of revoking it. */
+  /** A volunteer application accepted by no more departments than the cap allows
+   *  can be settled by approving the extra ones as dual appointments instead of
+   *  revoking them. */
   canBecomeDualAppointment: boolean;
 };
 
@@ -60,7 +61,7 @@ export async function listConflicts(cycleId: string): Promise<Conflict[]> {
   }
   return [...byApp.values()].map((c) => ({
     ...c,
-    canBecomeDualAppointment: c.canBecomeDualAppointment && new Set(c.departments).size === 2,
+    canBecomeDualAppointment: c.canBecomeDualAppointment && new Set(c.departments).size <= MAX_APPOINTED_DEPARTMENTS,
   }));
 }
 

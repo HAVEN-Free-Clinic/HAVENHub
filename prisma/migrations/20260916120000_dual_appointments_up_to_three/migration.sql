@@ -1,0 +1,21 @@
+-- A volunteer may hold more than one dual appointment (three departments in
+-- total, counting the one their application was routed to).
+--
+-- The dropped index enforced exactly ONE pending-or-approved dual appointment
+-- per application, which is the rule being relaxed. A partial unique index
+-- cannot express "at most two", so the cap now lives in the service
+-- (MAX_APPOINTED_DEPARTMENTS), which re-checks it inside a transaction that
+-- locks the Application row -- the row lock, not a unique violation, is what
+-- makes two concurrent requests serialize.
+-- rolling-deploy: this drops a backstop, not a behaviour the old code depends on.
+-- The index enforced one pending-or-approved dual appointment per application,
+-- and the OLD service refuses a second one in `assertRoomFor` before it ever
+-- reaches the database -- so during the window between `prisma migrate deploy`
+-- and `next build` promoting the new code, an old instance still cannot create
+-- an over-cap row. Once the new code is live, `lockAndRecheck` enforces the cap
+-- under a FOR UPDATE lock on the Application row.
+--
+-- Roll forward, do not roll back, once a volunteer holds a second dual
+-- appointment: the old code tolerates the missing index, but the index cannot be
+-- recreated while a row that violates it exists.
+DROP INDEX IF EXISTS "DualAppointment_one_active_per_application";

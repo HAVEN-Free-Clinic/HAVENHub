@@ -24,8 +24,16 @@ describe("isAcceptanceConflict", () => {
     expect(isAcceptanceConflict(["FOOD", "QAQI"], ["JCTP"])).toBe(true);
   });
 
-  it("three departments conflict even when two are approved", () => {
-    expect(isAcceptanceConflict(["FOOD", "QAQI", "JCTP"], ["QAQI", "JCTP"])).toBe(true);
+  it("allows three departments when the two extra ones are approved", () => {
+    expect(isAcceptanceConflict(["FOOD", "QAQI", "JCTP"], ["QAQI", "JCTP"])).toBe(false);
+  });
+
+  it("still refuses a third department that was never approved", () => {
+    expect(isAcceptanceConflict(["FOOD", "QAQI", "JCTP"], ["QAQI"])).toBe(true);
+  });
+
+  it("refuses a fourth department however many are approved", () => {
+    expect(isAcceptanceConflict(["FOOD", "QAQI", "JCTP", "INTP"], ["QAQI", "JCTP", "INTP"])).toBe(true);
   });
 });
 

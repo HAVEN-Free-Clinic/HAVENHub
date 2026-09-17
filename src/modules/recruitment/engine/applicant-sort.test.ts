@@ -158,3 +158,29 @@ it("uses the column's default direction when a new column is clicked", () => {
   expect(nextSortDirection(null, "name")).toBe("asc");
   expect(DEFAULT_SORT_DIRECTION.score).toBe("desc");
 });
+
+/**
+ * The Language column, which only a cycle in the assess-before-accepting lane
+ * has. A row with no score must not read as a zero: an applicant nobody has
+ * assessed yet is not worse than one assessed at 1.
+ */
+it("sorts by language score, sinking the unassessed in both directions", () => {
+  const rows = [
+    { ...named("Unassessed"), languageScore: null },
+    { ...named("Low"), languageScore: 2 },
+    { ...named("High"), languageScore: 4.5 },
+  ];
+  expect(lastNames(sortApplicants(rows, { key: "language", dir: "desc" }))).toEqual(["High", "Low", "Unassessed"]);
+  expect(lastNames(sortApplicants(rows, { key: "language", dir: "asc" }))).toEqual(["Low", "High", "Unassessed"]);
+});
+
+it("treats a roster with no language column at all as unscored", () => {
+  const rows = [named("Beta"), named("Alpha")];
+  // No languageScore on any row: the comparator must not throw or reorder.
+  expect(lastNames(sortApplicants(rows, { key: "language", dir: "desc" }))).toEqual(["Beta", "Alpha"]);
+});
+
+it("opens the language column descending, like Committee avg", () => {
+  expect(DEFAULT_SORT_DIRECTION.language).toBe("desc");
+  expect(parseApplicantSort("language", "asc")).toEqual({ key: "language", dir: "asc" });
+});

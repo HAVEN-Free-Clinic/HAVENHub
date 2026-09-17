@@ -204,3 +204,53 @@ export async function clearExcuseAction(cycleId: string, personId: string) {
   }
   redirect(bounce(cycleId, { saved: "excuse-cleared" }));
 }
+
+/**
+ * The same button on the row of somebody held for a language evaluation.
+ *
+ * They have neither a Person nor an Acceptance, so neither of the two targets
+ * above can name them; their address is the handle, and what gets written is the
+ * same linkable walk-up row the door writes.
+ *
+ * `confirmed` is set by construction. An unconfirmed walk-up whose address the
+ * cycle never accepted comes back as CheckInConfirmationRequired -- the door's
+ * "is this person meant to be here?" question -- and these people are not on the
+ * accepted list precisely because the clinic has not decided them yet. The
+ * roster putting them in front of the lead IS the answer to that question, so
+ * asking it again here would be a dead end rather than a safeguard.
+ */
+export async function recordExpectedAttendanceAction(cycleId: string, applicantId: string) {
+  const person = await requirePersonSession();
+  try {
+    const applicant = await prisma.applicant.findUniqueOrThrow({
+      where: { id: applicantId },
+      select: { firstName: true, lastName: true, email: true, cycleId: true },
+    });
+    // The id came from this cycle's own roster, but it arrives from the browser
+    // and the event is what is being written to.
+    if (applicant.cycleId !== cycleId) {
+      throw new AttendanceEventError("That applicant is not part of this cycle.");
+    }
+    const event = await ensureTrainingEventForCycle(cycleId, person.personId);
+    await recordEventCheckIn(
+      event.id,
+      {
+        kind: "walkUp",
+        name: `${applicant.firstName} ${applicant.lastName}`.trim(),
+        email: applicant.email,
+        confirmed: true,
+      },
+      person.personId,
+    );
+  } catch (err) {
+    if (
+      err instanceof RecruitmentAuthError ||
+      err instanceof TrainingStateError ||
+      err instanceof AttendanceEventError
+    ) {
+      redirect(bounce(cycleId, { error: (err as Error).message }));
+    }
+    throw err;
+  }
+  redirect(bounce(cycleId, { saved: "attendance" }));
+}

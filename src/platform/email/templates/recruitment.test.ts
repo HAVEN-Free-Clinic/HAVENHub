@@ -19,6 +19,7 @@ const KEYS = [
   "recruitment.applicant_withdrew",
   "recruitment.dual_appointment_requested",
   "recruitment.dual_appointment_decided",
+  "recruitment.assessment_hold",
 ];
 
 describe("recruitment email descriptors", () => {

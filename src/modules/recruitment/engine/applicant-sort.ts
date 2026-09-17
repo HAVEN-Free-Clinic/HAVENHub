@@ -12,6 +12,7 @@ export const APPLICANT_SORT_KEYS = [
   "stage",
   "ranked",
   "decision",
+  "language",
 ] as const;
 
 export type ApplicantSortKey = (typeof APPLICANT_SORT_KEYS)[number];
@@ -29,6 +30,13 @@ export type SortableApplicant = {
   returnedToRoutingAt?: Date | null;
   decision: Decision;
   interviews: { decision: Decision }[];
+  /**
+   * The highest language score on file for this applicant, from the roster's
+   * Language column (see engine/applicant-language.ts). Optional because only
+   * a cycle in the assess-before-accepting lane has the column at all; a row
+   * without one sorts as unscored, which sinks it in both directions.
+   */
+  languageScore?: number | null;
   acceptances: { departmentCode: string }[];
   departmentChoices: string[];
 };
@@ -43,6 +51,9 @@ export const DEFAULT_SORT_DIRECTION: Record<ApplicantSortKey, SortDirection> = {
   stage: "asc",
   ranked: "asc",
   decision: "asc",
+  // Like Committee avg, and for the same reason: the question this column is
+  // clicked to answer is almost always "who scored highest".
+  language: "desc",
 };
 
 /** Reads the roster's sort query params. Returns null for anything unrecognised
@@ -102,14 +113,20 @@ function averageFor(a: SortableApplicant): number | null {
   return scoreAverage(a.committeeScores.map((c) => c.score)).average;
 }
 
+/** The two columns that compare as a nullable number, where null means "no
+ *  score recorded" rather than a low one. */
+function numberFor(a: SortableApplicant, key: "score" | "language"): number | null {
+  return key === "score" ? averageFor(a) : (a.languageScore ?? null);
+}
+
 /** Sorts a copy of the roster. Array.prototype.sort is stable, so ties keep the
  *  order they arrived in, which is submittedAt desc from listApplicantsForReview. */
 export function sortApplicants<T extends SortableApplicant>(apps: T[], sort: ApplicantSort): T[] {
   const sign = sort.dir === "asc" ? 1 : -1;
   return [...apps].sort((a, b) => {
-    if (sort.key === "score") {
-      const av = averageFor(a);
-      const bv = averageFor(b);
+    if (sort.key === "score" || sort.key === "language") {
+      const av = numberFor(a, sort.key);
+      const bv = numberFor(b, sort.key);
       // Unscored rows sink in both directions, so the column always answers the
       // question the reviewer clicked it to ask.
       if (av == null && bv == null) return 0;

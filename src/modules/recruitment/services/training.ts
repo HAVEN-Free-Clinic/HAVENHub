@@ -8,6 +8,8 @@ import { getPersonTerms } from "@/platform/terms/person-terms";
 import { recordAudit } from "@/platform/audit";
 import { RecruitmentAuthError, reviewScope } from "./review";
 import { serviceGapsForCycle } from "./service-gap";
+import { rosterLanguageStatus } from "./applicant-language";
+import { EMPTY_LANGUAGE_STATUS, isAwaitingLanguageAssessment } from "../engine/applicant-language";
 import { gradeQuiz, type GradedQuestion } from "@/platform/quiz/grading";
 import { countGradedQuestions } from "@/platform/quiz/graded";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
@@ -702,6 +704,18 @@ export type TrainingRosterRow =
       acceptanceId: string;
       /** The excuse key: recordApplicantAbsenceExcuse takes an applicant. */
       applicantId: string;
+    })
+  /**
+   * Waitlisted, still owed a language evaluation, and still expected at the
+   * session. They have no Acceptance -- that is the whole point, the clinic has
+   * not decided them yet -- so there is no acceptance id to check them in with,
+   * and the roster's button writes a walk-up keyed on their address instead.
+   */
+  | (TrainingRosterFields & {
+      kind: "expected";
+      applicantId: string;
+      /** The walk-up check-in target, since no acceptance names them. */
+      email: string;
     });
 
 /** The shape effectiveCompliance judges, plus the date it must be ordered by. */
@@ -733,6 +747,137 @@ function certificatesOnFile(
     uploadedAt: contract.submittedAt ?? contract.updatedAt,
   };
   return [...onAccount, fromContract].sort((a, b) => b.uploadedAt.getTime() - a.uploadedAt.getTime());
+}
+
+/**
+ * The roster's third half: applicants held for a language evaluation.
+ *
+ * They are WAITLISTED rather than accepted, because the department that wants
+ * them assesses language before it accepts and the evaluation has not happened
+ * yet (see services/assessment-holds.ts, which emails these same people). The
+ * clinic still expects them at the session -- they attend the HIPAA training
+ * and leave before the interpreting half -- and until now the roster could not
+ * show them at all, because both of its other halves are built from things a
+ * held applicant does not have: a membership and an Acceptance.
+ *
+ * Queried apart from the other two rather than folded into them, deliberately.
+ * The acceptance half's shape is load-bearing for check-in and for the
+ * certificate-on-the-contract rule, and neither applies here: a held applicant
+ * has no contract to read a certificate off, and no acceptance to check in
+ * against. Keeping them separate leaves that logic untouched.
+ *
+ * `alreadyListed` is the lowercased addresses the other two halves already
+ * claimed, so somebody who is both a member and a held applicant is listed once.
+ */
+async function listExpectedForAssessment(
+  cycle: { id: string; termId: string },
+  term: { endDate: Date },
+  scope: { all: boolean; departmentCodes: string[] },
+  alreadyListed: Set<string>,
+): Promise<TrainingRosterRow[]> {
+  const apps = await prisma.application.findMany({
+    where: {
+      cycleId: cycle.id,
+      status: "SUBMITTED",
+      withdrawnAt: null,
+      decision: "WAITLIST",
+      // Scoped on the routed department, the same departmental fact the
+      // acceptance half filters on.
+      ...(scope.all ? {} : { routedDepartmentCode: { in: scope.departmentCodes } }),
+    },
+    select: {
+      id: true,
+      applicantId: true,
+      applicantType: true,
+      departmentChoices: true,
+      dualRoleDepartments: true,
+      routedDepartmentCode: true,
+      renewalDepartment: true,
+      languagesClaimed: true,
+      applicant: {
+        select: { id: true, firstName: true, lastName: true, email: true, emailLower: true, applicantPersonId: true },
+      },
+    },
+  });
+  if (apps.length === 0) return [];
+
+  // The same resolver the applicant roster's Language column reads, so a row is
+  // expected here for exactly the reason the roster says it is on hold.
+  const language = await rosterLanguageStatus(apps);
+  const waiting = apps.filter(
+    (a) =>
+      isAwaitingLanguageAssessment(language.byApplicationId.get(a.id) ?? EMPTY_LANGUAGE_STATUS) &&
+      !alreadyListed.has(a.applicant.emailLower),
+  );
+  if (waiting.length === 0) return [];
+
+  const emails = waiting.map((a) => a.applicant.emailLower);
+  const linkedPersonIds = waiting.flatMap((a) =>
+    a.applicant.applicantPersonId ? [a.applicant.applicantPersonId] : [],
+  );
+  const [accounts, attendance, excuseRows] = await Promise.all([
+    prisma.person.findMany({
+      where: { OR: [{ id: { in: linkedPersonIds } }, { contactEmail: { in: emails, mode: "insensitive" } }] },
+      select: { id: true, contactEmail: true, hipaaCertificates: { orderBy: { uploadedAt: "desc" } } },
+    }),
+    // Their attendance IS an unlinked row keyed on the address, exactly like the
+    // acceptance half: they have no Person for a Training row to belong to.
+    prisma.eventAttendance.findMany({
+      where: { event: { cycleId: cycle.id, kind: "TRAINING" }, attendeeEmail: { in: emails } },
+      select: { attendeeEmail: true },
+    }),
+    prisma.trainingAbsenceExcuse.findMany({
+      where: { cycleId: cycle.id, OR: [{ personId: { in: linkedPersonIds } }, { emailLower: { in: emails } }] },
+      include: { recordedBy: { select: { name: true } } },
+    }),
+  ]);
+
+  const accountById = new Map(accounts.map((p) => [p.id, p]));
+  const accountsByEmail = new Map<string, (typeof accounts)[number]>();
+  for (const p of accounts) {
+    if (p.contactEmail) accountsByEmail.set(p.contactEmail.toLowerCase(), p);
+  }
+  const attended = new Set(
+    attendance.flatMap((a) => (a.attendeeEmail ? [a.attendeeEmail.toLowerCase()] : [])),
+  );
+  const excusesByPerson = new Map<string, TrainingExcuse>();
+  const excusesByEmail = new Map<string, TrainingExcuse>();
+  for (const row of excuseRows) {
+    if (row.personId) excusesByPerson.set(row.personId, selectExcuse(row));
+    else if (row.emailLower) excusesByEmail.set(row.emailLower, selectExcuse(row));
+  }
+
+  return waiting.map((a) => {
+    const applicant = a.applicant;
+    const account =
+      (applicant.applicantPersonId ? accountById.get(applicant.applicantPersonId) : undefined) ??
+      accountsByEmail.get(applicant.emailLower);
+    return {
+      kind: "expected" as const,
+      applicantId: applicant.id,
+      email: applicant.email,
+      name: `${applicant.firstName} ${applicant.lastName}`.trim(),
+      legalFirstName: applicant.firstName,
+      lastName: applicant.lastName,
+      // Waitlisting goes through the routed department, so this is normally set;
+      // the marker keeps a hand-made waitlist from rendering a blank cell.
+      departmentCode: a.routedDepartmentCode ?? "-",
+      // Whatever is on the account they may already have. There is no contract
+      // to read a second copy off: they have not been accepted, so none exists.
+      certStatus: effectiveComplianceStatus(account?.hipaaCertificates ?? [], term.endDate),
+      origin: a.applicantType,
+      trainingState: attended.has(applicant.emailLower) ? "COMPLETE" : "PENDING",
+      // A quiz-attempt state on a Training row they cannot have.
+      locked: false,
+      // Not NOT_CLEARED: there is nothing to clear yet. They are here to attend,
+      // not to be judged ready.
+      overallClearance: "NOT_ONBOARDED",
+      excuse:
+        (account ? excusesByPerson.get(account.id) : undefined) ??
+        excusesByEmail.get(applicant.emailLower) ??
+        null,
+    };
+  });
 }
 
 /**
@@ -1032,7 +1177,16 @@ export async function listTrainingRoster(cycleId: string, viewerId: string): Pro
     };
   });
 
+  // Held for a language evaluation: expected at the session, but with neither a
+  // membership nor an acceptance for the two queries above to find.
+  const expectedRows = await listExpectedForAssessment(
+    { id: cycleId, termId: cycle.termId },
+    term,
+    scope,
+    new Set([...memberEmails, ...pendingEmails]),
+  );
+
   // Interleaved, not appended. A lead reading this in the run-up to a session is
-  // looking for a name, and two alphabetical lists is two places to look for it.
-  return [...memberRows, ...pendingRows].sort(comparePersonName);
+  // looking for a name, and three alphabetical lists is three places to look.
+  return [...memberRows, ...pendingRows, ...expectedRows].sort(comparePersonName);
 }

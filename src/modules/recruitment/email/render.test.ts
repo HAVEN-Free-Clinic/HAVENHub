@@ -77,6 +77,7 @@ it("exposes exactly the cycle-scoped keys", () => {
   expect([...CYCLE_EMAIL_KEYS].sort()).toEqual([
     "recruitment.acceptance",
     "recruitment.application_received",
+    "recruitment.assessment_hold",
     "recruitment.draft_reminder",
     "recruitment.interview_invite",
     "recruitment.onboarding",

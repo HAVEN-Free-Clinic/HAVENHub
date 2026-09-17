@@ -2754,6 +2754,17 @@ model Application {
   /// does not un-tell them -- so a reopen-then-reject-again leaves them with the
   /// one rejection email they already have rather than sending a second.
   rejectionEmailedAt         DateTime?
+  /// Stamped when the "your language evaluation is still to come" email went out
+  /// for this application (see services/assessment-holds.ts). The same kind of
+  /// claim as rejectionEmailedAt above: only ever written from null, so a
+  /// repeated Send, or two leads pressing it at once, cannot tell an applicant
+  /// twice.
+  ///
+  /// Deliberately NOT cleared when the application is later decided. The stamp
+  /// records that we told this person their evaluation was still coming, which
+  /// stays true afterwards; clearing it on a decision would let a second hold
+  /// email go out to someone who has already had one.
+  assessmentHoldEmailedAt    DateTime?
   /// Draft-reminder stream state (see services/draft-reminders.ts). Meaningful
   /// only while status is DRAFT, but never cleared on submit: the counters are
   /// the record of how many nudges an application took, which is the only way to

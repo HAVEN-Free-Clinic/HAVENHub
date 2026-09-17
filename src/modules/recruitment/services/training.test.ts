@@ -1119,3 +1119,63 @@ it("says nothing about a member with no application and no previous term", async
   // from, and inventing "New" for them would be a guess.
   expect(memberRow(await listTrainingRoster(c1.id, srr.id), vol.id).origin).toBeNull();
 });
+
+/**
+ * The roster's third half: somebody waitlisted pending a language evaluation.
+ *
+ * They have no membership and no acceptance, so both of the roster's original
+ * queries miss them entirely -- and they are exactly the people the clinic told
+ * to come to the session anyway (see services/assessment-holds.ts).
+ */
+it("listTrainingRoster expects an applicant held for a language evaluation", async () => {
+  const { srr, term, c1 } = await seed();
+  await addQuiz(c1.id);
+  await setTrainingCycle(c1.id, true, srr.id);
+  await prisma.department.update({ where: { code: "SRHD" }, data: { assessLanguageBeforeAcceptance: true } });
+  const applicant = await prisma.applicant.create({
+    data: { cycleId: c1.id, firstName: "Hana", lastName: "Odeh", email: "hana@y.edu", emailLower: "hana@y.edu" },
+  });
+  await prisma.application.create({
+    data: {
+      cycleId: c1.id, applicantId: applicant.id, answers: {}, applicantType: "NEW",
+      departmentChoices: ["SRHD"], routedDepartmentCode: "SRHD",
+      languagesClaimed: ["ar"], decision: "WAITLIST",
+    },
+  });
+
+  const rows = await listTrainingRoster(c1.id, srr.id);
+  const row = rows.find((r) => r.kind === "expected");
+  if (!row || row.kind !== "expected") throw new Error("no expected row");
+  expect(row.name).toBe("Hana Odeh");
+  expect(row.applicantId).toBe(applicant.id);
+  // The walk-up handle, since no acceptance names them.
+  expect(row.email).toBe("hana@y.edu");
+  expect(row.departmentCode).toBe("SRHD");
+  expect(row.trainingState).toBe("PENDING");
+  // Nothing to clear yet: they are here to attend, not to be judged ready.
+  expect(row.overallClearance).toBe("NOT_ONBOARDED");
+  expect(term).toBeDefined();
+});
+
+it("listTrainingRoster stops expecting them once the evaluation is recorded", async () => {
+  const { srr, c1 } = await seed();
+  await addQuiz(c1.id);
+  await setTrainingCycle(c1.id, true, srr.id);
+  await prisma.department.update({ where: { code: "SRHD" }, data: { assessLanguageBeforeAcceptance: true } });
+  const applicant = await prisma.applicant.create({
+    data: { cycleId: c1.id, firstName: "Hana", lastName: "Odeh", email: "hana2@y.edu", emailLower: "hana2@y.edu" },
+  });
+  const app = await prisma.application.create({
+    data: {
+      cycleId: c1.id, applicantId: applicant.id, answers: {}, applicantType: "NEW",
+      departmentChoices: ["SRHD"], routedDepartmentCode: "SRHD",
+      languagesClaimed: ["ar"], decision: "WAITLIST",
+    },
+  });
+  await prisma.applicationLanguageAssessment.create({
+    data: { applicationId: app.id, language: "ar", verified: true, verifiedById: srr.id },
+  });
+
+  const rows = await listTrainingRoster(c1.id, srr.id);
+  expect(rows.some((r) => r.kind === "expected")).toBe(false);
+});

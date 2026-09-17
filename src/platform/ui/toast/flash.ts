@@ -984,6 +984,20 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
     },
   },
   {
+    // recruitment/cycles/[id]/decisions/actions.ts (sendAssessmentHoldsAction).
+    // The third send on that page, and it needs claiming for the same reason
+    // `rejected` above did: an unclaimed param is never toasted and never
+    // stripped, so the one send that goes to people receiving NO decision would
+    // have confirmed itself silently and then stayed pinned to the URL.
+    params: ["held"],
+    pathnames: ["/recruitment/cycles/*/decisions"],
+    tone: "success",
+    message: (values) => {
+      const n = values.get("held") ?? "0";
+      return `Sent ${n} evaluation-pending email${n === "1" ? "" : "s"}.`;
+    },
+  },
+  {
     // volunteers/spanish-review (five redirects) and volunteers/dual-roles. `ok`
     // carries a ready-made sentence from the action, so it is echoed rather than
     // rewritten here. Its neighbour `error` on both pages is claimed by the

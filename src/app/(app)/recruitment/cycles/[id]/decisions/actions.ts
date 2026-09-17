@@ -2,6 +2,7 @@
 import { redirect } from "next/navigation";
 import { requirePersonSession } from "@/platform/auth/session";
 import { releaseDecisions, sendRejections } from "@/modules/recruitment/services/decisions";
+import { sendAssessmentHolds } from "@/modules/recruitment/services/assessment-holds";
 import { RecruitmentAuthError, AcceptanceError } from "@/modules/recruitment/services/review";
 import { DualAppointmentError, requestDualAppointment } from "@/modules/recruitment/services/dual-appointments";
 import { captureEvent } from "@/platform/posthog/capture";
@@ -79,4 +80,31 @@ export async function keepBothDepartmentsAction(cycleId: string, formData: FormD
     groups: await termGroupForCycle(cycleId),
   });
   redirect(`/recruitment/cycles/${cycleId}/decisions?ok=${encodeURIComponent(`Kept both departments. ${departmentCode} is now their dual appointment.`)}`);
+}
+
+/**
+ * Tell every waitlisted applicant still owed a language evaluation that it is
+ * still coming, instead of leaving them with the silence everyone else's
+ * decision creates. Its own button for the same reason rejections have one: SRR
+ * times and checks this send separately.
+ */
+export async function sendAssessmentHoldsAction(cycleId: string) {
+  const person = await requirePersonSession();
+  let sent = 0;
+  try {
+    const res = await sendAssessmentHolds(cycleId, person.personId);
+    sent = res.sent;
+  } catch (err) {
+    if (err instanceof RecruitmentAuthError || err instanceof AcceptanceError) {
+      redirect(`/recruitment/cycles/${cycleId}/decisions?error=${encodeURIComponent(err.message)}`);
+    }
+    throw err;
+  }
+  await captureEvent({
+    distinctId: person.personId,
+    event: "recruitment_assessment_holds_sent",
+    properties: { cycle_id: cycleId, sent },
+    groups: await termGroupForCycle(cycleId),
+  });
+  redirect(`/recruitment/cycles/${cycleId}/decisions?held=${sent}`);
 }

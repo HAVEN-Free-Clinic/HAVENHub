@@ -12,6 +12,7 @@ import {
   excuseApplicantAbsenceAction,
   recordApplicantAttendanceAction,
   recordAttendanceAction,
+  recordExpectedAttendanceAction,
   resetTrainingAction,
   startCheckInAction,
 } from "./actions";
@@ -112,7 +113,7 @@ export default async function TrainingRosterPage({ params }: { params: Promise<{
         </THead>
         <tbody>
           {rows.map((r) => (
-            <TR key={`${r.kind === "member" ? r.personId : r.acceptanceId}-${r.departmentCode}`}>
+            <TR key={`${r.kind === "member" ? r.personId : r.kind === "applicant" ? r.acceptanceId : r.applicantId}-${r.departmentCode}`}>
               {/* No second badge under the name. The Overall column now reads
                   "Not onboarded" for exactly these rows, and two chips saying the
                   same thing is how a table stops being scannable. */}
@@ -189,7 +190,14 @@ export default async function TrainingRosterPage({ params }: { params: Promise<{
                     ) : (
                       canRecordApplicants && (
                         <form
-                          action={recordApplicantAttendanceAction.bind(null, id, r.acceptanceId)}
+                          action={
+                            r.kind === "applicant"
+                              ? recordApplicantAttendanceAction.bind(null, id, r.acceptanceId)
+                              : // Held for a language evaluation: no acceptance to
+                                // check in against, so this writes a walk-up keyed
+                                // on their address instead.
+                                recordExpectedAttendanceAction.bind(null, id, r.applicantId)
+                          }
                         >
                           <SubmitButton variant="outline" size="sm" pendingLabel="Recording…">
                             Record attendance

@@ -8,7 +8,7 @@ import { termGroupForCycle } from "@/platform/posthog/groups";
 import { RecruitmentAuthError, AcceptanceError, revokeAcceptance, canViewerOpenApplication, recordApplicationView } from "@/modules/recruitment/services/review";
 import { createInterview, InterviewError } from "@/modules/recruitment/services/interviews";
 import { submitCommitteeScore, CommitteeScoreError } from "@/modules/recruitment/services/committee-scoring";
-import { routeApplication, decideRoutedApplication, returnToRouting, reopenDecision, RoutingError } from "@/modules/recruitment/services/routing";
+import { routeApplication, decideRoutedApplication, returnToRouting, reopenDecision, applyTierRejects, applyBulkWaitlists, applyBulkReopens, RoutingError, type BatchResult } from "@/modules/recruitment/services/routing";
 import { loadReviewApplication, type ReviewApplicationView } from "@/modules/recruitment/services/speed-score";
 import {
   loadScoringPanel,
@@ -446,4 +446,119 @@ async function dualViewable(applicationId: string) {
     },
   });
   return app;
+}
+
+/**
+ * Reject every applicant ticked on the roster (see components/roster-selection.tsx).
+ *
+ * Reuses applyTierRejects, the same batch the speed-route board's bottom tier
+ * runs, so every guard is the one a single reject already enforces and a row
+ * that fails one is skipped with its reason instead of aborting the rest. It
+ * checks recruitment.review_all once up front, which is why the roster renders
+ * the bulk bar only for a viewer who holds it.
+ *
+ * No redirect and no flash param: the bar stays where it is and reports the
+ * batch's own counts (applied, passed to a dual department, skipped) inline,
+ * which a `?saved=` value cannot carry.
+ */
+export async function bulkRejectApplicantsAction(
+  cycleId: string,
+  applicationIds: string[],
+): Promise<BatchResult | { error: string }> {
+  const person = await requirePersonSession();
+  try {
+    const result = await applyTierRejects(applicationIds, person.personId, null);
+    await captureEvent({
+      distinctId: person.personId,
+      event: "applications_bulk_rejected",
+      properties: {
+        cycle_id: cycleId,
+        selected: applicationIds.length,
+        applied: result.applied,
+        skipped: result.skipped.length,
+        passed_to_dual: result.passedToDual ?? 0,
+      },
+      groups: await termGroupForCycle(cycleId),
+    });
+    revalidatePath(`/recruitment/cycles/${cycleId}/applicants`);
+    return result;
+  } catch (err) {
+    if (err instanceof RecruitmentAuthError || err instanceof RoutingError || err instanceof AcceptanceError) {
+      return { error: err.message };
+    }
+    throw err;
+  }
+}
+
+/**
+ * Waitlist every applicant ticked on the roster: the hold a lead puts someone
+ * on while the interpreting department still owes them an assessment, instead
+ * of deciding them on the strength of an assessment nobody has done yet.
+ *
+ * applyBulkWaitlists skips an applicant with no routed department rather than
+ * writing a waitlist nobody could later promote; see its comment. The skip
+ * count comes back in the BatchResult and the bar reports it.
+ */
+export async function bulkWaitlistApplicantsAction(
+  cycleId: string,
+  applicationIds: string[],
+): Promise<BatchResult | { error: string }> {
+  const person = await requirePersonSession();
+  try {
+    const result = await applyBulkWaitlists(applicationIds, person.personId, null);
+    await captureEvent({
+      distinctId: person.personId,
+      event: "applications_bulk_waitlisted",
+      properties: {
+        cycle_id: cycleId,
+        selected: applicationIds.length,
+        applied: result.applied,
+        skipped: result.skipped.length,
+      },
+      groups: await termGroupForCycle(cycleId),
+    });
+    revalidatePath(`/recruitment/cycles/${cycleId}/applicants`);
+    return result;
+  } catch (err) {
+    if (err instanceof RecruitmentAuthError || err instanceof RoutingError || err instanceof AcceptanceError) {
+      return { error: err.message };
+    }
+    throw err;
+  }
+}
+
+/**
+ * Un-reject every applicant ticked on the roster, back to undecided.
+ *
+ * The reverse of bulkRejectApplicantsAction and the reason the bulk bar exists
+ * at all: a lead who rejected a cohort by hand needs to put some of them back
+ * before deciding them properly. reopenDecision refuses once the cycle's
+ * decisions have been released, so this cannot un-send anything.
+ */
+export async function bulkReopenApplicantsAction(
+  cycleId: string,
+  applicationIds: string[],
+): Promise<BatchResult | { error: string }> {
+  const person = await requirePersonSession();
+  try {
+    const result = await applyBulkReopens(applicationIds, person.personId);
+    await captureEvent({
+      distinctId: person.personId,
+      event: "applications_bulk_reopened",
+      properties: {
+        cycle_id: cycleId,
+        selected: applicationIds.length,
+        applied: result.applied,
+        skipped: result.skipped.length,
+      },
+      groups: await termGroupForCycle(cycleId),
+    });
+    revalidatePath(`/recruitment/cycles/${cycleId}/applicants`);
+    return result;
+  } catch (err) {
+    if (err instanceof RecruitmentAuthError || err instanceof RoutingError || err instanceof AcceptanceError) {
+      return { error: err.message };
+    }
+    throw err;
+  }
 }

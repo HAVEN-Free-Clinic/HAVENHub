@@ -3,7 +3,7 @@ import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import { RecruitmentAuthError, AcceptanceError } from "./review";
 import * as review from "./review";
-import { routeApplication, decideRoutedApplication, returnToRouting, rejectApplication, reopenDecision, applyTierRoutes, applyTierRejects, RoutingError } from "./routing";
+import { routeApplication, decideRoutedApplication, returnToRouting, rejectApplication, reopenDecision, applyTierRoutes, applyTierRejects, applyBulkWaitlists, applyBulkReopens, RoutingError } from "./routing";
 
 async function seed() {
   const term = await prisma.term.create({ data: { code: "FA26", name: "Fall", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
@@ -551,5 +551,80 @@ describe("dual-role fallback", () => {
     expect(res.applied).toBe(2);
     expect(res.passedToDual).toBe(1);
     expect((await prisma.application.findUniqueOrThrow({ where: { id: plain.id } })).decision).toBe("REJECT");
+  });
+});
+
+describe("applyBulkWaitlists / applyBulkReopens", () => {
+  async function twoApps(cycleId: string) {
+    const mk = async (n: string) => {
+      const applicant = await prisma.applicant.create({ data: { cycleId, firstName: n, lastName: "X", email: `${n}@y.edu`, emailLower: `${n}@y.edu` } });
+      return prisma.application.create({ data: { cycleId, applicantId: applicant.id, answers: {}, applicantType: "NEW", departmentChoices: ["EDUC"] } });
+    };
+    return { a: await mk("one"), b: await mk("two") };
+  }
+
+  it("waitlists routed applicants and reports the count", async () => {
+    const { lead, application } = await seed();
+    const { a, b } = await twoApps(application.cycleId);
+    await routeApplication(a.id, "EDUC", lead.id);
+    await routeApplication(b.id, "EDUC", lead.id);
+
+    const res = await applyBulkWaitlists([a.id, b.id], lead.id, null);
+
+    expect(res.applied).toBe(2);
+    expect(res.skipped).toEqual([]);
+    expect((await prisma.application.findUniqueOrThrow({ where: { id: a.id } })).decision).toBe("WAITLIST");
+  });
+
+  /**
+   * The case this batch is built around. A waitlist is a hold in a particular
+   * department, and promoting someone off the waitlist goes through
+   * decideRoutedApplication(ACCEPT), which refuses an unrouted application. So
+   * an unrouted row must be skipped rather than written as a waitlist nobody
+   * could ever promote out of.
+   */
+  it("skips an unrouted applicant instead of parking them in an unpromotable waitlist", async () => {
+    const { lead, application } = await seed();
+    const { a, b } = await twoApps(application.cycleId);
+    await routeApplication(a.id, "EDUC", lead.id);
+
+    const res = await applyBulkWaitlists([a.id, b.id], lead.id, null);
+
+    expect(res.applied).toBe(1);
+    expect(res.skipped).toHaveLength(1);
+    expect(res.skipped[0].applicationId).toBe(b.id);
+    expect((await prisma.application.findUniqueOrThrow({ where: { id: b.id } })).decision).toBe("PENDING");
+  });
+
+  it("un-rejects a batch back to undecided", async () => {
+    const { lead, application } = await seed();
+    const { a, b } = await twoApps(application.cycleId);
+    await rejectApplication(a.id, lead.id, null);
+    await rejectApplication(b.id, lead.id, null);
+
+    const res = await applyBulkReopens([a.id, b.id], lead.id);
+
+    expect(res.applied).toBe(2);
+    expect((await prisma.application.findUniqueOrThrow({ where: { id: a.id } })).decision).toBe("PENDING");
+    expect((await prisma.application.findUniqueOrThrow({ where: { id: b.id } })).decision).toBe("PENDING");
+  });
+
+  it("skips a row with no decision to reopen and still reopens the rest", async () => {
+    const { lead, application } = await seed();
+    const { a, b } = await twoApps(application.cycleId);
+    await rejectApplication(a.id, lead.id, null);
+
+    const res = await applyBulkReopens([a.id, b.id], lead.id);
+
+    expect(res.applied).toBe(1);
+    expect(res.skipped).toHaveLength(1);
+    expect(res.skipped[0].applicationId).toBe(b.id);
+  });
+
+  it("fails fast for a viewer who cannot reopen at all", async () => {
+    const { lead, other, application } = await seed();
+    const { a } = await twoApps(application.cycleId);
+    await rejectApplication(a.id, lead.id, null);
+    await expect(applyBulkReopens([a.id], other.id)).rejects.toBeInstanceOf(RecruitmentAuthError);
   });
 });

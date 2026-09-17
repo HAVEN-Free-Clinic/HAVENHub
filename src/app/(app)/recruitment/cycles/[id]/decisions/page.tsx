@@ -3,7 +3,8 @@ import { PageBody } from "@/platform/ui/page-body";
 import { requirePermission } from "@/platform/auth/session";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { listConflicts, releaseSummary, rejectionSummary } from "@/modules/recruitment/services/decisions";
-import { releaseDecisionsAction, sendRejectionsAction, keepBothDepartmentsAction } from "./actions";
+import { assessmentHoldSummary } from "@/modules/recruitment/services/assessment-holds";
+import { releaseDecisionsAction, sendRejectionsAction, sendAssessmentHoldsAction, keepBothDepartmentsAction } from "./actions";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
@@ -28,10 +29,11 @@ export default async function DecisionsPage({ params }: {
   await requirePermission("recruitment.review_all");
   const cycle = await getCycle(id);
   if (!cycle) notFound();
-  const [conflicts, summary, rejections] = await Promise.all([
+  const [conflicts, summary, rejections, holds] = await Promise.all([
     listConflicts(id),
     releaseSummary(id),
     rejectionSummary(id),
+    assessmentHoldSummary(id),
   ]);
 
   // wide, not form: this holds a four-up StatCard grid over a conflicts list,
@@ -140,6 +142,36 @@ export default async function DecisionsPage({ params }: {
           </p>
         </form>
       </section>
+
+      {/* Its own section for the same reason rejections have one: this send is
+          timed and checked separately, and it goes to people who are getting no
+          decision at all today. Hidden entirely on a cycle with nobody on hold,
+          which is every cycle outside the departments that assess language
+          before accepting. */}
+      {holds.onHold > 0 && (
+        <section className="space-y-3 border-t border-border-subtle pt-6">
+          <SectionHeader>Waiting on a language evaluation</SectionHeader>
+
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <StatCard label="On hold" value={holds.onHold} />
+            <StatCard label="Unnotified" value={holds.unnotified} />
+            <StatCard label="Emailed" value={holds.emailed} />
+          </div>
+
+          <form action={sendAssessmentHoldsAction.bind(null, id)} className="space-y-2">
+            <ConfirmButton
+              label="Send evaluation-pending emails"
+              confirmLabel={`Email ${holds.unnotified} waiting ${holds.unnotified === 1 ? "applicant" : "applicants"}?`}
+              disabled={holds.unnotified === 0}
+            />
+            <p className="text-xs text-subtle-foreground">
+              {holds.unnotified === 0
+                ? "Everyone waitlisted and still awaiting a language evaluation has already been emailed."
+                : "Emails every applicant who is waitlisted and still awaiting a language evaluation, telling them this is not a rejection, asking which dialect they speak, and confirming they are still expected at training. Does not wait for Release: it lands instead of a decision."}
+            </p>
+          </form>
+        </section>
+      )}
     </PageBody>
   );
 }

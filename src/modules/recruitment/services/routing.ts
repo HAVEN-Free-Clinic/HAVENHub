@@ -631,3 +631,74 @@ export async function applyTierRejects(
   }
   return { applied, skipped, passedToDual };
 }
+
+/**
+ * Batch-waitlist a set of applications, from the applicant roster's bulk bar.
+ *
+ * Goes through decideRoutedApplication rather than a waitlist twin of
+ * rejectApplication, and that is the whole design decision here. A waitlist is
+ * a hold in a PARTICULAR department: listWaitlisted reads
+ * routedDepartmentCode for the department column, and promoting someone off
+ * the waitlist calls decideRoutedApplication(ACCEPT), which refuses an
+ * application with no routed department. Writing an unrouted WAITLIST would
+ * therefore park the applicant in a state nobody can promote them out of.
+ * So an unrouted row is SKIPPED here, carrying that service's own message
+ * ("Route this applicant to a department before deciding."), and the bulk bar
+ * reports it. The lead routes those few and runs it again.
+ *
+ * No up-front permission check, unlike applyTierRejects: decideRoutedApplication
+ * authorizes per row against the routed department, so a department director
+ * can waitlist their own department's applicants without holding review_all.
+ * A viewer with no standing simply has every row skipped with the refusal.
+ */
+export async function applyBulkWaitlists(
+  applicationIds: string[],
+  actorId: string,
+  notes: string | null,
+): Promise<BatchResult> {
+  const skipped: { applicationId: string; reason: string }[] = [];
+  let applied = 0;
+  for (const id of applicationIds) {
+    try {
+      await decideRoutedApplication(id, "WAITLIST", actorId, notes);
+      applied += 1;
+    } catch (err) {
+      if (err instanceof RoutingError || err instanceof AcceptanceError || err instanceof RecruitmentAuthError) {
+        skipped.push({ applicationId: id, reason: err.message });
+      } else throw err;
+    }
+  }
+  return { applied, skipped };
+}
+
+/**
+ * Batch-reopen (un-reject) a set of decided applications, from the roster's
+ * bulk bar. Reuses reopenDecision per row, so the released-decisions and
+ * emailed-acceptance guards are the same ones a single reopen enforces, and a
+ * row that fails one is skipped with its reason rather than aborting the rest.
+ *
+ * Permission is checked once up front, like applyTierRejects, because
+ * reopenDecision is review_all-only: without this a viewer who cannot reopen
+ * anything would get one refusal per row instead of one for the batch.
+ */
+export async function applyBulkReopens(
+  applicationIds: string[],
+  actorId: string,
+): Promise<BatchResult> {
+  if (!(await can(actorId, "recruitment.review_all"))) {
+    throw new RecruitmentAuthError("You can't reopen decisions.");
+  }
+  const skipped: { applicationId: string; reason: string }[] = [];
+  let applied = 0;
+  for (const id of applicationIds) {
+    try {
+      await reopenDecision(id, actorId);
+      applied += 1;
+    } catch (err) {
+      if (err instanceof RoutingError || err instanceof AcceptanceError || err instanceof RecruitmentAuthError) {
+        skipped.push({ applicationId: id, reason: err.message });
+      } else throw err;
+    }
+  }
+  return { applied, skipped };
+}

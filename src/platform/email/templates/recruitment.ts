@@ -441,4 +441,45 @@ export const recruitmentDescriptors: TemplateDescriptor[] = [
 
 <p>Thank you,<br>HAVEN Free Clinic</p>`,
   },
+  {
+    key: "recruitment.assessment_hold",
+    name: "Recruitment: language evaluation still to come",
+    category: "transactional",
+    group: "recruitment",
+    // Sent INSTEAD of a decision, to an applicant whose department assesses
+    // language before accepting and whose evaluation has not happened yet. The
+    // body has three jobs and all three came from recruitment: say this is not a
+    // rejection, ask which dialect they speak so the right evaluator can be
+    // booked (the clinic cannot staff every variety of every language), and tell
+    // them they are still expected at training.
+    variables: [
+      { name: "firstName", label: "Applicant first name", sampleValue: "Sam" },
+      { name: "cycleTitle", label: "Cycle title", sampleValue: "Volunteer Fall 2026" },
+      {
+        // Comma-joined, because the render engine has no {{#each}}. Empty for a
+        // department that assesses a language the applicant never claimed (PATS
+        // assesses Spanish regardless), which is why the sentence using it is
+        // guarded.
+        name: "languages",
+        label: "Languages on their application (comma-joined)",
+        sampleValue: "Arabic, Spanish",
+      },
+      { name: "trainingDate", label: "In-person training date, preformatted; empty when none is set", sampleValue: "Saturday, September 26, 2026" },
+      { name: "trainingLocation", label: "Training location; empty when none is set", sampleValue: "Sterling Hall of Medicine" },
+    ],
+    defaultSubject: "Your HAVEN {{ cycleTitle }} application: language evaluation still to come",
+    defaultBody: `<p>Hi {{ firstName }},</p>
+
+<p>Thank you for applying to HAVEN Free Clinic for {{ cycleTitle }}. We are not sending you a decision yet, because we are still arranging your language evaluation. <strong>This is not a rejection.</strong> Your application is on hold until the evaluation happens, and we will be in touch as soon as we can schedule it.</p>
+
+{{#if languages}}<p>We have you down as speaking: {{ languages }}.</p>{{/if}}
+
+<p><strong>One thing we need from you.</strong> Please reply to this email and tell us which dialect or variety you speak, so we can match you with the right evaluator. For example, if you speak Arabic, let us know whether that is Egyptian, Levantine, Gulf, Maghrebi, Modern Standard, or another variety.</p>
+
+<p><strong>Please still come to training.</strong>{{#if trainingDate}} Training is on {{ trainingDate }}{{#if trainingLocation}}, at {{ trainingLocation }}{{/if}}.{{/if}} You are still on the training roster and we expect you there for the HIPAA training in the morning. You are welcome to leave at 12:30, before the Spanish interpreting session, since your evaluation has not happened yet.</p>
+
+<p>If you have any questions, just reply to this email.</p>
+
+<p>Thank you,<br>HAVEN Free Clinic</p>`,
+  },
 ];

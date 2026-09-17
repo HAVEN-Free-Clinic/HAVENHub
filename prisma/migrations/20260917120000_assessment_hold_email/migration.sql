@@ -1,0 +1,11 @@
+-- The "your language evaluation is still to come" email, sent instead of a
+-- decision to an applicant whose department assesses language before accepting.
+--
+-- One nullable stamp, claimed exactly the way rejectionEmailedAt is: the sender
+-- only ever writes it from null inside a transaction, so a repeated Send (or two
+-- leads pressing it at once) cannot email the same applicant twice.
+--
+-- rolling-deploy: additive and nullable, so an old instance running against the
+-- migrated schema simply never reads or writes it. No backfill: a null means
+-- "not told yet", which is the correct state for every existing row.
+ALTER TABLE "Application" ADD COLUMN "assessmentHoldEmailedAt" TIMESTAMP(3);

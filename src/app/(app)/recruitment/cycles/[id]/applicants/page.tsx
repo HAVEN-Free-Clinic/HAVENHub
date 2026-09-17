@@ -7,7 +7,7 @@ import { listApplicantsForReview, reviewScope, awaitingRoutingCount } from "@/mo
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
-import { Table, THead, TR, TD, SortableTH } from "@/platform/ui/table";
+import { Table, THead, TR, TH, TD, SortableTH } from "@/platform/ui/table";
 import { Badge } from "@/platform/ui/badge";
 import { Pagination } from "@/platform/ui/pagination";
 import { applicantTypeLabel } from "@/modules/recruitment/engine/visibility";
@@ -19,7 +19,15 @@ import { SpeedScoreLauncher } from "@/modules/recruitment/components/speed-score
 import { ScoringAssignmentLauncher } from "@/modules/recruitment/components/scoring-assignment-launcher";
 import { scorerQueueScope } from "@/modules/recruitment/services/score-assignment";
 import { myCommitteeComments } from "@/modules/recruitment/services/committee-scoring";
-import { speedScoreAction, loadReviewApplicationAction, loadScoringPanelAction, setCycleScoringAction } from "./actions";
+import {
+  speedScoreAction,
+  loadReviewApplicationAction,
+  loadScoringPanelAction,
+  setCycleScoringAction,
+  bulkRejectApplicantsAction,
+  bulkWaitlistApplicantsAction,
+  bulkReopenApplicantsAction,
+} from "./actions";
 import type { SpeedScoreItem } from "@/modules/recruitment/engine/speed-score-queue";
 import { rosterDecision, type RosterDecisionStatus } from "@/modules/recruitment/engine/decision-summary";
 import { DecisionFilter } from "@/modules/recruitment/components/decision-filter";
@@ -45,6 +53,22 @@ import { FORM_ROW, FormRow } from "@/platform/ui/form";
 import { FilterField } from "@/platform/ui/filter-bar";
 import { ResultCount } from "@/platform/ui/result-count";
 import { ListEmpty } from "@/platform/ui/list-empty";
+import { LanguageFilter } from "@/modules/recruitment/components/language-filter";
+import {
+  RosterRowCheckbox,
+  RosterSelectAll,
+  RosterSelection,
+  type RosterSelectableRow,
+} from "@/modules/recruitment/components/roster-selection";
+import { rosterLanguageStatus } from "@/modules/recruitment/services/applicant-language";
+import {
+  EMPTY_LANGUAGE_STATUS,
+  filterApplicantsByLanguage,
+  languageScoreOf,
+  parseLanguageFilter,
+  type RosterLanguageStatus,
+} from "@/modules/recruitment/engine/applicant-language";
+import { SPANISH, formatSpanishScore, languageLabel, spanishScoreTone } from "@/platform/languages/catalog";
 
 const PAGE_SIZE = 50;
 
@@ -57,6 +81,7 @@ function rosterQuery(parts: {
   query: string | null;
   decision: string | null;
   department: string | null;
+  language: string | null;
   sort: string | null;
   dir: string | null;
   page: number | null;
@@ -65,6 +90,7 @@ function rosterQuery(parts: {
   if (parts.query) q.set("q", parts.query);
   if (parts.decision) q.set("decision", parts.decision);
   if (parts.department) q.set("department", parts.department);
+  if (parts.language) q.set("language", parts.language);
   if (parts.sort && parts.dir) {
     q.set("sort", parts.sort);
     q.set("dir", parts.dir);
@@ -74,9 +100,9 @@ function rosterQuery(parts: {
   return s ? `?${s}` : "";
 }
 
-export default async function ApplicantsPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ page?: string; q?: string; decision?: string; department?: string; sort?: string; dir?: string }> }) {
+export default async function ApplicantsPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ page?: string; q?: string; decision?: string; department?: string; language?: string; sort?: string; dir?: string }> }) {
   const { id } = await params;
-  const { page: pageParam, q: queryParam, decision: decisionParam, department: departmentParam, sort: sortParam, dir: dirParam } = await searchParams;
+  const { page: pageParam, q: queryParam, decision: decisionParam, department: departmentParam, language: languageParam, sort: sortParam, dir: dirParam } = await searchParams;
   const [person, cycle] = await Promise.all([requirePersonSession(), getCycle(id)]);
   if (!cycle) notFound();
   const apps = await listApplicantsForReview(id, person.personId);
@@ -110,6 +136,17 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
     apps.map((a) => a.applicant.applicantPersonId).filter((p): p is string => Boolean(p)),
     cycle.termId,
   );
+  // What the interpreting department has recorded for this roster, in one read
+  // for the whole page (see services/applicant-language.ts). `inLane` is false
+  // on a cycle whose departments do not assess before accepting, and the column,
+  // its filter and its sort header all stay off the page in that case rather
+  // than drawing a column of dashes.
+  const language = await rosterLanguageStatus(apps);
+  const languageStatusFor = (applicationId: string): RosterLanguageStatus =>
+    language.byApplicationId.get(applicationId) ?? EMPTY_LANGUAGE_STATUS;
+  // Attached to the row so the Language column sorts through the same
+  // comparator as every other column, rather than needing its own pass.
+  const rows = apps.map((a) => ({ ...a, languageScore: languageScoreOf(languageStatusFor(a.id)) }));
   // Derived once, used by the speed-score queue and the Stage column alike, so
   // the two can never disagree about where an application sits.
   const stageOf = (a: (typeof apps)[number]) =>
@@ -153,24 +190,58 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
     ? departmentParam
     : null;
   const query = normalizeApplicantQuery(queryParam);
+  const languageFilter = parseLanguageFilter(languageParam);
   const byDecision = decisionFilter
-    ? apps.filter((a) => rosterDecision({ acceptances: a.acceptances, applicationDecision: a.decision, interviews: a.interviews, dualAppointments: a.dualAppointments }).status === decisionFilter)
-    : apps;
+    ? rows.filter((a) => rosterDecision({ acceptances: a.acceptances, applicationDecision: a.decision, interviews: a.interviews, dualAppointments: a.dualAppointments }).status === decisionFilter)
+    : rows;
+  // "Awaiting assessment" is the filter this column exists for: it is how a
+  // lead finds everyone the interpreting department still owes a verdict on,
+  // which is the cohort they then decide together with the bulk bar.
+  const byLanguage = filterApplicantsByLanguage(byDecision, (a) => languageStatusFor(a.id), languageFilter);
   // Search last in the chain, on the same rows the count and the pager read, so
   // "3 applicants" is always the number of rows the search actually returned.
-  const filtered = filterApplicantsByQuery(filterApplicantsByDepartment(byDecision, departmentFilter), query);
+  const filtered = filterApplicantsByQuery(filterApplicantsByDepartment(byLanguage, departmentFilter), query);
   const sort = parseApplicantSort(sortParam, dirParam);
   // Sort after filtering and before slicing, so page boundaries stay correct.
   const sorted = sort ? sortApplicants(filtered, sort) : filtered;
   const pageCount = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
   const page = Math.min(Math.max(1, Number(pageParam) || 1), pageCount);
   const pageApps = sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  // What each row on screen may be decided in bulk, resolved here so a control
+  // is only offered for something this viewer can actually do. Reject and
+  // Reopen are review_all-only (the services enforce it); a director may
+  // waitlist an applicant routed to a department they direct. An emailed
+  // acceptance or the viewer's own application is out of bounds for all three,
+  // and once decisions are released nothing can be reopened. This is an
+  // optimistic filter, not the authority: every service re-checks, and an
+  // onboarding contract (which the roster does not load) still comes back as a
+  // reported skip.
+  const myDepartments = new Set(scope.departmentCodes);
+  const decisionsReleased = cycle.decisionsReleasedAt != null;
+  const selectableRows: RosterSelectableRow[] =
+    cycle.track !== "VOLUNTEER"
+      ? []
+      : pageApps.map((a) => {
+          const status = rosterDecision({ acceptances: a.acceptances, applicationDecision: a.decision, interviews: a.interviews, dualAppointments: a.dualAppointments }).status;
+          const blocked = a.isOwnApplication || a.acceptances.some((x) => x.emailedAt !== null);
+          const routedToMine =
+            a.routedDepartmentCode !== null && (scope.all || myDepartments.has(a.routedDepartmentCode));
+          return {
+            applicationId: a.id,
+            name: `${a.applicant.firstName} ${a.applicant.lastName}`,
+            canReject: !blocked && scope.all && status !== "REJECTED",
+            canWaitlist: !blocked && routedToMine && status !== "WAITLIST",
+            canReopen: !blocked && scope.all && !decisionsReleased && status !== "NONE",
+          };
+        });
+  const canBulk = selectableRows.some((r) => r.canReject || r.canWaitlist || r.canReopen);
   const sortHref = (key: ApplicantSortKey) =>
     // Omitting page returns to page 1, matching how DecisionFilter drops it.
     `/recruitment/cycles/${id}/applicants${rosterQuery({
       query,
       decision: decisionFilter,
       department: departmentFilter,
+      language: languageFilter,
       sort: key,
       dir: nextSortDirection(sort, key),
       page: null,
@@ -245,16 +316,34 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
           </NavForm>
           <DecisionFilter />
           <DepartmentFilter options={departmentOptions} />
+          {language.inLane && <LanguageFilter />}
         </FormRow>
         <ResultCount total={filtered.length} noun="applicant" />
       </div>
+      {/* Always mounted, not gated on canBulk: the provider draws its bar only
+          when a row on screen can actually be acted on, and each row's checkbox
+          renders nothing unless that row can. */}
+      <RosterSelection
+        rows={selectableRows}
+        onBulkReject={bulkRejectApplicantsAction.bind(null, id)}
+        onBulkWaitlist={bulkWaitlistApplicantsAction.bind(null, id)}
+        onBulkReopen={bulkReopenApplicantsAction.bind(null, id)}
+      >
       <Table>
         <THead>
           <tr>
+            {canBulk && (
+              <TH className="w-10">
+                <RosterSelectAll />
+              </TH>
+            )}
             <SortableTH columnKey="name" active={sort} hrefFor={sortHref}>Name</SortableTH>
             <SortableTH columnKey="email" active={sort} hrefFor={sortHref}>Email</SortableTH>
             <SortableTH columnKey="type" active={sort} hrefFor={sortHref}>Type</SortableTH>
             <SortableTH columnKey="score" active={sort} hrefFor={sortHref}>Committee avg</SortableTH>
+            {language.inLane && (
+              <SortableTH columnKey="language" active={sort} hrefFor={sortHref}>Language</SortableTH>
+            )}
             <SortableTH columnKey="stage" active={sort} hrefFor={sortHref}>Stage</SortableTH>
             <SortableTH columnKey="ranked" active={sort} hrefFor={sortHref}>Ranked</SortableTH>
             <SortableTH columnKey="decision" active={sort} hrefFor={sortHref}>Decision</SortableTH>
@@ -268,6 +357,14 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
             const gap = a.applicant.applicantPersonId ? serviceGaps.get(a.applicant.applicantPersonId) : undefined;
             return (
               <TR key={a.id}>
+                {canBulk && (
+                  <TD>
+                    <RosterRowCheckbox
+                      applicationId={a.id}
+                      name={`${a.applicant.firstName} ${a.applicant.lastName}`}
+                    />
+                  </TD>
+                )}
                 <TD>
                   <span className="inline-flex flex-wrap items-center gap-1.5">
                     <Link
@@ -329,6 +426,11 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
                     ? "Hidden: your application"
                     : formatScoreSummary(scoreAverage(a.committeeScores.map((c) => c.score)), coverageTarget)}
                 </TD>
+                {language.inLane && (
+                  <TD>
+                    <LanguageCell status={languageStatusFor(a.id)} />
+                  </TD>
+                )}
                 <TD>
                   <span className="inline-flex flex-wrap items-center gap-1.5">
                     <Badge>{applicationStageLabel[stageOf(a)]}</Badge>
@@ -371,7 +473,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
           })}
           {filtered.length === 0 && (
             <TR>
-              <TD colSpan={7} className="py-10 text-center text-subtle-foreground">
+              <TD colSpan={7 + (canBulk ? 1 : 0) + (language.inLane ? 1 : 0)} className="py-10 text-center text-subtle-foreground">
                 {/* The filtered case goes through ListEmpty so it says the same
                     thing every other filtered list in the app says. The two
                     non-filtered branches stay bespoke: they carry scope
@@ -389,6 +491,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
           )}
         </tbody>
       </Table>
+      </RosterSelection>
       <Pagination
         page={page}
         pageCount={pageCount}
@@ -397,6 +500,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
             query,
             decision: decisionFilter,
             department: departmentFilter,
+            language: languageFilter,
             sort: sort?.key ?? null,
             dir: sort?.dir ?? null,
             page: p,
@@ -404,5 +508,60 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
         }
       />
     </PageBody>
+  );
+}
+
+/**
+ * One row's language verdicts, as the interpreting department left them.
+ *
+ * "Awaiting" reads as a word rather than as an empty cell, because it is the
+ * state the department filters and acts on: an applicant nobody has assessed is
+ * the reason this column was asked for. The three verdict states are kept
+ * apart for the reason LanguageAssessmentCard documents on the detail page --
+ * an imported history row can carry a human's involvement with no recorded
+ * yes/no outcome, and that must never render as a verdict nobody made.
+ *
+ * Only Spanish carries a 1-5 score (see the catalog), so only Spanish takes the
+ * score's tone; another language shows the outcome alone.
+ */
+function LanguageCell({ status }: { status: RosterLanguageStatus }) {
+  if (status.entries.length === 0) return <span className="text-subtle-foreground">-</span>;
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1.5">
+      {status.entries.map(({ language: code, verdict }) => {
+        const label = languageLabel(code);
+        if (!verdict) {
+          return (
+            <Badge key={code} title={`${label}: no verdict on file yet`}>
+              {label}: awaiting
+            </Badge>
+          );
+        }
+        if (verdict.verified === null) {
+          return (
+            <Badge key={code} title={`${label}: assessed, but no outcome was recorded`}>
+              {label}: no outcome
+            </Badge>
+          );
+        }
+        if (!verdict.verified) {
+          return (
+            <Badge key={code} tone="critical" title={`${label}: not verified`}>
+              {label}: not verified
+            </Badge>
+          );
+        }
+        const scored = code === SPANISH && verdict.score !== null;
+        return (
+          <Badge
+            key={code}
+            tone={scored ? spanishScoreTone(verdict.score) : "success"}
+            title={scored ? `${label}: verified, scored ${formatSpanishScore(verdict.score, null)} out of 5` : `${label}: verified`}
+          >
+            {label}: {scored ? formatSpanishScore(verdict.score, null) : "verified"}
+          </Badge>
+        );
+      })}
+    </span>
   );
 }

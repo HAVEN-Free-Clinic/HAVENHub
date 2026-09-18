@@ -102,6 +102,27 @@ export default async function TrainingRosterPage({ params }: { params: Promise<{
     throw e;
   }
 
+  // A department director got here by review scope alone, and the only thing on
+  // this page that is theirs is who will be missing. Everything else is
+  // recruitment-staff work: correcting a record one row at a time, opening the
+  // door, writing or withdrawing an excuse. Showing them the roster would be a
+  // table of controls that either refuse them or belong to somebody else, so
+  // they get the section by itself. recruitment.access is the line, which is the
+  // same line cycleNavItems draws: admitted BY the permission gets the working
+  // surface, admitted by scope gets the answer.
+  if (!hasAccess) {
+    return (
+      <PageBody width="wide">
+        <SetBreadcrumb trail={trail} />
+        <PageHeader
+          title="Training"
+          description={`${cycle.title}: who in your departments has told us they will miss the in-person session.`}
+        />
+        <ExcusedSection rows={rows} zone={zone} />
+      </PageBody>
+    );
+  }
+
   return (
     // 6xl, not the original 3xl: three of the seven columns carry a status chip
     // that must not wrap, the two row actions sit beside them, and the Cert

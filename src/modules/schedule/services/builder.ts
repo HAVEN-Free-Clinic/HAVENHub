@@ -214,6 +214,66 @@ export async function canManageAnyScheduleDept(personId: string): Promise<boolea
  * A first-time applicant's row carries a synthetic `acceptance:<id>` in place of
  * a personId, and is handed to {@link setIncomingDraft}.
  */
+/**
+ * Refuse a volunteer assignment that would push a clinic date past the
+ * department's cap.
+ *
+ * Counted across BOTH tables the board is built from: a first-time applicant's
+ * IncomingShiftAssignment draft occupies a seat exactly as a confirmed member's
+ * ShiftAssignment does, and a cap that could not see drafts would let a term
+ * being drafted for an incoming class sail straight past it.
+ *
+ * The person being assigned is excluded from the count, so re-asserting
+ * VOLUNTEER on somebody already on the date is a no-op rather than a breach.
+ *
+ * Checked, not constrained: two directors assigning at the same instant can
+ * both read a count one below the cap and both write. The window is a few
+ * milliseconds and the blast radius is one volunteer over on one Saturday,
+ * which the board shows plainly. A hard guarantee needs a row-counting trigger,
+ * which is a database object with no Prisma expression; if ops ever wants one,
+ * it belongs beside the partial indexes in schedule-schema-guards.test.ts.
+ */
+async function assertRoomForVolunteer(
+  term: Term,
+  opts: { departmentId: string; dateKey: string; personId: string },
+): Promise<void> {
+  const clinicDate = term.clinicDates.find((d) => isoDateKey(d) === opts.dateKey);
+  // Not a clinic date of this term. The caller's own validation reports that,
+  // and a cap check against a date the term does not have means nothing.
+  if (!clinicDate) return;
+
+  const dept = await prisma.department.findUnique({
+    where: { id: opts.departmentId },
+    select: { maxVolunteersPerShift: true },
+  });
+  const cap = dept?.maxVolunteersPerShift ?? null;
+  if (cap === null) return;
+
+  const acceptanceId = acceptanceIdFromRowId(opts.personId);
+  const where = {
+    termId: term.id,
+    departmentId: opts.departmentId,
+    clinicDate,
+    role: "VOLUNTEER" as const,
+  };
+
+  const [assigned, drafted] = await Promise.all([
+    prisma.shiftAssignment.count({
+      where: acceptanceId === null ? { ...where, personId: { not: opts.personId } } : where,
+    }),
+    prisma.incomingShiftAssignment.count({
+      where: acceptanceId === null ? where : { ...where, acceptanceId: { not: acceptanceId } },
+    }),
+  ]);
+
+  if (assigned + drafted + 1 > cap) {
+    throw new BuilderValidationError(
+      `This date already has ${cap} volunteer${cap === 1 ? "" : "s"}, the most ` +
+        `this department staffs on one clinic date.`,
+    );
+  }
+}
+
 export async function setAssignment(
   actor: string,
   opts: {
@@ -234,6 +294,12 @@ export async function setAssignment(
   }
 
   const term = await loadEditableTerm(opts.termId);
+
+  // Before either path writes, so the cap covers a confirmed member and an
+  // incoming applicant's draft alike.
+  if (opts.role === "VOLUNTEER") {
+    await assertRoomForVolunteer(term, opts);
+  }
 
   // A first-time applicant writes against their acceptance: they have no Person
   // for a ShiftAssignment to point at until roster build creates one.

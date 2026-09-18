@@ -89,6 +89,7 @@ describe("updateDepartment", () => {
       isActive: false,
       idealHeadcount: 5,
       patientCapacityPerProvider: null,
+      maxVolunteersPerShift: null,
     });
     expect(u.code).toBe("ITCM");
     expect(u.name).toBe("New");
@@ -111,6 +112,7 @@ describe("updateDepartment", () => {
       isActive: true,
       idealHeadcount: null,
       patientCapacityPerProvider: null,
+      maxVolunteersPerShift: null,
       requiresEpicDirector: "SOME",
       requiresEpicVolunteer: "NONE",
     });
@@ -135,6 +137,7 @@ describe("updateDepartment", () => {
       isActive: true,
       idealHeadcount: null,
       patientCapacityPerProvider: null,
+      maxVolunteersPerShift: null,
     });
     expect(u.requiresEpicDirector).toBe("ALL");
     expect(u.requiresEpicVolunteer).toBe("SOME");
@@ -149,6 +152,7 @@ describe("updateDepartment", () => {
       isActive: true,
       idealHeadcount: null,
       patientCapacityPerProvider: null,
+      maxVolunteersPerShift: null,
       allowShiftDrop: false,
     });
     expect(off.allowShiftDrop).toBe(false);
@@ -164,6 +168,7 @@ describe("updateDepartment", () => {
       isActive: true,
       idealHeadcount: null,
       patientCapacityPerProvider: null,
+      maxVolunteersPerShift: null,
       allowShiftDrop: true,
     });
     expect(on.allowShiftDrop).toBe(true);
@@ -178,6 +183,7 @@ describe("updateDepartment", () => {
       isActive: true,
       idealHeadcount: null,
       patientCapacityPerProvider: null,
+      maxVolunteersPerShift: null,
     });
     expect(u.allowShiftDrop).toBe(false);
   });
@@ -244,6 +250,7 @@ describe("minInterpreterScore", () => {
       isActive: true,
       idealHeadcount: null,
       patientCapacityPerProvider: null,
+      maxVolunteersPerShift: null,
       minInterpreterScore: 3,
     });
     expect(after.minInterpreterScore).toBe(3);
@@ -258,6 +265,7 @@ describe("minInterpreterScore", () => {
       isActive: true,
       idealHeadcount: null,
       patientCapacityPerProvider: null,
+      maxVolunteersPerShift: null,
     });
     expect(after.minInterpreterScore).toBe(3);
   });
@@ -269,6 +277,7 @@ describe("minInterpreterScore", () => {
       isActive: true,
       idealHeadcount: null,
       patientCapacityPerProvider: null,
+      maxVolunteersPerShift: null,
       minInterpreterScore: null,
     });
     expect(after.minInterpreterScore).toBeNull();
@@ -333,6 +342,7 @@ describe("updateDepartment and the pre-acceptance flag", () => {
       isActive: true,
       idealHeadcount: null,
       patientCapacityPerProvider: null,
+      maxVolunteersPerShift: null,
       assessLanguageBeforeAcceptance: true,
     });
 
@@ -352,6 +362,7 @@ describe("updateDepartment and the pre-acceptance flag", () => {
       isActive: true,
       idealHeadcount: null,
       patientCapacityPerProvider: null,
+      maxVolunteersPerShift: null,
     });
 
     expect(updated.assessLanguageBeforeAcceptance).toBe(true);
@@ -391,6 +402,7 @@ describe("updateDepartment and the Spanish-regardless flag", () => {
       isActive: true,
       idealHeadcount: null,
       patientCapacityPerProvider: null,
+      maxVolunteersPerShift: null,
       assessSpanishRegardlessOfClaim: true,
     });
 
@@ -409,8 +421,56 @@ describe("updateDepartment and the Spanish-regardless flag", () => {
       isActive: true,
       idealHeadcount: null,
       patientCapacityPerProvider: null,
+      maxVolunteersPerShift: null,
     });
 
     expect(updated.assessSpanishRegardlessOfClaim).toBe(true);
+  });
+});
+
+describe("the volunteer cap", () => {
+  it("persists on create, updates, and refuses a non-positive value", async () => {
+    const d = await createDepartment("a", {
+      code: "INTP",
+      name: "Interpreting",
+      maxVolunteersPerShift: 20,
+    });
+    expect(d.maxVolunteersPerShift).toBe(20);
+
+    const u = await updateDepartment("actor-2", d.id, {
+      name: "Interpreting",
+      isActive: true,
+      idealHeadcount: null,
+      patientCapacityPerProvider: null,
+      maxVolunteersPerShift: 5,
+    });
+    expect(u.maxVolunteersPerShift).toBe(5);
+
+    await expect(
+      updateDepartment("a", d.id, {
+        name: "Interpreting",
+        isActive: true,
+        idealHeadcount: null,
+        patientCapacityPerProvider: null,
+        maxVolunteersPerShift: 0,
+      }),
+    ).rejects.toBeInstanceOf(DepartmentValidationError);
+  });
+
+  it("leaves the cap untouched when an edit does not mention it", async () => {
+    const d = await createDepartment("a", {
+      code: "INTP",
+      name: "Interpreting",
+      maxVolunteersPerShift: 20,
+    });
+
+    const u = await updateDepartment("a", d.id, {
+      name: "Interpreting",
+      isActive: true,
+      idealHeadcount: null,
+      patientCapacityPerProvider: null,
+    });
+
+    expect(u.maxVolunteersPerShift).toBe(20);
   });
 });

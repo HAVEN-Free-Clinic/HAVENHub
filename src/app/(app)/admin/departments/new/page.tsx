@@ -22,6 +22,7 @@ export default async function NewDepartmentPage() {
         isActive: formData.get("isActive") === "on",
         idealHeadcount: optionalInt(formData.get("idealHeadcount")),
         patientCapacityPerProvider: optionalInt(formData.get("patientCapacityPerProvider")),
+        maxVolunteersPerShift: optionalInt(formData.get("maxVolunteersPerShift")),
         requiresEpicDirector: epicRequirement(formData.get("requiresEpicDirector")),
         requiresEpicVolunteer: epicRequirement(formData.get("requiresEpicVolunteer")),
         autoRouteApplicants: formData.get("autoRouteApplicants") === "on",

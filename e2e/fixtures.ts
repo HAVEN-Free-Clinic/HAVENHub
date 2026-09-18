@@ -106,6 +106,39 @@ export async function seedComplianceMember(
  * `orderBy: { startDate: "desc" }`, so the transition report resolves to THIS
  * term even on a dev database that already has one in planning.
  */
+/**
+ * A volunteer the generator can actually place: a member of `deptCode` in the
+ * active term whose availability covers one clinic date.
+ *
+ * Every other member fixture here leaves availability empty, which is right for
+ * the surfaces that only list people and useless for auto-assign, which proposes
+ * nobody without it. One date rather than the whole term keeps the proposal a
+ * single row, so a spec can place it and assert an exact count.
+ */
+export async function seedSchedulableVolunteer(deptCode: string) {
+  const term = await activeTerm();
+  const department = await dept(deptCode);
+  const clinicDate = term.clinicDates[0];
+  if (!clinicDate) {
+    throw new Error("The active term has no clinic dates, so there is nothing to schedule against.");
+  }
+  const t = tag();
+  const person = await prisma.person.create({
+    data: { name: `E2E-Schedulable ${t}`, contactEmail: `${t}@example.test` },
+  });
+  await prisma.termMembership.create({
+    data: {
+      personId: person.id,
+      termId: term.id,
+      departmentId: department.id,
+      kind: "VOLUNTEER",
+      status: "ACTIVE",
+      baselineAvailability: [clinicDate],
+    },
+  });
+  return { person, clinicDate, cleanup: () => cleanupPerson(person.id) };
+}
+
 export async function seedPlanningTerm(code: string) {
   const term = await prisma.term.create({
     data: {

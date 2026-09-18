@@ -19,6 +19,7 @@ type DepartmentFormProps = {
     | "isActive"
     | "idealHeadcount"
     | "patientCapacityPerProvider"
+    | "maxVolunteersPerShift"
     | "requiresEpicDirector"
     | "requiresEpicVolunteer"
     | "autoRouteApplicants"
@@ -70,6 +71,18 @@ export function DepartmentForm({ action, mode, department }: DepartmentFormProps
               type="number"
               min="1"
               defaultValue={String(department?.patientCapacityPerProvider ?? "")}
+            />
+          </Field>
+
+          <Field
+            label="Max volunteers per shift"
+            hint="The most volunteers that may be staffed on one clinic date. Leave blank for no cap. Unlike the ideal headcount, this is enforced: an assignment past it is refused, whether it was generated or placed by hand."
+          >
+            <Input
+              name="maxVolunteersPerShift"
+              type="number"
+              min="1"
+              defaultValue={String(department?.maxVolunteersPerShift ?? "")}
             />
           </Field>
 

@@ -99,6 +99,30 @@ it("never emails a waitlisted applicant", async () => {
   expect(await rejectionMails()).toHaveLength(0);
 });
 
+/** Waitlisted people hear "you are on our waitlist" first (waitlist-emails.ts),
+ *  and a rejection only once someone actually marks them Rejected. */
+it("emails a waitlisted applicant only after they are moved to Rejected, even after their waitlist email", async () => {
+  const { srr, cycle } = await seed();
+  const app = await mkApp(cycle.id, "waiting@yale.edu", { decision: "WAITLIST" });
+  await prisma.application.update({ where: { id: app.id }, data: { waitlistEmailedAt: new Date() } });
+
+  expect((await sendRejections(cycle.id, srr.id)).sent).toBe(0);
+
+  await prisma.application.update({ where: { id: app.id }, data: { decision: "REJECT" } });
+  expect((await sendRejections(cycle.id, srr.id)).sent).toBe(1);
+  expect((await rejectionMails()).map((m) => m.toEmail)).toEqual(["waiting@yale.edu"]);
+});
+
+it("never emails a director-track applicant waitlisted by one department, however many others rejected them", async () => {
+  const { srr, cycle } = await seed();
+  const app = await mkApp(cycle.id, "dirwait@yale.edu");
+  await prisma.interview.create({ data: { applicationId: app.id, departmentCode: "SRHD", createdById: srr.id, decision: "REJECT" } });
+  await prisma.interview.create({ data: { applicationId: app.id, departmentCode: "MDIC", createdById: srr.id, decision: "WAITLIST" } });
+
+  expect((await sendRejections(cycle.id, srr.id)).sent).toBe(0);
+  expect(await rejectionMails()).toHaveLength(0);
+});
+
 it("does not email a rejected applicant still being considered by a dual department, only after its final no", async () => {
   const { srr, cycle } = await seed();
   await prisma.department.create({ data: { code: "VADM", name: "Vaccine" } });

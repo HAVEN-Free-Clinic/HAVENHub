@@ -482,4 +482,34 @@ export const recruitmentDescriptors: TemplateDescriptor[] = [
 
 <p>Thank you,<br>HAVEN Free Clinic</p>`,
   },
+  {
+    key: "recruitment.waitlist",
+    name: "Recruitment: waitlisted",
+    category: "transactional",
+    group: "recruitment",
+    // To a waitlisted applicant held for capacity, never to the interpreting
+    // department's waitlist (those are language holds, told to come to training
+    // by recruitment.assessment_hold). Two jobs: say they are still in
+    // consideration rather than turned down, and release them from training so
+    // nobody gives up a Saturday for a place they do not have yet. Like the
+    // rejection, it names no department: cycleTitle is the only scope true for
+    // every applicant it can reach.
+    variables: [
+      { name: "firstName", label: "Applicant first name", sampleValue: "Sam" },
+      { name: "cycleTitle", label: "Cycle title", sampleValue: "Volunteer Fall 2026" },
+      { name: "trainingDate", label: "In-person training date, preformatted; empty when none is set", sampleValue: "Saturday, September 26, 2026" },
+    ],
+    defaultSubject: "Your HAVEN {{ cycleTitle }} application: you are on our waitlist",
+    defaultBody: `<p>Dear {{ firstName }},</p>
+
+<p>Thank you for applying to HAVEN Free Clinic for {{ cycleTitle }}. We received many more strong applications than we have places this cycle, and rather than close the door on yours, we would like to keep it open. <strong>You are on our waitlist.</strong></p>
+
+<p>As places become available over the coming weeks, we will offer them to applicants on the waitlist. If one opens for you, we will contact you directly. There is nothing you need to do in the meantime.</p>
+
+<p><strong>You do not need to attend training{{#if trainingDate}} on {{ trainingDate }}{{/if}}.</strong> Training is for the volunteers joining this term. If we are able to offer you a place, we will let you know what you need to complete at that point.</p>
+
+<p>We know waiting is not easy, and we are grateful for your patience and for your interest in serving our patients. If you have any questions, just reply to this email.</p>
+
+<p>Warm regards,<br>HAVEN Free Clinic</p>`,
+  },
 ];

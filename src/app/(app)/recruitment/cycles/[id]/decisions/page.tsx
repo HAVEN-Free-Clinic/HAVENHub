@@ -4,7 +4,14 @@ import { requirePermission } from "@/platform/auth/session";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { listConflicts, releaseSummary, rejectionSummary } from "@/modules/recruitment/services/decisions";
 import { assessmentHoldSummary } from "@/modules/recruitment/services/assessment-holds";
-import { releaseDecisionsAction, sendRejectionsAction, sendAssessmentHoldsAction, keepBothDepartmentsAction } from "./actions";
+import { waitlistEmailSummary } from "@/modules/recruitment/services/waitlist-emails";
+import {
+  releaseDecisionsAction,
+  sendRejectionsAction,
+  sendWaitlistEmailsAction,
+  sendAssessmentHoldsAction,
+  keepBothDepartmentsAction,
+} from "./actions";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
@@ -29,10 +36,11 @@ export default async function DecisionsPage({ params }: {
   await requirePermission("recruitment.review_all");
   const cycle = await getCycle(id);
   if (!cycle) notFound();
-  const [conflicts, summary, rejections, holds] = await Promise.all([
+  const [conflicts, summary, rejections, waitlist, holds] = await Promise.all([
     listConflicts(id),
     releaseSummary(id),
     rejectionSummary(id),
+    waitlistEmailSummary(id),
     assessmentHoldSummary(id),
   ]);
 
@@ -139,6 +147,34 @@ export default async function DecisionsPage({ params }: {
               : rejections.unnotified === 0
                 ? "Everyone marked Rejected on the applicant roster has already been emailed."
                 : "Emails every applicant the roster shows as Rejected and who hasn't been notified yet. Applicants who were accepted, waitlisted, still undecided, or who withdrew are never included."}
+          </p>
+        </form>
+      </section>
+
+      {/* The capacity waitlist. Never the interpreting department's, and never
+          anyone still awaiting a language evaluation: both of those are told to
+          come to training by the section below, and this email says not to. */}
+      <section className="space-y-3 border-t border-border-subtle pt-6">
+        <SectionHeader>Waitlisted</SectionHeader>
+
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <StatCard label="Waitlisted" value={waitlist.waitlisted} />
+          <StatCard label="Unnotified" value={waitlist.unnotified} />
+          <StatCard label="Emailed" value={waitlist.emailed} />
+        </div>
+
+        <form action={sendWaitlistEmailsAction.bind(null, id)} className="space-y-2">
+          <ConfirmButton
+            label="Send waitlist emails"
+            confirmLabel={`Email ${waitlist.unnotified} waitlisted ${waitlist.unnotified === 1 ? "applicant" : "applicants"}?`}
+            disabled={!waitlist.released || waitlist.unnotified === 0}
+          />
+          <p className="text-xs text-subtle-foreground">
+            {!waitlist.released
+              ? "Release decisions first, so accepted applicants hear before anyone is told they are waiting."
+              : waitlist.unnotified === 0
+                ? "Everyone on the waitlist this email is for has already been emailed."
+                : "Emails every waitlisted applicant who hasn't been notified yet, telling them they are still in consideration and do not need to come to training. Interpreting's waitlist and anyone still awaiting a language evaluation are left out. A waitlisted applicant never gets a rejection email unless they are later marked Rejected."}
           </p>
         </form>
       </section>

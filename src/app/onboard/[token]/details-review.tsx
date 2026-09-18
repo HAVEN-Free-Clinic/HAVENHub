@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/platform/ui/button";
 import type { ContractBlock, SystemFieldBlock } from "@/modules/recruitment/contract/layout";
-import { systemFieldOptions } from "@/modules/recruitment/contract/system-fields";
+import { systemFieldOptions, isSystemFieldRequired } from "@/modules/recruitment/contract/system-fields";
 import { legalNameOf } from "@/platform/person-name";
 import { formatPhone } from "@/platform/phone";
 
@@ -19,6 +19,31 @@ const INPUT_NAMES: Record<string, string[]> = {
   name: ["firstName", "legalMiddleName", "lastName", "preferredFirstName"],
   email: ["email"], netId: ["netId"], phone: ["phone"], pronouns: ["pronouns"],
   yaleAffiliation: ["yaleAffiliation"], gradYear: ["gradYear"], staffTitle: ["staffTitle"],
+};
+
+/**
+ * The prefill values a reviewable block needs before its inputs may stay hidden.
+ *
+ * A control rendered `required` inside the summary's `hidden` wrapper is one the
+ * browser refuses to submit AND cannot focus to say why, so pressing "Submit
+ * onboarding" does nothing at all with no message anywhere on the page. Any
+ * required detail the application did not collect therefore has to open the
+ * inputs, not just the three core ones: the FA26 volunteer template marks
+ * yaleAffiliation, gradYear and phone required while 241 of 430 accepted
+ * applicants had no affiliation on file, which dead-ended 260 of them.
+ *
+ * `name` and `email` are core, so isSystemFieldRequired always returns true for
+ * them and the original first/last/email rule is preserved exactly.
+ */
+const REQUIRED_PREFILL: Record<string, (p: ReviewPrefill) => (string | undefined)[]> = {
+  name: (p) => [p.firstName, p.lastName],
+  email: (p) => [p.email],
+  netId: (p) => [p.netId],
+  phone: (p) => [p.phone],
+  pronouns: (p) => [p.pronouns],
+  yaleAffiliation: (p) => [p.yaleAffiliation],
+  gradYear: (p) => [p.gradYear],
+  staffTitle: (p) => [p.staffTitle],
 };
 
 /** Short labels for the summary. The form's own labels are questions, some a sentence long. */
@@ -70,23 +95,40 @@ export function reviewRows(blocks: SystemFieldBlock[], prefill: ReviewPrefill): 
  * The details the application already collected, as a summary with an "Update"
  * option instead of a page of prefilled inputs to re-read.
  *
- * The inputs are always rendered (inside `children`), only hidden, so the values
- * post either way and client-side visibility is computed exactly as before. The
- * inputs open straight away when a required detail is missing, since a hidden
- * required input would block the submit with nothing visible to fix, and when the
- * server rejected one of them, so the error is on screen.
+ * Blocks split in two. Anything already on file is SUMMARIZED: its inputs render
+ * inside the hidden wrapper so the values still post and client-side visibility
+ * is computed exactly as before. A required detail the application never
+ * collected is MISSING, and is asked as an ordinary visible field below the
+ * summary instead.
+ *
+ * That split is the point: `required` on a control inside `hidden` is one the
+ * browser refuses to submit AND cannot focus to explain, so "Submit onboarding"
+ * silently does nothing with no message anywhere on the page. It dead-ended 260
+ * of 430 FA26 contracts, whose template marks yaleAffiliation/gradYear/phone
+ * required while 241 applicants had no affiliation on file. Asking only the
+ * blank ones keeps `required` on a control the browser can focus, without
+ * exposing the fields the applicant never needed to touch.
  */
 export function DetailsReview({
-  blocks, prefill, err, children,
+  blocks, prefill, err, renderField,
 }: {
   blocks: SystemFieldBlock[];
   prefill: ReviewPrefill;
   err: (k: string) => string | undefined;
-  children: ReactNode;
+  /** Renders one reviewable block's real inputs. Called once per block, either
+   *  inside the hidden wrapper (summarized) or in the visible list (missing). */
+  renderField: (block: SystemFieldBlock) => ReactNode;
 }) {
-  const missingRequired = !prefill.firstName.trim() || !prefill.lastName.trim() || !prefill.email.trim();
-  const hasError = blocks.some((b) => (INPUT_NAMES[b.systemKey] ?? []).some((name) => err(name)));
-  const [editing, setEditing] = useState(missingRequired);
+  const isMissing = (b: SystemFieldBlock) =>
+    isSystemFieldRequired(b) &&
+    (REQUIRED_PREFILL[b.systemKey]?.(prefill) ?? []).some((v) => !(v ?? "").trim());
+  const missing = blocks.filter(isMissing);
+  const summarized = blocks.filter((b) => !isMissing(b));
+
+  // Only the summarized inputs can be hidden, so only their errors need to open
+  // the wrapper; a missing field is on screen already, with its error beside it.
+  const hasError = summarized.some((b) => (INPUT_NAMES[b.systemKey] ?? []).some((name) => err(name)));
+  const [editing, setEditing] = useState(false);
   const open = editing || hasError;
 
   // The button that opened the inputs disappears, so move focus to the first of
@@ -101,38 +143,53 @@ export function DetailsReview({
 
   return (
     <div className="space-y-6">
-      {!open && (
-        <div className="rounded-lg border border-border bg-muted/40 p-4">
+      {summarized.length > 0 && (
+        <>
+          {!open && (
+            <div className="rounded-lg border border-border bg-muted/40 p-4">
+              <p className="text-sm text-foreground-soft">
+                We have these details from your application. Check them, and update anything that has changed.
+              </p>
+              <dl className="mt-3 grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-[10rem_1fr] sm:gap-y-2">
+                {reviewRows(summarized, prefill).map(({ label, value }) => (
+                  <Fragment key={label}>
+                    <dt className="text-xs text-subtle-foreground sm:pt-0.5">{label}</dt>
+                    <dd className="mb-2 break-words text-sm text-foreground [overflow-wrap:anywhere] sm:mb-0">
+                      {value ?? <span className="italic text-subtle-foreground">Not provided</span>}
+                    </dd>
+                  </Fragment>
+                ))}
+              </dl>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="mt-4"
+                onClick={() => {
+                  focusOnOpen.current = true;
+                  setEditing(true);
+                }}
+              >
+                Update my details
+              </Button>
+            </div>
+          )}
+          <div ref={inputsRef} hidden={!open} className="space-y-6">
+            {summarized.map(renderField)}
+          </div>
+        </>
+      )}
+
+      {missing.length > 0 && (
+        <div className="space-y-6">
           <p className="text-sm text-foreground-soft">
-            We have these details from your application. Check them, and update anything that has changed.
+            {missing.length === 1
+              ? "Your application did not include this detail, so please add it here."
+              : "Your application did not include these details, so please add them here."}
           </p>
-          <dl className="mt-3 grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-[10rem_1fr] sm:gap-y-2">
-            {reviewRows(blocks, prefill).map(({ label, value }) => (
-              <Fragment key={label}>
-                <dt className="text-xs text-subtle-foreground sm:pt-0.5">{label}</dt>
-                <dd className="mb-2 break-words text-sm text-foreground [overflow-wrap:anywhere] sm:mb-0">
-                  {value ?? <span className="italic text-subtle-foreground">Not provided</span>}
-                </dd>
-              </Fragment>
-            ))}
-          </dl>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="mt-4"
-            onClick={() => {
-              focusOnOpen.current = true;
-              setEditing(true);
-            }}
-          >
-            Update my details
-          </Button>
+          {missing.map(renderField)}
         </div>
       )}
-      <div ref={inputsRef} hidden={!open} className="space-y-6">
-        {children}
-      </div>
     </div>
   );
 }

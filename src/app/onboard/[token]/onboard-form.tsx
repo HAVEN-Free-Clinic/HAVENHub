@@ -189,7 +189,10 @@ export function OnboardForm({
   // The details the application already collected render as one summary with an
   // "Update" option, placed where the first of them sits, instead of as a page of
   // inputs to re-read. Their inputs still render inside it (hidden), so the
-  // values post and visibility is computed exactly as before.
+  // values post and visibility is computed exactly as before -- except a
+  // required detail the application never collected, which DetailsReview asks
+  // as a visible field rather than hiding a control the browser then refuses
+  // to submit.
   const reviewBlocks = shown.filter(isReviewableBlock);
   const firstReviewIndex = shown.findIndex(isReviewableBlock);
   const field = (b: (typeof shown)[number]) => (
@@ -237,9 +240,7 @@ export function OnboardForm({
           if (!isReviewableBlock(b)) return field(b);
           if (i !== firstReviewIndex) return null;
           return (
-            <DetailsReview key="details-review" blocks={reviewBlocks} prefill={prefill} err={err}>
-              {reviewBlocks.map(field)}
-            </DetailsReview>
+            <DetailsReview key="details-review" blocks={reviewBlocks} prefill={prefill} err={err} renderField={field} />
           );
         })}
 

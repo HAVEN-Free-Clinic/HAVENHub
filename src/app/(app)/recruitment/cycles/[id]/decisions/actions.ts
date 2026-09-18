@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { requirePersonSession } from "@/platform/auth/session";
 import { releaseDecisions, sendRejections } from "@/modules/recruitment/services/decisions";
 import { sendAssessmentHolds } from "@/modules/recruitment/services/assessment-holds";
+import { sendWaitlistEmails } from "@/modules/recruitment/services/waitlist-emails";
 import { RecruitmentAuthError, AcceptanceError } from "@/modules/recruitment/services/review";
 import { DualAppointmentError, requestDualAppointment } from "@/modules/recruitment/services/dual-appointments";
 import { captureEvent } from "@/platform/posthog/capture";
@@ -107,4 +108,30 @@ export async function sendAssessmentHoldsAction(cycleId: string) {
     groups: await termGroupForCycle(cycleId),
   });
   redirect(`/recruitment/cycles/${cycleId}/decisions?held=${sent}`);
+}
+
+/**
+ * Tell every waitlisted applicant outside the interpreting department that they
+ * are on the waitlist and do not need to come to training. Its own button, like
+ * rejections: SRR times and checks this send separately.
+ */
+export async function sendWaitlistEmailsAction(cycleId: string) {
+  const person = await requirePersonSession();
+  let sent = 0;
+  try {
+    const res = await sendWaitlistEmails(cycleId, person.personId);
+    sent = res.sent;
+  } catch (err) {
+    if (err instanceof RecruitmentAuthError || err instanceof AcceptanceError) {
+      redirect(`/recruitment/cycles/${cycleId}/decisions?error=${encodeURIComponent(err.message)}`);
+    }
+    throw err;
+  }
+  await captureEvent({
+    distinctId: person.personId,
+    event: "recruitment_waitlist_emails_sent",
+    properties: { cycle_id: cycleId, sent },
+    groups: await termGroupForCycle(cycleId),
+  });
+  redirect(`/recruitment/cycles/${cycleId}/decisions?waitlisted=${sent}`);
 }

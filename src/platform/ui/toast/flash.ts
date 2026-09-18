@@ -998,6 +998,17 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
     },
   },
   {
+    // recruitment/cycles/[id]/decisions/actions.ts (sendWaitlistEmailsAction).
+    // The fourth send on that page, claimed for the same reason as `held` above.
+    params: ["waitlisted"],
+    pathnames: ["/recruitment/cycles/*/decisions"],
+    tone: "success",
+    message: (values) => {
+      const n = values.get("waitlisted") ?? "0";
+      return `Sent ${n} waitlist email${n === "1" ? "" : "s"}.`;
+    },
+  },
+  {
     // volunteers/spanish-review (five redirects) and volunteers/dual-roles. `ok`
     // carries a ready-made sentence from the action, so it is echoed rather than
     // rewritten here. Its neighbour `error` on both pages is claimed by the

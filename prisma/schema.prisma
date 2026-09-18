@@ -2765,6 +2765,16 @@ model Application {
   /// stays true afterwards; clearing it on a decision would let a second hold
   /// email go out to someone who has already had one.
   assessmentHoldEmailedAt    DateTime?
+  /// Stamped when the "you are on our waitlist" email went out for this
+  /// application (see services/waitlist-emails.ts). The same kind of claim as
+  /// rejectionEmailedAt above: only ever written from null, so a repeated Send
+  /// cannot tell an applicant twice.
+  ///
+  /// Deliberately NOT cleared when the application is later decided. A waitlisted
+  /// applicant who is then rejected still gets the rejection (that send keys on
+  /// rejectionEmailedAt, not on this), and one who is reopened and waitlisted
+  /// again already knows where they stand.
+  waitlistEmailedAt          DateTime?
   /// Draft-reminder stream state (see services/draft-reminders.ts). Meaningful
   /// only while status is DRAFT, but never cleared on submit: the counters are
   /// the record of how many nudges an application took, which is the only way to

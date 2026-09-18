@@ -1,0 +1,11 @@
+-- The "you are on our waitlist" email, sent from the Decisions tab to a
+-- waitlisted applicant outside the interpreting department.
+--
+-- One nullable stamp, claimed exactly the way rejectionEmailedAt is: the sender
+-- only ever writes it from null inside a transaction, so a repeated Send (or two
+-- leads pressing it at once) cannot email the same applicant twice.
+--
+-- rolling-deploy: additive and nullable, so an old instance running against the
+-- migrated schema simply never reads or writes it. No backfill: a null means
+-- "not told yet", which is the correct state for every existing row.
+ALTER TABLE "Application" ADD COLUMN "waitlistEmailedAt" TIMESTAMP(3);

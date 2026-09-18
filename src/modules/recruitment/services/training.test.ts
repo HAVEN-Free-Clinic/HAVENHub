@@ -532,6 +532,37 @@ it("refuses someone who is not on the cycle's roster", async () => {
   expect(await prisma.trainingAbsenceExcuse.count()).toBe(0);
 });
 
+/**
+ * The read the director-facing Training tab rests on.
+ *
+ * The tab admits a department director who holds NO recruitment permission at
+ * all (see cycleNavItems and the page's own gate), so what stops them reading
+ * the whole clinic is listTrainingRoster's own scoping, not a permission check
+ * in front of it. `dir` here is exactly that person: an ACTIVE DIRECTOR
+ * membership in SRHD and nothing else.
+ */
+it("a department director with no recruitment permission sees their own department's excuses, and only theirs", async () => {
+  const { term, srr, vol, dir, c1 } = await seedMember();
+  await recordAbsenceExcuse(c1.id, vol.id, "Family wedding", srr.id);
+
+  // A second department, whose excused volunteer must not reach this director.
+  const other = await prisma.department.create({ data: { code: "ITCM", name: "ITCM" } });
+  const otherVol = await prisma.person.create({ data: { name: "Other Vol", status: "ACTIVE" } });
+  await prisma.termMembership.create({
+    data: { personId: otherVol.id, termId: term.id, departmentId: other.id, kind: "VOLUNTEER", status: "ACTIVE" },
+  });
+  await recordAbsenceExcuse(c1.id, otherVol.id, "Away that weekend", srr.id);
+
+  const rows = await listTrainingRoster(c1.id, dir.id);
+  expect(memberRow(rows, vol.id).excuse?.reason).toBe("Family wedding");
+  expect(memberIds(rows)).not.toContain(otherVol.id);
+
+  // The lead's view is unchanged: both departments, both excuses.
+  const leadRows = await listTrainingRoster(c1.id, srr.id);
+  expect(memberIds(leadRows)).toContain(otherVol.id);
+  expect(memberRow(leadRows, otherVol.id).excuse?.reason).toBe("Away that weekend");
+});
+
 it("clearing an excuse removes it, and clearing twice is not an error", async () => {
   const { srr, vol, c1 } = await seedMember();
   await recordAbsenceExcuse(c1.id, vol.id, "Exam", srr.id);

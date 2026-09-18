@@ -1,10 +1,15 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { PageBody } from "@/platform/ui/page-body";
-import { requirePermission, requirePersonSession } from "@/platform/auth/session";
+import { requirePersonSession } from "@/platform/auth/session";
 import { can } from "@/platform/rbac/engine";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { listTrainingRoster, TrainingStateError } from "@/modules/recruitment/services/training";
-import { resolveAttendanceAuthority } from "@/modules/recruitment/services/attendance-events";
+import type { TrainingRosterRow } from "@/modules/recruitment/services/training";
+import { reviewScope } from "@/modules/recruitment/services/review";
+import {
+  findTrainingEventForCycle,
+  resolveAttendanceAuthority,
+} from "@/modules/recruitment/services/attendance-events";
 import {
   clearApplicantExcuseAction,
   clearExcuseAction,
@@ -28,6 +33,9 @@ import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { Alert } from "@/platform/ui/alert";
+import { Card } from "@/platform/ui/card";
+import { SectionHeader } from "@/platform/ui/section-header";
+import { EmptyState } from "@/platform/ui/empty-state";
 import { Badge } from "@/platform/ui/badge";
 import { StatusBadge } from "@/platform/ui/status-badge";
 import {
@@ -40,8 +48,20 @@ import { ConfirmButton } from "@/platform/ui/confirm-button";
 
 export default async function TrainingRosterPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  await requirePermission("recruitment.access");
   const viewer = await requirePersonSession();
+  // Deliberately NOT requirePermission("recruitment.access"), which the Director
+  // role does not grant: a department director's only sight of who will miss the
+  // session is this page, and being told the week before is the whole point of
+  // recording an excuse. listTrainingRoster already scopes every row through
+  // reviewScope -> manageableDepartmentIds, so a director sees their own people
+  // and nobody else's, and every write below still answers to manage_cycles.
+  // cycleNavItems carries the identical gate; the two must move together or the
+  // tab dead-ends on a page that refuses the viewer.
+  const [hasAccess, scope] = await Promise.all([
+    can(viewer.personId, "recruitment.access"),
+    reviewScope(viewer.personId),
+  ]);
+  if (!hasAccess && !scope.all && scope.departmentCodes.length === 0) redirect("/no-access");
   const cycle = await getCycle(id);
   if (!cycle) notFound();
   const trail = cycleTrail({ cycleId: id, cycleTitle: cycle.title, section: { label: "Training", slug: "training" } });
@@ -49,12 +69,18 @@ export default async function TrainingRosterPage({ params }: { params: Promise<{
   // Excusing an absence is a lead's call, not a department director's: it is the
   // clinic deciding somebody is not at fault, and it is the leads who receive the
   // emails these excuses come out of. Directors still see the badge.
-  const [canExcuse, attendanceAuthority, zone] = await Promise.all([
+  const [canExcuse, attendanceAuthority, trainingEvent, zone] = await Promise.all([
     can(viewer.personId, "recruitment.manage_cycles"),
     resolveAttendanceAuthority(viewer.personId),
+    findTrainingEventForCycle(id),
     getDisplayTimeZone(),
   ]);
   const canCheckIn = attendanceAuthority.all || attendanceAuthority.departmentCodes.length > 0;
+  // Opening check-in CREATES the cycle's TRAINING event, and creating one is a
+  // lead's write (requireEventManager). Offered on authority alone, the button
+  // refused every scoped director who pressed it before a lead had opened the
+  // session. Once the event exists, anyone with check-in authority works the door.
+  const canStartCheckIn = canCheckIn && (canExcuse || trainingEvent !== null);
   // Clinic-wide only: an accepted applicant's attendance is an unlinked row.
   const canRecordApplicants = attendanceAuthority.all;
 
@@ -92,13 +118,14 @@ export default async function TrainingRosterPage({ params }: { params: Promise<{
         // one screen, and including everyone accepted whether or not they have
         // onboarded -- and this is the way into it.
         action={
-          canCheckIn ? (
+          canStartCheckIn ? (
             <form action={startCheckInAction.bind(null, id)}>
               <SubmitButton pendingLabel="Opening…">Start check-in</SubmitButton>
             </form>
           ) : undefined
         }
       />
+      <ExcusedSection rows={rows} zone={zone} />
       <Table>
         <THead>
           <tr>
@@ -113,7 +140,7 @@ export default async function TrainingRosterPage({ params }: { params: Promise<{
         </THead>
         <tbody>
           {rows.map((r) => (
-            <TR key={`${r.kind === "member" ? r.personId : r.kind === "applicant" ? r.acceptanceId : r.applicantId}-${r.departmentCode}`}>
+            <TR key={rosterRowKey(r)}>
               {/* No second badge under the name. The Overall column now reads
                   "Not onboarded" for exactly these rows, and two chips saying the
                   same thing is how a table stops being scannable. */}
@@ -250,5 +277,57 @@ export default async function TrainingRosterPage({ params }: { params: Promise<{
         </tbody>
       </Table>
     </PageBody>
+  );
+}
+
+/** Stable key for a roster row. The union's three shapes carry three different
+ *  ids, and one person can hold a row per department they were accepted into. */
+function rosterRowKey(r: TrainingRosterRow): string {
+  const id = r.kind === "member" ? r.personId : r.kind === "applicant" ? r.acceptanceId : r.applicantId;
+  return `${id}-${r.departmentCode}`;
+}
+
+/**
+ * Who has told the clinic, ahead of the day, that they will not be there.
+ *
+ * The table below answers "where does everyone stand", one row per person, and
+ * an Excused badge inside sixty of those rows is not an answer to the question a
+ * director opens this page with: who on my team is going to be missing. Reads
+ * the rows the page already fetched, so it costs no query and inherits their
+ * scoping exactly -- a director sees their departments, a lead sees the clinic.
+ *
+ * Each line keeps its training chip, because "excused" and "excused, and already
+ * caught up by makeup quiz" are different facts and only one is outstanding.
+ */
+function ExcusedSection({ rows, zone }: { rows: TrainingRosterRow[]; zone: string }) {
+  // flatMap rather than filter: it narrows the excuse out of the union, so the
+  // fields below are read off a value TypeScript knows is there.
+  const excused = rows.flatMap((r) => (r.excuse ? [{ row: r, excuse: r.excuse }] : []));
+  return (
+    <Card>
+      <SectionHeader level="card" className="mb-3">
+        Excused from the in-person session{excused.length > 0 ? ` (${excused.length})` : ""}
+      </SectionHeader>
+      {excused.length === 0 ? (
+        <EmptyState inline>No excused absences recorded for this session.</EmptyState>
+      ) : (
+        <ul className="space-y-2">
+          {excused.map(({ row, excuse }) => (
+            <li key={rosterRowKey(row)} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+              <span className="font-medium text-foreground">{row.name}</span>
+              <span className="text-foreground-soft">{row.departmentCode}</span>
+              <StatusBadge {...trainingStateLabel(row.trainingState)} />
+              <span className="text-subtle-foreground">
+                {excuse.reason}
+                {" ("}
+                {excuse.recordedByName ? `${excuse.recordedByName}, ` : ""}
+                {formatDateOnly(excuse.recordedAt, zone)}
+                {")"}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
   );
 }

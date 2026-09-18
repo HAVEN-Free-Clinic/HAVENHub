@@ -137,12 +137,35 @@ describe("cycleNavItems", () => {
   describe("Dual appointments", () => {
     it("shows for a department director with no recruitment.access, who asks for volunteers there", () => {
       const items = cycleNavItems({ cycleId: CYCLE_ID, track: "VOLUNTEER", canAccess: false, canManage: false, canReviewAll: false, hasReviewScope: true });
-      expect(items.map((i) => i.label)).toEqual(["Applicants", "Dual appointments"]);
+      expect(items.map((i) => i.label)).toEqual(["Applicants", "Dual appointments", "Training"]);
     });
 
     it("never shows on a DIRECTOR cycle, where dual appointments do not apply", () => {
       const items = cycleNavItems({ cycleId: CYCLE_ID, track: "DIRECTOR", canAccess: true, canManage: true, canReviewAll: true, hasReviewScope: true });
       expect(items.map((i) => i.label)).not.toContain("Dual appointments");
+    });
+  });
+
+  describe("Training, for a department director holding no recruitment permission", () => {
+    it("shows on a VOLUNTEER cycle, under the Accepted stage", () => {
+      const items = cycleNavItems({ cycleId: CYCLE_ID, track: "VOLUNTEER", canAccess: false, canManage: false, canReviewAll: false, hasReviewScope: true });
+      const training = items.find((i) => i.label === "Training");
+      expect(training?.href).toBe(`/recruitment/cycles/${CYCLE_ID}/training`);
+      // The stage row is what draws the tab; filed anywhere else it would not
+      // appear for a viewer whose only other tabs are Review-stage ones.
+      expect(training?.group).toBe("accepted");
+    });
+
+    it("shows on a DIRECTOR cycle too, where the roster is their own directors", () => {
+      const items = cycleNavItems({ cycleId: CYCLE_ID, track: "DIRECTOR", canAccess: false, canManage: false, canReviewAll: false, hasReviewScope: true });
+      expect(items.map((i) => i.label)).toEqual(["Applicants", "Training"]);
+    });
+
+    it("stays hidden from a committee scorer, who directs no department", () => {
+      // The gate is the review SCOPE, not merely being admitted to the subtree:
+      // a scorer reads applications clinic-wide and has no roster of their own.
+      const items = cycleNavItems({ cycleId: CYCLE_ID, track: "VOLUNTEER", canAccess: false, canManage: false, canReviewAll: false });
+      expect(items.map((i) => i.label)).not.toContain("Training");
     });
   });
 

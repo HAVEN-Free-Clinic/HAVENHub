@@ -93,7 +93,16 @@ export function applicationAvailabilityDates(
 export type OnboardingSchedulingNotes = {
   /** How many shifts they would like this term ("1".."7", "8+"). */
   preferredShifts: string | null;
-  /** What they asked to change about their application availability, and why. */
+  /**
+   * What they asked to change about their application availability, and why.
+   *
+   * No longer rendered in the schedule builder: an availability change is a
+   * request someone decides, so it is listed on /schedule/requests, where a
+   * director applies it to the member's availability and it disappears once
+   * handled. That surface reads the contract columns directly (see
+   * modules/schedule/services/availability-requests.ts), so this field is kept
+   * for readers who want the contract's scheduling answers as one shape.
+   */
   availabilityChangeRequest: string | null;
 };
 

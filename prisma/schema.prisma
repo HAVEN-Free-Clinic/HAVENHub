@@ -39,6 +39,17 @@ enum ShiftRequestStatus {
   CANCELLED
 }
 
+/// What a department did about a volunteer's availability change request.
+///
+/// There is deliberately no PENDING member: the request is the onboarding
+/// contract's own answer, and "pending" is the ABSENCE of a decision row. A
+/// third value here would be a second place to say the same thing, and the two
+/// would drift.
+enum AvailabilityChangeOutcome {
+  APPLIED
+  DISMISSED
+}
+
 enum ShiftRole {
   DIRECTOR
   VOLUNTEER
@@ -323,6 +334,8 @@ model Person {
   shiftRequestsTargeted          ShiftRequest[]             @relation("shiftRequestTarget")
   /// Shift requests this person decided (approved or denied).
   shiftRequestsDecided           ShiftRequest[]             @relation("shiftRequestDecidedBy")
+  /// Availability change requests this person applied or dismissed.
+  availabilityChangesDecided     AvailabilityChangeDecision[] @relation("availabilityChangeDecidedBy")
   /// Triage chats this person created.
   triageChatsCreated             TriageChat[]               @relation("triageChatCreatedBy")
   /// Triage chat memberships recorded for this person.
@@ -476,6 +489,7 @@ model Department {
   shiftAssignments           ShiftAssignment[]
   incomingShifts             IncomingShiftAssignment[]
   shiftRequests              ShiftRequest[]
+  availabilityDecisions      AvailabilityChangeDecision[]
   scheduleDays               ScheduleDay[]
   schedulePublications       SchedulePublication[]
   courseDepartments          CourseDepartment[]
@@ -3082,8 +3096,43 @@ model OnboardingContract {
   acceptance     Acceptance @relation(fields: [acceptanceId], references: [id], onDelete: Cascade)
   promotedBy     Person?    @relation("contractPromotedBy", fields: [promotedById], references: [id], onDelete: SetNull)
   promotedPerson Person?    @relation("contractPromotedPerson", fields: [promotedPersonId], references: [id], onDelete: SetNull)
+  /// One per department that has acted on this contract's availability request.
+  availabilityDecisions AvailabilityChangeDecision[]
 
   @@index([status])
+}
+
+/// A director's disposition of the availability change a volunteer asked for on
+/// their onboarding contract.
+///
+/// The request itself is not a row anywhere. It is the contract's own
+/// availabilityChangeNeeded / availabilityChangeRequest answer, written once at
+/// onboarding and never revised. This table records only what a department DID
+/// about it, which is why a missing row means "nobody has decided yet": there is
+/// nothing to backfill for the contracts that already carry a request, and no
+/// status on the contract to keep in step with this one.
+///
+/// Keyed per DEPARTMENT, not per contract. A dual appointment is two departments
+/// sharing one contract (the second acceptance has none of its own), and each
+/// director applies the change to their own TermMembership. A single row per
+/// contract would let whichever director decided first close the request for a
+/// department that never saw it.
+model AvailabilityChangeDecision {
+  id           String                    @id @default(cuid())
+  contractId   String
+  departmentId String
+  outcome      AvailabilityChangeOutcome
+  /// The director's own words: why it was dismissed, or what they changed.
+  note         String?
+  decidedById  String
+  decidedAt    DateTime                  @default(now())
+
+  contract   OnboardingContract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  department Department         @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  decidedBy  Person             @relation("availabilityChangeDecidedBy", fields: [decidedById], references: [id], onDelete: Restrict)
+
+  @@unique([contractId, departmentId])
+  @@index([departmentId])
 }
 
 model Training {

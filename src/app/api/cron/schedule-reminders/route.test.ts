@@ -4,6 +4,7 @@ import { resetDb } from "@/platform/test/db";
 
 const REMINDER_TEMPLATE = "schedule-request-submitted-director";
 const DIGEST_TEMPLATE = "schedule-request-digest-exec";
+const AVAILABILITY_TEMPLATE = "schedule-availability-request-reminder";
 
 beforeEach(async () => {
   await resetDb();
@@ -46,6 +47,127 @@ describe("GET /api/cron/schedule-reminders", () => {
     const { GET } = await import("./route");
     const res = await GET(new Request("https://x/api/cron/schedule-reminders"));
     expect(res.status).toBe(401);
+  });
+
+  // -------------------------------------------------------------------------
+  // Availability change requests
+  //
+  // These have no clinic date and no ShiftRequest row: the request is the
+  // onboarding contract's own answer. Before this, nothing emailed anyone about
+  // them at all.
+  // -------------------------------------------------------------------------
+
+  /** An accepted applicant whose contract asks to change their availability. */
+  async function availabilityRequest(
+    termId: string,
+    departmentCode: string,
+    name: string,
+    approvedById: string,
+  ) {
+    const email = `${name.replace(/\s+/g, ".").toLowerCase()}@yale.edu`;
+    const [firstName, lastName] = name.split(" ");
+    const cycle = await prisma.recruitmentCycle.create({
+      data: {
+        track: "VOLUNTEER",
+        termId,
+        title: `Cycle ${name}`,
+        publicSlug: `cycle-${Date.now()}-${Math.random()}`,
+        departments: [departmentCode],
+        createdById: approvedById,
+        status: "OPEN",
+      },
+    });
+    const applicant = await prisma.applicant.create({
+      data: { cycleId: cycle.id, firstName, lastName: lastName ?? "", email, emailLower: email },
+    });
+    const application = await prisma.application.create({
+      data: {
+        cycleId: cycle.id,
+        applicantId: applicant.id,
+        answers: {},
+        departmentChoices: [departmentCode],
+        status: "SUBMITTED",
+      },
+    });
+    const acceptance = await prisma.acceptance.create({
+      data: { applicationId: application.id, departmentCode, approvedById },
+    });
+    return prisma.onboardingContract.create({
+      data: {
+        acceptanceId: acceptance.id,
+        token: `t-${acceptance.id}`,
+        status: "SUBMITTED",
+        firstName,
+        lastName: lastName ?? "",
+        email,
+        availabilityChangeNeeded: true,
+        availabilityChangeRequest: "Please drop me from Sep 12.",
+      },
+    });
+  }
+
+  it("emails an approver whose only pending work is an availability change", async () => {
+    const term = await prisma.term.create({
+      data: {
+        code: "SU26", name: "Summer",
+        startDate: new Date("2026-05-30T12:00:00Z"), endDate: new Date("2026-09-26T12:00:00Z"),
+        status: "ACTIVE",
+      },
+    });
+    const dept = await prisma.department.create({ data: { code: "AVLA", name: "Dept Avail" } });
+    const dir = await director("Ava");
+    await prisma.termMembership.create({
+      data: { personId: dir.id, termId: term.id, departmentId: dept.id, kind: "DIRECTOR", status: "ACTIVE" },
+    });
+    await availabilityRequest(term.id, "AVLA", "Val Volunteer", dir.id);
+
+    const { GET } = await import("./route");
+    const res = await GET(new Request("https://x/api/cron/schedule-reminders", { headers: { Authorization: "Bearer sekret" } }));
+    expect(res.status).toBe(200);
+
+    // The shift-request loop iterates ShiftRequest rows, so it never reaches
+    // this approver: without the dedicated pass they were emailed nothing.
+    const mail = await prisma.emailLog.findFirstOrThrow({
+      where: { template: AVAILABILITY_TEMPLATE, personId: dir.id },
+    });
+    expect(mail.html).toContain("Val Volunteer");
+    expect(mail.html).toMatch(/href="https?:\/\/[^"]*\/schedule\/requests"/);
+    expect(
+      await prisma.emailLog.count({ where: { template: REMINDER_TEMPLATE, personId: dir.id } }),
+    ).toBe(0);
+  });
+
+  it("folds the availability count into the shift reminder instead of sending a second email", async () => {
+    const term = await prisma.term.create({
+      data: {
+        code: "SU26", name: "Summer",
+        startDate: new Date("2026-05-30T12:00:00Z"), endDate: new Date("2026-09-26T12:00:00Z"),
+        status: "ACTIVE",
+      },
+    });
+    const dept = await prisma.department.create({ data: { code: "BOTH", name: "Dept Both" } });
+    const dir = await director("Bea");
+    const vol = await prisma.person.create({ data: { name: "VolBoth", status: "ACTIVE" } });
+    await prisma.termMembership.create({
+      data: { personId: dir.id, termId: term.id, departmentId: dept.id, kind: "DIRECTOR", status: "ACTIVE" },
+    });
+    await pendingRequest(term.id, dept.id, vol.id);
+    await availabilityRequest(term.id, "BOTH", "Val Volunteer", dir.id);
+
+    const { GET } = await import("./route");
+    await GET(new Request("https://x/api/cron/schedule-reminders", { headers: { Authorization: "Bearer sekret" } }));
+
+    // One email, carrying both asks. The per-day claim admits a single reminder
+    // per approver, so a separate availability email would have been the one
+    // thing that could not reach them anyway.
+    const mail = await prisma.emailLog.findFirstOrThrow({
+      where: { template: REMINDER_TEMPLATE, personId: dir.id },
+    });
+    expect(mail.html).toContain("You also have");
+    expect(mail.html).toContain("availability change request");
+    expect(
+      await prisma.emailLog.count({ where: { template: AVAILABILITY_TEMPLATE, personId: dir.id } }),
+    ).toBe(0);
   });
 
   // A request whose term has been archived can no longer be decided anywhere in

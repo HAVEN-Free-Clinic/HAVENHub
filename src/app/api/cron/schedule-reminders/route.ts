@@ -55,6 +55,7 @@ import { log, flushLogs } from "@/platform/logging";
 import { queueEmail } from "@/platform/email/send";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
 import { requestApproverRecipients, scheduleEmailUrls } from "@/modules/schedule/services/requests";
+import { pendingAvailabilityRequests } from "@/modules/schedule/services/availability-requests";
 import {
   byUrgencyThenDate,
   cadenceFor,
@@ -79,6 +80,19 @@ export const maxDuration = 300;
 
 const REMINDER_TEMPLATE = "schedule-request-submitted-director";
 const DIGEST_TEMPLATE = "schedule-request-digest-exec";
+/**
+ * The availability-change reminder, for approvers who have no shift request
+ * waiting. Anyone who has both hears about both in the reminder above, which
+ * carries an availabilityCount line, so this never doubles up on them.
+ */
+const AVAILABILITY_TEMPLATE = "schedule-availability-request-reminder";
+const AVAILABILITY_CLAIM = "schedule-availability-reminder";
+/**
+ * How long an availability-only reminder spaces itself. These requests have no
+ * clinic date, so there is no urgency to derive a cadence from: they simply
+ * should not be forgotten. Matches the loosest shift-request throttle.
+ */
+const AVAILABILITY_THROTTLE_MS = 3 * 24 * 60 * 60 * 1000;
 /**
  * Its own claim kind, so an ED who is ALSO a department director still gets
  * both emails: the per-department reminder is a request they can decide, the
@@ -173,6 +187,32 @@ export async function GET(req: Request): Promise<Response> {
     return recipients;
   }
 
+  // Availability changes waiting, aggregated per approver. Resolved BEFORE the
+  // loop below so an approver who is getting a shift-request reminder can be told
+  // about both in that one email rather than a second one.
+  const availabilityByApprover = new Map<
+    string,
+    { count: number; names: string[]; departments: Set<string>; contactEmail: string | null; name: string }
+  >();
+  for (const summary of await pendingAvailabilityRequests()) {
+    const approvers = await approversFor(summary.departmentId, summary.termId);
+    for (const approver of approvers) {
+      const entry = availabilityByApprover.get(approver.id) ?? {
+        count: 0,
+        names: [],
+        departments: new Set<string>(),
+        contactEmail: approver.contactEmail,
+        name: approver.name,
+      };
+      entry.count += summary.rows.length;
+      for (const row of summary.rows) entry.names.push(row.personName);
+      entry.departments.add(summary.departmentName);
+      availabilityByApprover.set(approver.id, entry);
+    }
+  }
+  /** Approvers already told about their availability requests by the loop below. */
+  const availabilityCovered = new Set<string>();
+
   let reminded = 0;
   let skipped = 0;
 
@@ -229,6 +269,11 @@ export async function GET(req: Request): Promise<Response> {
           partnerName: pending.target?.name ?? "",
           partnerDate: partnerDateStr,
           departmentName: pending.department.name,
+          // Blank rather than "0" when there are none: the template guards this
+          // with {{#if}}, and "0" is truthy to it.
+          availabilityCount: availabilityByApprover.has(approver.id)
+            ? String(availabilityByApprover.get(approver.id)!.count)
+            : "",
         });
         await queueEmail(prisma, {
           to: approver.contactEmail,
@@ -239,6 +284,8 @@ export async function GET(req: Request): Promise<Response> {
           triggeredById: approver.id,
         });
         reminded++;
+        // Told in this email; the availability pass below must skip them.
+        availabilityCovered.add(approver.id);
       } catch (err) {
         // Release the per-day claim (taken before this enqueue) so a failed reminder
         // retries next tick instead of being silently suppressed by the marker, and
@@ -250,6 +297,61 @@ export async function GET(req: Request): Promise<Response> {
           error: err instanceof Error ? err.message : String(err),
         });
       }
+    }
+  }
+
+  // Approvers whose ONLY pending work is availability changes. The loop above
+  // iterates shift requests, so it never reaches them, and before this pass they
+  // were emailed about these requests exactly never.
+  let availabilityReminded = 0;
+  for (const [personId, entry] of availabilityByApprover) {
+    if (availabilityCovered.has(personId)) continue;
+    if (!entry.contactEmail) continue;
+
+    const already = await prisma.emailLog.findFirst({
+      where: {
+        personId,
+        template: AVAILABILITY_TEMPLATE,
+        createdAt: { gte: new Date(now - AVAILABILITY_THROTTLE_MS) },
+      },
+      select: { id: true },
+    });
+    if (already) {
+      skipped++;
+      continue;
+    }
+
+    const claimed = await claimReminderDispatch(AVAILABILITY_CLAIM, personId, todayKey);
+    if (!claimed) {
+      skipped++;
+      continue;
+    }
+
+    try {
+      const { subject, html } = await renderEmail(AVAILABILITY_TEMPLATE, {
+        ...(await scheduleEmailUrls()),
+        directorName: firstNameOf(entry.name),
+        availabilityCount: String(entry.count),
+        // Escaped by the template renderer ({{ }}, not {{{ }}}), so a name with
+        // an ampersand in it cannot break the markup.
+        requesterNames: entry.names.join(", "),
+        departmentName: [...entry.departments].join(", "),
+      });
+      await queueEmail(prisma, {
+        to: entry.contactEmail,
+        subject,
+        html,
+        template: AVAILABILITY_TEMPLATE,
+        personId,
+        triggeredById: personId,
+      });
+      availabilityReminded++;
+    } catch (err) {
+      await releaseReminderDispatch(AVAILABILITY_CLAIM, personId, todayKey);
+      log.warn("[cron/schedule-reminders] failed to enqueue availability reminder", {
+        personId,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
@@ -271,10 +373,15 @@ export async function GET(req: Request): Promise<Response> {
     todayKey,
   );
 
-  log.info("[cron/schedule-reminders] complete", { reminded, skipped, digested });
+  log.info("[cron/schedule-reminders] complete", {
+    reminded,
+    skipped,
+    digested,
+    availabilityReminded,
+  });
   await recordCronHeartbeat("schedule-reminders");
   await flushLogs();
-  return Response.json({ ok: true, reminded, skipped, digested });
+  return Response.json({ ok: true, reminded, skipped, digested, availabilityReminded });
 }
 
 /**

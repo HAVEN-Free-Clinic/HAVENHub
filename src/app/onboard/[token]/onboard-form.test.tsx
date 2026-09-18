@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { OnboardForm } from "./onboard-form";
 import { DIRECTOR_LAYOUT } from "@/modules/recruitment/contract/defaults/director";
+import { VOLUNTEER_LAYOUT } from "@/modules/recruitment/contract/defaults/volunteer";
 
 const ctx = {
   firstName: "Ada", orgName: "HAVEN Free Clinic", todayIso: "2026-07-21",
@@ -78,5 +79,45 @@ describe("OnboardForm", () => {
     );
     expect(html).toContain("Nothing is saved until you submit this form.");
     expect(html).not.toContain("HIPAA certificate PDF");
+  });
+});
+
+describe("OnboardForm with a required detail the application never collected", () => {
+  // The composition this bug shipped through: DetailsReview hides the reviewable
+  // fields behind a summary, and the FA26 volunteer template marks
+  // yaleAffiliation required, so a blank one rendered `required` inside `hidden`.
+  // The browser then refuses the submit and cannot focus the control to say why,
+  // which is why "Submit onboarding" did nothing at all for 260 of 430 people.
+  const fa26Volunteer = {
+    blocks: VOLUNTEER_LAYOUT.blocks.map((b) =>
+      b.kind === "system_field" && b.systemKey === "yaleAffiliation" ? { ...b, required: true } : b,
+    ),
+  };
+  const volunteerCtx = { ...ctx, track: "VOLUNTEER" as const };
+  const noAffiliation = {
+    firstName: "Ada", lastName: "L", preferredFirstName: "", email: "ada@example.com",
+    netId: "abl2", phone: "203-555-0100", yaleAffiliation: "", gradYear: "",
+  };
+  const render = () =>
+    renderToStaticMarkup(
+      <OnboardForm token="tok" prefill={noAffiliation} layout={fa26Volunteer} ctx={volunteerCtx} />,
+    );
+
+  it("asks it as a visible, natively required control", () => {
+    const html = render();
+    const selectTag = html.match(/<select[^>]*name="yaleAffiliation"[^>]*>/)?.[0] ?? "";
+    expect(selectTag).toContain('required=""');
+    // In the "we still need this" list below the summary, not inside the hidden
+    // wrapper, so the browser can focus it and say what is wrong.
+    expect(html).toContain("Your application did not include this detail");
+    expect(html.indexOf("Your application did not include")).toBeLessThan(
+      html.indexOf('name="yaleAffiliation"'),
+    );
+  });
+
+  it("still collapses everything already on file", () => {
+    const html = render();
+    expect(html).toContain("Update my details");
+    expect(html).toContain('hidden=""');
   });
 });

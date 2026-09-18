@@ -95,6 +95,15 @@ export function cycleNavItems(opts: {
   if (opts.canAccess && opts.canReviewAll) items.push({ label: "Onboarding", href: `${base}/onboarding`, group: "accepted" });
   if (opts.canAccess && opts.canManage) items.push({ label: "Emails", href: `${base}/emails`, group: "setup" });
   if (opts.canAccess && opts.canManage) items.push({ label: "Quiz", href: `${base}/builder/quiz`, group: "setup" });
-  if (opts.canAccess) items.push({ label: "Training", href: `${base}/training`, group: "accepted" });
+  // Like Applicants and Dual appointments above, this page self-authorizes by
+  // review scope rather than recruitment.access, which the Director role does
+  // not grant. A department director needs to know who on their roster excused
+  // themselves from the session before it happens, and listTrainingRoster
+  // already scopes every row to the departments they direct -- so admitting
+  // them shows them their own people and nobody else's. The write controls on
+  // the page stay behind manage_cycles (requireExcuseLead), so this is a read.
+  if (opts.canAccess || opts.hasReviewScope) {
+    items.push({ label: "Training", href: `${base}/training`, group: "accepted" });
+  }
   return items;
 }

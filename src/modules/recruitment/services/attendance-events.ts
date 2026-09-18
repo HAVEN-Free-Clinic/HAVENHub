@@ -254,6 +254,22 @@ export async function deleteEvent(eventId: string, actorId: string): Promise<voi
  * TRAINING event for the cycle wins, so repeated calls return the same row and
  * never split one session's attendance across two events.
  */
+/**
+ * The cycle's TRAINING event, or null when nobody has opened check-in yet.
+ *
+ * The read-only sibling of ensureTrainingEventForCycle below, which CREATES one
+ * and so demands a lead (requireEventManager). The roster needs this question
+ * answered without the write: a scoped director may work the door of a session
+ * that has been opened, but may not bring one into being, and offering them a
+ * button that can only refuse is worse than not offering it.
+ */
+export async function findTrainingEventForCycle(cycleId: string): Promise<AttendanceEvent | null> {
+  return prisma.attendanceEvent.findFirst({
+    where: { cycleId, kind: "TRAINING" },
+    orderBy: { createdAt: "asc" },
+  });
+}
+
 export async function ensureTrainingEventForCycle(
   cycleId: string,
   actorId: string,
@@ -264,10 +280,7 @@ export async function ensureTrainingEventForCycle(
   });
   if (!cycle) throw new AttendanceEventError("Cycle not found.");
 
-  const existing = await prisma.attendanceEvent.findFirst({
-    where: { cycleId, kind: "TRAINING" },
-    orderBy: { createdAt: "asc" },
-  });
+  const existing = await findTrainingEventForCycle(cycleId);
   if (existing) return existing;
 
   await requireEventManager(actorId);

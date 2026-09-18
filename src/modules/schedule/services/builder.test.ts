@@ -2051,7 +2051,6 @@ describe("builderView", () => {
     const member = view.members.find((m) => m.person.id === volunteer.id);
     expect(member!.intake).toEqual({
       preferredShifts: null,
-      availabilityChangeRequest: null,
       feedback: "Prefer triage",
     });
 
@@ -2059,7 +2058,6 @@ describe("builderView", () => {
     const dir = view.members.find((m) => m.person.id === director.id);
     expect(dir!.intake).toEqual({
       preferredShifts: null,
-      availabilityChangeRequest: null,
       feedback: null,
     });
   });
@@ -3154,7 +3152,6 @@ describe("onboarding scheduling answers in the builder", () => {
     const row = view.members.find((m) => m.provisional?.acceptanceId === acceptance.id);
     expect(row!.intake).toEqual({
       preferredShifts: "5",
-      availabilityChangeRequest: "Drop Sep 12",
       feedback: null,
     });
   });
@@ -3173,6 +3170,5 @@ describe("onboarding scheduling answers in the builder", () => {
     const member = view.members.find((m) => m.person.id === volunteer.id);
     expect(member!.provisional).toBeNull();
     expect(member!.intake.preferredShifts).toBe("8+");
-    expect(member!.intake.availabilityChangeRequest).toBeNull();
   });
 });

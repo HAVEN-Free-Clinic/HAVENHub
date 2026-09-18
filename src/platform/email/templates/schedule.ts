@@ -22,6 +22,7 @@ export type ScheduleTemplateKey =
   | "schedule-request-denied-partner"
   | "schedule-request-cancelled-partner"
   | "schedule-request-submitted-director"
+  | "schedule-availability-request-reminder"
   | "schedule-request-digest-exec"
   | "clinic-checkin-invite";
 
@@ -176,12 +177,36 @@ export const scheduleDescriptors: TemplateDescriptor[] = [
       { name: "partnerName", label: "Swap partner name (swap only)", sampleValue: "Jordan" },
       { name: "partnerDate", label: "Partner shift date (swap only)", sampleValue: "Saturday, July 18, 2026" },
       { name: "departmentName", label: "Department name", sampleValue: "Internal Medicine" },
+      { name: "availabilityCount", label: "Availability changes also waiting (blank for none)", sampleValue: "2" },
     ],
     defaultSubject: "New shift request pending review",
     defaultBody: `<p>Hi {{ directorName }},</p>
 <p><strong>{{ requesterName }}</strong> has submitted a <strong>{{ requestType }} request</strong> for <strong>{{ requesterDate }}</strong>{{#if partnerName}} with <strong>{{ partnerName }}</strong> ({{ partnerDate }}){{/if}} in the <strong>{{ departmentName }}</strong> department.</p>
 <p>Please review and approve or deny the request in HAVEN Hub.</p>
+{{#if availabilityCount}}<p>You also have <strong>{{ availabilityCount }}</strong> availability change request(s) waiting on the same page.</p>{{/if}}
 {{#if requestsUrl}}<p><a href="{{ requestsUrl }}">Review pending requests</a></p>{{/if}}`,
+  },
+  // The availability-only reminder. An approver with a pending shift request
+  // hears about both in the one email above; this goes to the approvers who have
+  // ONLY availability changes waiting, who the shift-request loop never reaches.
+  {
+    key: "schedule-availability-request-reminder",
+    name: "Pending availability changes - director notification",
+    category: "transactional",
+    group: "shift",
+    variables: [
+      { name: "scheduleUrl", label: "Hub schedule link", sampleValue: "https://hub.havenfreeclinic.org/schedule" },
+      { name: "requestsUrl", label: "Hub approvals link", sampleValue: "https://hub.havenfreeclinic.org/schedule/requests" },
+      { name: "directorName", label: "Director first name", sampleValue: "Sam" },
+      { name: "availabilityCount", label: "How many are waiting", sampleValue: "2" },
+      { name: "requesterNames", label: "Who asked", sampleValue: "Alex Johnson, Jordan Lee" },
+      { name: "departmentName", label: "Department name", sampleValue: "Internal Medicine" },
+    ],
+    defaultSubject: "Availability changes waiting for your review",
+    defaultBody: `<p>Hi {{ directorName }},</p>
+<p><strong>{{ availabilityCount }}</strong> volunteer(s) in <strong>{{ departmentName }}</strong> have asked to change the availability their application recorded: {{ requesterNames }}.</p>
+<p>You can update their availability from the approvals page, or dismiss the request if no change is needed.</p>
+{{#if requestsUrl}}<p><a href="{{ requestsUrl }}">Review availability changes</a></p>{{/if}}`,
   },
   // The Executive Directors' oversight view of the same daily reminder run. The
   // per-department reminder above goes to whoever can DECIDE a request; this one

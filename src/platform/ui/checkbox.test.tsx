@@ -284,6 +284,7 @@ describe("checkbox call sites", () => {
   const HAND_ROLLED = new Map<string, { count: number; why: string }>([
     ["src/modules/schedule/components/attending-portal-section.tsx", { count: 1, why: "availability pill, same shared class" }],
     ["src/modules/schedule/components/builder-availability-view.tsx", { count: 1, why: "builder availability pill, same shared class" }],
+    ["src/modules/schedule/components/availability-requests.tsx", { count: 1, why: "approvals-page availability pill, same shared class" }],
     ["src/modules/recruitment/components/field-preview.tsx", { count: 3, why: "already hand-sets min-h-[44px]" }],
     ["src/app/(app)/recruitment/cycles/new/page.tsx", { count: 1, why: "py-1 plus a two-line label, already above the floor" }],
     ["src/app/(app)/recruitment/cycles/[id]/builder/field-card.tsx", { count: 2, why: "py-2 / py-1, already above the floor" }],

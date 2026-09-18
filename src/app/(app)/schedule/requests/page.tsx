@@ -35,7 +35,16 @@ import {
   AttendingPortalNotFoundError,
   AttendingPortalValidationError,
 } from "@/modules/schedule/services/attending-portal";
+import {
+  listAvailabilityRequests,
+  applyAvailabilityChange,
+  dismissAvailabilityChange,
+  AvailabilityRequestForbiddenError,
+  AvailabilityRequestNotFoundError,
+  AvailabilityRequestValidationError,
+} from "@/modules/schedule/services/availability-requests";
 import { PendingRequests } from "@/modules/schedule/components/pending-requests";
+import { AvailabilityRequests } from "@/modules/schedule/components/availability-requests";
 import { AttendingPendingRequests } from "@/modules/schedule/components/attending-pending-requests";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Card } from "@/platform/ui/card";
@@ -79,22 +88,26 @@ export default async function ScheduleRequestsPage() {
     await Promise.all(
       terms.map(async ({ term, isLive }) => {
         const perDept = await Promise.all(
-          depts.map(async (dept) => ({
-            dept,
-            rows: await listDepartmentRequests(session.personId, dept.id, term.id),
-          })),
+          depts.map(async (dept) => {
+            const [rows, availabilityRows] = await Promise.all([
+              listDepartmentRequests(session.personId, dept.id, term.id),
+              listAvailabilityRequests(session.personId, dept.id, term.id),
+            ]);
+            return { dept, rows, availabilityRows };
+          }),
         );
         // Departments with something to decide lead. A department is listed at
         // all if it has recent decisions, so an approver with one pending request
         // among many quiet departments had to scroll past every "No pending
         // requests" card to find it. Array.sort is stable, so ties keep code order.
         const pendingCount = (p: (typeof perDept)[number]) =>
-          p.rows.filter((r) => r.request.status === "PENDING").length;
+          p.rows.filter((r) => r.request.status === "PENDING").length +
+          p.availabilityRows.filter((r) => r.decision === null).length;
         return {
           term,
           isLive,
           perDept: perDept
-            .filter((p) => p.rows.length > 0)
+            .filter((p) => p.rows.length > 0 || p.availabilityRows.length > 0)
             .sort((a, b) => Number(pendingCount(b) > 0) - Number(pendingCount(a) > 0)),
         };
       }),
@@ -129,6 +142,47 @@ export default async function ScheduleRequestsPage() {
     await runAction({
       work: () => denyRequest(actor.personId, requestId, note),
       domainErrors: [RequestValidationError, RequestForbiddenError, RequestNotFoundError],
+      errorRedirect: (message) => `/schedule/requests?error=validation&message=${encodeURIComponent(message)}`,
+      revalidate: "/schedule/requests",
+      successRedirect: "/schedule/requests",
+    });
+  }
+
+  async function applyAvailabilityAction(formData: FormData) {
+    "use server";
+    const actor = await requirePersonSession();
+    const contractId = (formData.get("contractId") as string) ?? "";
+    const departmentId = (formData.get("departmentId") as string) ?? "";
+    // Every ticked clinic date. An empty set is meaningful: it means the member
+    // is available for none of them, which is exactly what some of these requests
+    // ask for.
+    const dateKeys = formData.getAll("dates").map((d) => String(d));
+    await runAction({
+      work: () => applyAvailabilityChange(actor.personId, { contractId, departmentId, dateKeys }),
+      domainErrors: [
+        AvailabilityRequestValidationError,
+        AvailabilityRequestForbiddenError,
+        AvailabilityRequestNotFoundError,
+      ],
+      errorRedirect: (message) => `/schedule/requests?error=validation&message=${encodeURIComponent(message)}`,
+      revalidate: "/schedule/requests",
+      successRedirect: "/schedule/requests",
+    });
+  }
+
+  async function dismissAvailabilityAction(formData: FormData) {
+    "use server";
+    const actor = await requirePersonSession();
+    const contractId = (formData.get("contractId") as string) ?? "";
+    const departmentId = (formData.get("departmentId") as string) ?? "";
+    const note = ((formData.get("dismissNote") as string) ?? "").trim() || undefined;
+    await runAction({
+      work: () => dismissAvailabilityChange(actor.personId, { contractId, departmentId, note }),
+      domainErrors: [
+        AvailabilityRequestValidationError,
+        AvailabilityRequestForbiddenError,
+        AvailabilityRequestNotFoundError,
+      ],
       errorRedirect: (message) => `/schedule/requests?error=validation&message=${encodeURIComponent(message)}`,
       revalidate: "/schedule/requests",
       successRedirect: "/schedule/requests",
@@ -171,7 +225,7 @@ export default async function ScheduleRequestsPage() {
             ? "Approve or deny drop and swap requests for your departments and for the attending schedule."
             : managesAttendings
               ? "Approve or deny drop and swap requests from attendings."
-              : "Approve or deny drop and swap requests for your departments."
+              : "Approve or deny drop and swap requests, and availability changes, for your departments."
         }
       />
 
@@ -196,8 +250,8 @@ export default async function ScheduleRequestsPage() {
         deptIds.length === 0 ? null : (
           <Card>
             <EmptyState
-              title="No shift requests right now"
-              description="Swap and drop requests from your departments will appear here for approval."
+              title="Nothing to review right now"
+              description="Swap and drop requests, and availability changes, from your departments will appear here."
             />
           </Card>
         )
@@ -210,10 +264,22 @@ export default async function ScheduleRequestsPage() {
                 <Badge tone={isLive ? "brand" : "default"}>{isLive ? "Live" : "Next term"}</Badge>
               </div>
             )}
-            {perDept.map(({ dept, rows }) => (
+            {perDept.map(({ dept, rows, availabilityRows }) => (
               <section key={dept.id} className="space-y-3">
                 <SectionHeader>{dept.code} &middot; {dept.name}</SectionHeader>
-                <PendingRequests rows={rows} approveAction={approveRequestAction} denyAction={denyRequestAction} todayKey={todayKey} timeZone={timeZone} />
+                {rows.length > 0 && (
+                  <PendingRequests rows={rows} approveAction={approveRequestAction} denyAction={denyRequestAction} todayKey={todayKey} timeZone={timeZone} />
+                )}
+                {/* Renders nothing when this department has no availability
+                    requests at all, so a department with only drop/swap traffic
+                    looks exactly as it did before. */}
+                <AvailabilityRequests
+                  rows={availabilityRows}
+                  clinicDates={term.clinicDates}
+                  applyAction={applyAvailabilityAction}
+                  dismissAction={dismissAvailabilityAction}
+                  timeZone={timeZone}
+                />
               </section>
             ))}
           </div>

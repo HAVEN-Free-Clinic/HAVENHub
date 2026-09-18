@@ -20,7 +20,7 @@ const member: BuilderMember = {
   overrideActive: false,
   acknowledgePending: false,
   legacyNote: null,
-  intake: { preferredShifts: null, availabilityChangeRequest: null, feedback: null },
+  intake: { preferredShifts: null, feedback: null },
   provisional: null,
 };
 

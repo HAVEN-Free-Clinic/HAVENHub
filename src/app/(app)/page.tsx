@@ -24,6 +24,7 @@ import { EpicAccessCard } from "./epic-access-card";
 import { mySchedule } from "@/modules/schedule/services/schedule";
 import { myAttendingSchedule } from "@/modules/schedule/services/attending-portal";
 import { countPendingApprovals } from "@/modules/schedule/services/requests";
+import { countPendingAvailabilityRequests } from "@/modules/schedule/services/availability-requests";
 import { getCheckInState } from "@/modules/schedule/services/attendance";
 import { buildActionCards } from "./action-cards";
 import { listMyCertificates } from "@/modules/my-info/services/my-info";
@@ -152,7 +153,7 @@ export default async function HubPage() {
   // One permission fetch per render; tiles filter in memory (never can() in a loop).
   const permissions = await getEffectivePermissions(person.personId);
 
-  const [schedule, certificates, orgName, onboarding, myOnboarding, myTraining, pendingApprovals, recruitmentScope, displayZone, liveTerm, checkIn, attendingSchedule] = await Promise.all([
+  const [schedule, certificates, orgName, onboarding, myOnboarding, myTraining, pendingApprovals, recruitmentScope, displayZone, liveTerm, checkIn, attendingSchedule, pendingAvailability] = await Promise.all([
     mySchedule(person.personId),
     listMyCertificates(person.personId),
     getSetting<string>("branding.orgName"),
@@ -166,6 +167,10 @@ export default async function HubPage() {
     getCheckInState(person.personId),
     // Null for everyone who is not faculty, which is almost everyone.
     myAttendingSchedule(person.personId),
+    // The other half of the Approvals card. Both kinds are decided on
+    // /schedule/requests, so the card counts both; a director with only
+    // availability changes waiting would otherwise see no card at all.
+    countPendingAvailabilityRequests(person.personId),
   ]);
   // The dashboard is a live-term view only: next-term shifts/requests are not
   // shown here (they belong to the term-aware schedule page). See mySchedule.
@@ -396,7 +401,7 @@ export default async function HubPage() {
     // pending drop is a pending drop.
     pendingSwapCount:
       (liveEntry?.pendingRequests.size ?? 0) + (attendingSchedule?.pendingRequests.size ?? 0),
-    pendingApprovals,
+    pendingApprovals: pendingApprovals + pendingAvailability,
     compliance: status,
     trainingIncomplete,
     trainingHref,

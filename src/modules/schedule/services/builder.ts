@@ -1256,9 +1256,6 @@ export type BuilderMemberIntake = {
   /** Shifts the member would like this term, from the onboarding contract
    *  ("1".."7", "8+"). */
   preferredShifts: string | null;
-  /** A change to their application availability the member requested on the
-   *  onboarding contract, in their own words. A director decides what to do. */
-  availabilityChangeRequest: string | null;
   /** Free-text note the member addressed to the directors. */
   feedback: string | null;
 };
@@ -1894,7 +1891,6 @@ export async function builderView(
       legacyNote: m.selfUpdatedAvailability ?? null,
       intake: {
         preferredShifts: notes?.preferredShifts ?? null,
-        availabilityChangeRequest: notes?.availabilityChangeRequest ?? null,
         feedback: intakeRow?.feedback ?? null,
       },
       provisional: null,
@@ -1937,7 +1933,7 @@ export async function builderView(
     overrideActive: false,
     acknowledgePending: false,
     legacyNote: null,
-    intake: { ...i.onboardingNotes, feedback: null },
+    intake: { preferredShifts: i.onboardingNotes.preferredShifts, feedback: null },
     provisional: {
       acceptanceId: i.acceptanceId,
       stage: i.stage,

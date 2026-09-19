@@ -141,6 +141,63 @@ it("tells an unlinked attendee the cycle accepted to finish onboarding, not to a
   expect(email.html).not.toContain("Submit an application");
 });
 
+it("takes a hand-typed row out of the stream once it is recognized as waitlisted", async () => {
+  // The rows this covers already exist: before the door could list the waitlist,
+  // a waitlisted applicant could only be recorded by hand, which wrote exactly
+  // this row -- unlinked, keyed on an email, carrying the stranger's `contract`
+  // blocker, and being chased every interval to "submit an application and
+  // onboarding contract". They applied, and the contract is minted from an
+  // acceptance they do not have, so both halves of that are wrong.
+  //
+  // Nothing has to be migrated for it to stop: the pass re-measures rather than
+  // replaying blockersAtCheckIn, so the first tick after the standing lookup
+  // learned about waitlists resolves the row instead of sending a fifth wrong
+  // email.
+  const { term, event } = await seedEvent(new Date("2026-08-20T22:00:00.000Z"));
+  const lead = await prisma.person.create({ data: { name: "Lead", status: "ACTIVE" } });
+  const cycle = await prisma.recruitmentCycle.create({
+    data: {
+      track: "VOLUNTEER",
+      termId: term.id,
+      title: "Fall 2026 Volunteers",
+      publicSlug: "fa26-vol",
+      departments: ["SRHD"],
+      createdById: lead.id,
+      status: "OPEN",
+    },
+  });
+  await prisma.attendanceEvent.update({ where: { id: event.id }, data: { cycleId: cycle.id } });
+
+  const applicant = await prisma.applicant.create({
+    data: {
+      cycleId: cycle.id,
+      firstName: "Wanda",
+      lastName: "Volunteer",
+      email: "walkup@yale.edu",
+      emailLower: "walkup@yale.edu",
+    },
+  });
+  await prisma.application.create({
+    data: {
+      cycleId: cycle.id,
+      applicantId: applicant.id,
+      answers: {},
+      applicantType: "NEW",
+      departmentChoices: ["SRHD"],
+      routedDepartmentCode: "SRHD",
+      decision: "WAITLIST",
+    },
+  });
+
+  const row = await seedWalkUp(event.id, { nudgeLastSentAt: new Date(NOW.getTime() - 30 * DAY) });
+  const result = await runAttendanceNudges(NOW);
+
+  expect(result).toEqual({ sent: 0, resolved: 1, skipped: 0, failed: 0 });
+  expect(await nudgeCount()).toBe(0);
+  const after = await prisma.eventAttendance.findUniqueOrThrow({ where: { id: row.id } });
+  expect(after.resolvedAt).not.toBeNull();
+});
+
 it("still tells a stranger to apply", async () => {
   const { event } = await seedEvent(new Date("2026-08-20T22:00:00.000Z"));
   await seedWalkUp(event.id, { nudgeLastSentAt: new Date(NOW.getTime() - 30 * DAY) });

@@ -41,7 +41,7 @@ export function ExcuseAbsenceButton({
             </Field>
             <p className="text-sm text-foreground-soft">
               This records the absence as excused. It does not complete training: they still
-              need the makeup quiz.
+              need to make it up.
             </p>
             <div className="flex justify-end gap-2">
               <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)}>

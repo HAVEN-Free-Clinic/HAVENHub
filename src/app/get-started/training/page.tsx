@@ -2,12 +2,11 @@ import { redirect } from "next/navigation";
 import { requirePersonSession } from "@/platform/auth/session";
 import { Alert } from "@/platform/ui/alert";
 import { getMyTrainingForTerm } from "@/modules/recruitment/services/training";
-import { makeupOpensOn } from "@/modules/recruitment/services/makeup-window";
+import { MAKEUP_RETIRED_COPY } from "@/modules/recruitment/makeup-retired";
 import { getAccessTerm } from "@/platform/terms/access-term";
 import { getOnboardingStatus } from "@/modules/onboarding/services/onboarding";
 import { formatDateOnly } from "@/platform/dates";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
-import { TrainingQuiz } from "@/app/(app)/training/training-quiz";
 import { OnboardingStepShell } from "../onboarding-step-shell";
 
 export default async function OnboardingTrainingPage({ searchParams }: { searchParams: Promise<{ track?: string }> }) {
@@ -29,33 +28,19 @@ export default async function OnboardingTrainingPage({ searchParams }: { searchP
   return (
     <OnboardingStepShell
       title={my.trackLabel}
-      description="Most people attend the live session. Missed it? Take the makeup quiz here to clear training."
+      description="Attending the in-person session clears training. Your director marks you complete when you attend."
       completedCount={status.completedCount}
       totalCount={status.totalCount}
     >
       {!my.cycle ? (
         <Alert tone="info">Training for {my.term.name} is not open yet. You will get an email when it is ready.</Alert>
-      ) : my.locked ? (
-        <Alert tone="error">
-          Your makeup quiz is locked after {my.maxAttempts} attempts. Contact your recruitment director to reset it, or attend a live session.
-        </Alert>
-      ) : !my.makeupOpen ? (
-        <Alert tone="info">
-          Your in-person training is on {formatDateOnly(my.inPersonTrainingDate, zone)}. Attend the live session and
-          your director marks you complete. Missed it? The makeup quiz opens{" "}
-          {formatDateOnly(makeupOpensOn(my.inPersonTrainingDate!), zone)}.
-        </Alert>
       ) : (
-        <TrainingQuiz
-          termId={my.term.id}
-          track={my.track}
-          questions={my.questions}
-          gradedQuestionCount={my.gradedQuestionCount}
-          passPercent={my.passPercent}
-          maxAttempts={my.maxAttempts}
-          attemptsUsed={my.attemptsUsed}
-          intake={my.intake}
-        />
+        <div className="space-y-3">
+          {my.inPersonTrainingDate && (
+            <Alert tone="info">In-person training: {formatDateOnly(my.inPersonTrainingDate, zone)}.</Alert>
+          )}
+          <Alert tone="info">Missed the session? {MAKEUP_RETIRED_COPY}</Alert>
+        </div>
       )}
     </OnboardingStepShell>
   );

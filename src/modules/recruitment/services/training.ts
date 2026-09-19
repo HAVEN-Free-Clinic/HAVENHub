@@ -10,32 +10,12 @@ import { RecruitmentAuthError, reviewScope } from "./review";
 import { serviceGapsForCycle } from "./service-gap";
 import { rosterLanguageStatus } from "./applicant-language";
 import { EMPTY_LANGUAGE_STATUS, isAwaitingLanguageAssessment } from "../engine/applicant-language";
-import { gradeQuiz, type GradedQuestion } from "@/platform/quiz/grading";
+import type { GradedQuestion } from "@/platform/quiz/grading";
 import { countGradedQuestions } from "@/platform/quiz/graded";
-import { getDisplayTimeZone } from "@/platform/dates/resolve";
-import { makeupIsOpen } from "./makeup-window";
 
 export class TrainingStateError extends Error {
   constructor(message: string) { super(message); this.name = "TrainingStateError"; }
 }
-export class QuizLockedError extends Error {
-  constructor(message: string) { super(message); this.name = "QuizLockedError"; }
-}
-
-export type QuizResultPublic = { score: number; total: number; percent: number; passed: boolean };
-
-/** What submitQuiz returns: the score plus everything the page needs to render
- *  in-place review (whether each answer was right, never the answer itself), the
- *  live attempt count, and whether this attempt tripped the lockout. */
-export type QuizSubmission = QuizResultPublic & {
-  attemptsUsed: number;
-  locked: boolean;
-  /** Graded question key -> whether the learner's answer was right. Ungraded
-   *  questions (correctValue == null) are absent, so the review screen leaves
-   *  them unmarked rather than implying they were scored. Never carries the
-   *  correct value itself: a failed attempt precedes a retry. */
-  verdictByKey: Record<string, "correct" | "wrong">;
-};
 
 /** The term's designated training cycle for a track, or null. */
 export async function getTrainingCycleForTerm(termId: string, track: Track): Promise<RecruitmentCycle | null> {
@@ -185,23 +165,16 @@ export async function completeTraining(
  * onboarding contract had not been submitted yet -- so attendance moved to
  * ./attendance-events.ts, where it is recorded against an event and the training
  * completion is a consequence of it. The roster's per-row button now routes
- * through recordEventCheckIn, and completeTraining above is the shared write both
- * that path and the quiz path still use. */
+ * through recordEventCheckIn, and completeTraining above is the shared write.
+ *
+ * The member self-serve makeup quiz (submitQuiz) was retired on 2026-09-19, the
+ * day of Fall 2026 training, before its window opened: it is being replaced by
+ * an online makeup course in Learning. QuizAttempt rows and completedVia QUIZ
+ * stay as history. Training.feedback, the note the quiz collected, is no longer
+ * written; the column keeps what earlier terms stored. */
 
-/** The note a member leaves for their directors on the training quiz. The quiz
- *  used to ask for a shift count and extra availability too; the shift count
- *  moved to the onboarding contract (shiftsWanted), and availability is never
- *  self-reported after the application. Training.minShiftsWanted and
- *  Training.additionalShiftAvailability are no longer written; the columns keep
- *  whatever earlier terms stored. */
-export type TrainingIntake = {
-  feedback?: string | null;
-};
-
-/** Grading-only quiz question fetch, in form order.
- *  Returns only `key` and `correctValue` for answer checking.
- *  Do not use this for rendering; display flows (for example `getMyTrainingForTerm`)
- *  must fetch question `label` and `options` separately. */
+/** Grading-only quiz question fetch, in form order. Returns only `key` and
+ *  `correctValue`; used by setTrainingCycle's answer-key guard. */
 async function quizQuestions(cycleId: string): Promise<GradedQuestion[]> {
   const fields = await prisma.formField.findMany({
     where: { cycleId, type: "SINGLE_SELECT", section: { purpose: "QUIZ" } },
@@ -217,20 +190,9 @@ export type MyTraining = {
   term: { id: string; name: string };
   cycle: { id: string; title: string } | null;
   state: TrainingState;
-  locked: boolean;
   completedVia: TrainingMethod | null;
   completedAt: Date | null;
-  attemptsUsed: number;
-  maxAttempts: number;
-  passPercent: number;
   inPersonTrainingDate: Date | null;
-  makeupOpen: boolean;
-  questions: { key: string; label: string; options: { value: string; label: string }[] }[];
-  /** How many of the cycle's quiz questions carry an answer key (see
-   *  countGradedQuestions). Zero means the quiz cannot be passed no matter how
-   *  many questions render, so the page must treat it the same as "no quiz". */
-  gradedQuestionCount: number;
-  intake: TrainingIntake;
 };
 
 const TRACK_LABEL: Record<Track, string> = {
@@ -241,8 +203,6 @@ const TRACK_LABEL: Record<Track, string> = {
 /** The required training(s) for one specific term, one entry per required track. */
 export async function getMyTrainingForTerm(personId: string, term: { id: string; name: string }): Promise<MyTraining[]> {
   const tracks = await requiredTrainingTracks(personId, term.id);
-  const zone = await getDisplayTimeZone();
-  const now = new Date();
   // Fan the tracks out rather than awaiting each in series; within a track the
   // cycle and training row are independent, so fetch them together too.
   return Promise.all(
@@ -252,36 +212,12 @@ export async function getMyTrainingForTerm(personId: string, term: { id: string;
         prisma.training.findUnique({ where: { personId_termId_track: { personId, termId: term.id, track } } }),
       ]);
       const state: TrainingState = row?.status === "COMPLETE" ? "COMPLETE" : "PENDING";
-
-      let questions: MyTraining["questions"] = [];
-      let gradedQuestionCount = 0;
-      if (cycle) {
-        const fields = await prisma.formField.findMany({
-          where: { cycleId: cycle.id, type: "SINGLE_SELECT", section: { purpose: "QUIZ" } },
-          orderBy: [{ section: { order: "asc" } }, { order: "asc" }],
-          select: { key: true, label: true, options: true, correctValue: true },
-        });
-        gradedQuestionCount = countGradedQuestions(fields);
-        // Build questions without correctValue: this array is passed straight to a
-        // client component, so the answer key must never ride along.
-        questions = fields.map((f) => ({ key: f.key, label: f.label, options: (f.options as { value: string; label: string }[] | null) ?? [] }));
-      }
-
-      const attemptsUsed = row ? await prisma.quizAttempt.count({ where: { trainingId: row.id, ...(row.lockResetAt ? { takenAt: { gte: row.lockResetAt } } : {}) } }) : 0;
-
       return {
         track, trackLabel: TRACK_LABEL[track],
         term: { id: term.id, name: term.name },
         cycle: cycle ? { id: cycle.id, title: cycle.title } : null,
-        state, locked: row?.locked ?? false, completedVia: row?.completedVia ?? null, completedAt: row?.completedAt ?? null,
-        attemptsUsed, maxAttempts: cycle?.quizMaxAttempts ?? 0, passPercent: cycle?.quizPassPercent ?? 0,
+        state, completedVia: row?.completedVia ?? null, completedAt: row?.completedAt ?? null,
         inPersonTrainingDate: cycle?.inPersonTrainingDate ?? null,
-        makeupOpen: makeupIsOpen(cycle?.inPersonTrainingDate ?? null, now, zone),
-        questions,
-        gradedQuestionCount,
-        intake: {
-          feedback: row?.feedback ?? null,
-        },
       };
     }),
   );
@@ -295,67 +231,6 @@ export async function getMyTraining(personId: string): Promise<MyTraining[]> {
     out.push(...(await getMyTrainingForTerm(personId, term)));
   }
   return out;
-}
-
-/** Grade and persist a quiz attempt for the signed-in member. Lazily creates
- *  the training row. Saves intake. On pass: completes training. On reaching the
- *  attempt cap without a pass: locks. Prior attempts are never deleted. */
-export async function submitQuiz(
-  personId: string,
-  input: { termId: string; track: Track; answers: Record<string, unknown>; intake: TrainingIntake }
-): Promise<QuizSubmission> {
-  const cycle = await getTrainingCycleForTerm(input.termId, input.track);
-  if (!cycle) throw new TrainingStateError("This term has no designated training cycle.");
-
-  const isMember = await prisma.termMembership.count({ where: { personId, termId: input.termId, kind: input.track, status: "ACTIVE" } });
-  if (isMember === 0) throw new TrainingStateError("Not an active member of this track this term.");
-
-  const zone = await getDisplayTimeZone();
-  if (!makeupIsOpen(cycle.inPersonTrainingDate, new Date(), zone)) {
-    throw new TrainingStateError("The makeup quiz isn't open yet.");
-  }
-
-  const questions = await quizQuestions(cycle.id);
-  if (countGradedQuestions(questions) === 0) {
-    throw new TrainingStateError("This training's quiz is not ready yet. Contact your coordinator.");
-  }
-
-  return prisma.$transaction(async (tx) => {
-    const row = await tx.training.upsert({
-      where: { personId_termId_track: { personId, termId: input.termId, track: input.track } },
-      create: { personId, termId: input.termId, cycleId: cycle.id, track: input.track },
-      update: {},
-    });
-    if (row.status === "COMPLETE") throw new TrainingStateError("Training is already complete.");
-    if (row.locked) throw new QuizLockedError("Your quiz is locked. Ask your director to reset it.");
-
-    await tx.training.update({
-      where: { id: row.id },
-      data: {
-        feedback: input.intake.feedback ?? undefined,
-      },
-    });
-
-    const result = gradeQuiz(questions, input.answers, cycle.quizPassPercent);
-    await tx.quizAttempt.create({ data: { trainingId: row.id, answers: input.answers as object, score: result.score, total: result.total, passed: result.passed } });
-
-    // Attempts used in the current window (after any reset), incl. this one.
-    const attemptsUsed = await tx.quizAttempt.count({ where: { trainingId: row.id, ...(row.lockResetAt ? { takenAt: { gte: row.lockResetAt } } : {}) } });
-    let locked = false;
-    if (result.passed) {
-      await completeTraining(tx, { personId, termId: input.termId, cycleId: cycle.id, track: input.track, via: "QUIZ" });
-    } else if (attemptsUsed >= cycle.quizMaxAttempts) {
-      await tx.training.update({ where: { id: row.id }, data: { locked: true } });
-      locked = true;
-    }
-
-    const verdictByKey = Object.fromEntries(
-      questions
-        .filter((q) => q.correctValue !== null)
-        .map((q) => [q.key, input.answers[q.key] === q.correctValue ? "correct" : "wrong"] as const)
-    );
-    return { score: result.score, total: result.total, percent: result.percent, passed: result.passed, attemptsUsed, locked, verdictByKey };
-  });
 }
 
 /** Clear a locked member so they can retake the quiz. Opens a fresh attempt
@@ -456,9 +331,8 @@ async function writeExcuse(
  * one down, not the member claiming it -- hence manage_cycles rather than the
  * department-scoped reach that records attendance.
  *
- * Purely a record. It does not complete training, waive the makeup quiz, or move
- * the makeup window: the person still owes the quiz on the normal schedule. What
- * it buys is a roster that can tell someone who warned us apart from someone who
+ * Purely a record. It does not complete training or waive the makeup: the person
+ * still owes it like anyone who missed the session. What it buys is a roster that can tell someone who warned us apart from someone who
  * simply never turned up.
  */
 export async function recordAbsenceExcuse(

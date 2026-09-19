@@ -3,11 +3,12 @@ import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import { RecruitmentAuthError } from "./review";
 import {
-  setTrainingCycle, getTrainingCycleForTerm, updateQuizSettings, TrainingStateError, QuizLockedError,
+  setTrainingCycle, getTrainingCycleForTerm, updateQuizSettings, TrainingStateError,
   requiredTrainingTracks,
 } from "./training";
+import * as trainingService from "./training";
 import { completeTraining, resolveTrainingState } from "./training";
-import { getMyTraining, submitQuiz, resetTraining, listTrainingRoster } from "./training";
+import { getMyTraining, resetTraining, listTrainingRoster } from "./training";
 import {
   recordAbsenceExcuse,
   clearAbsenceExcuse,
@@ -137,8 +138,8 @@ async function seedMember() {
 /* The three tests that used to live here -- attendance is idempotent, a director
  * in scope may record it and an unrelated person may not -- moved with the
  * behavior itself to ./attendance-events.test.ts, which exercises them through
- * recordEventCheckIn. What stays here is completeTraining, the shared write both
- * the attendance path and the quiz path go through. */
+ * recordEventCheckIn. What stays here is completeTraining, the shared write the
+ * attendance path goes through (the self-serve quiz path was retired). */
 
 it("completeTraining via ATTENDANCE marks COMPLETE and is idempotent", async () => {
   const { term, srr, vol, c1 } = await seedMember();
@@ -168,89 +169,39 @@ async function addQuiz(cycleId: string) {
   ] });
 }
 
-it("quiz path: failing accrues attempts then locks; passing completes and saves intake", async () => {
+/* The member self-serve makeup quiz was retired on 2026-09-19 (it is being
+ * replaced by an online makeup course). These pin that it stays retired: there
+ * is no service export to submit one, and what a member's page reads carries no
+ * quiz for them to take. */
+
+it("offers no self-serve quiz submission", () => {
+  expect("submitQuiz" in trainingService).toBe(false);
+});
+
+it("getMyTraining returns the cycle and state, and nothing a quiz would render from", async () => {
+  const { srr, vol, c1 } = await seedMember();
+  const date = new Date(Date.UTC(2026, 8, 19, 12));
+  await updateQuizSettings(c1.id, { quizPassPercent: 80, quizMaxAttempts: 3, inPersonTrainingDate: date, trainingLocation: null }, srr.id);
+
+  const [my] = await getMyTraining(vol.id);
+  expect(my!.state).toBe("PENDING");
+  expect(my!.cycle?.id).toBe(c1.id);
+  expect(my!.inPersonTrainingDate?.getTime()).toBe(date.getTime());
+  // c1 still HAS a keyed quiz (seedMember adds one for the designation guard);
+  // none of it reaches the member.
+  expect(Object.keys(my!).sort()).toEqual(
+    ["completedAt", "completedVia", "cycle", "inPersonTrainingDate", "state", "term", "track", "trackLabel"],
+  );
+});
+
+it("resetTraining still clears an old quiz lockout on an open row", async () => {
   const { term, srr, vol, c1 } = await seedMember();
-  // seedMember already seeded c1's quiz (q1 correct "a", q2 correct "y") to
-  // satisfy the designation guard; reuse it rather than inserting it again.
-  await updateQuizSettings(c1.id, { quizPassPercent: 100, quizMaxAttempts: 2, inPersonTrainingDate: null, trainingLocation: null }, srr.id);
-
-  const r1 = await submitQuiz(vol.id, { termId: term.id, track: "VOLUNTEER", answers: { q1: "a", q2: "x" }, intake: { feedback: "hi" } });
-  expect(r1.passed).toBe(false);
-  // Review payload powers the in-place correct/wrong highlighting on the page.
-  expect(r1.attemptsUsed).toBe(1);
-  expect(r1.locked).toBe(false);
-  expect(r1.verdictByKey).toEqual({ q1: "correct", q2: "wrong" });
-  expect(await resolveTrainingState(vol.id, term.id, "VOLUNTEER")).toBe("PENDING");
-
-  const r2 = await submitQuiz(vol.id, { termId: term.id, track: "VOLUNTEER", answers: { q1: "a", q2: "x" }, intake: {} });
-  expect(r2.passed).toBe(false);
-  expect(r2.attemptsUsed).toBe(2);
-  expect(r2.locked).toBe(true);
-  const locked = await prisma.training.findUniqueOrThrow({ where: { personId_termId_track: { personId: vol.id, termId: term.id, track: "VOLUNTEER" } } });
-  expect(locked.locked).toBe(true);
-
-  await expect(submitQuiz(vol.id, { termId: term.id, track: "VOLUNTEER", answers: { q1: "a", q2: "y" }, intake: {} })).rejects.toBeInstanceOf(QuizLockedError);
-
+  await prisma.training.create({ data: { personId: vol.id, termId: term.id, cycleId: c1.id, track: "VOLUNTEER", locked: true } });
   await resetTraining(vol.id, term.id, "VOLUNTEER", srr.id);
-  const r3 = await submitQuiz(vol.id, { termId: term.id, track: "VOLUNTEER", answers: { q1: "a", q2: "y" }, intake: { feedback: "done" } });
-  expect(r3.passed).toBe(true);
-  const done = await prisma.training.findUniqueOrThrow({ where: { personId_termId_track: { personId: vol.id, termId: term.id, track: "VOLUNTEER" } } });
-  expect(done.status).toBe("COMPLETE");
-  expect(done.completedVia).toBe("QUIZ");
-  expect(done.feedback).toBe("done");
-  expect(await prisma.quizAttempt.count({ where: { training: { personId: vol.id, termId: term.id, track: "VOLUNTEER" } } })).toBe(3);
-});
-
-it("a quiz with one keyed and one unkeyed question returns a verdict only for the keyed one", async () => {
-  const { term, srr, vol, c1 } = await seedMember();
-  await updateQuizSettings(c1.id, { quizPassPercent: 100, quizMaxAttempts: 2, inPersonTrainingDate: null, trainingLocation: null }, srr.id);
-  // seedMember's addQuiz already gave c1 a keyed q1/q2; unkey q2 in place
-  // (rather than inserting a second quiz, which would collide on cycleId+key)
-  // to get the partially-keyed case this test needs.
-  await prisma.formField.update({ where: { cycleId_key: { cycleId: c1.id, key: "q2" } }, data: { correctValue: null } });
-  // Add a third, keyed question and answer it wrong. Without this the fixture
-  // (only q1 graded, answered correctly, passPercent 100) always PASSES, so it
-  // never exercises the review-after-fail path this test is named for.
-  const quizSection = await prisma.formSection.findFirstOrThrow({ where: { cycleId: c1.id, purpose: "QUIZ" } });
-  await prisma.formField.create({
-    data: {
-      sectionId: quizSection.id, cycleId: c1.id, key: "q3", label: "Q3", type: "SINGLE_SELECT", order: 2,
-      options: [{ value: "p", label: "P" }, { value: "q", label: "Q" }], correctValue: "p",
-    },
-  });
-
-  const r = await submitQuiz(vol.id, { termId: term.id, track: "VOLUNTEER", answers: { q1: "a", q2: "x", q3: "q" }, intake: {} });
-  expect(r.passed).toBe(false);
-  expect(r.verdictByKey).toEqual({ q1: "correct", q3: "wrong" });
-  expect(r.verdictByKey.q2).toBeUndefined();
-});
-
-it("the submission payload contains no field holding a correct option value", async () => {
-  const { term, srr, vol, c1 } = await seedMember();
-  await updateQuizSettings(c1.id, { quizPassPercent: 100, quizMaxAttempts: 2, inPersonTrainingDate: null, trainingLocation: null }, srr.id);
-
-  const r = await submitQuiz(vol.id, { termId: term.id, track: "VOLUNTEER", answers: { q1: "a", q2: "x" }, intake: {} });
-  const serialized = JSON.stringify(r);
-  expect(serialized).not.toContain('"correctValue"');
-  // Known correct answers for q1 ("a") and q2 ("y"). Checking the serialized shape
-  // (not just property names) so a future field can't reintroduce the leak under a
-  // different name.
-  expect(serialized).not.toContain('"a"');
-  expect(serialized).not.toContain('"y"');
-});
-
-it("submitQuiz throws when every question is unkeyed, not only when there are none", async () => {
-  const { term, srr, vol, c1 } = await seedMember();
-  await updateQuizSettings(c1.id, { quizPassPercent: 100, quizMaxAttempts: 2, inPersonTrainingDate: null, trainingLocation: null }, srr.id);
-  // seedMember's quiz has real questions (q1, q2); strip both answer keys so the
-  // quiz is unpassable despite having a non-empty questions array. A cycle whose
-  // designation predates this guard (or whose keys were later cleared) must still
-  // block submission, not just a cycle with zero questions.
-  await prisma.formField.updateMany({ where: { cycleId: c1.id }, data: { correctValue: null } });
-
-  await expect(
-    submitQuiz(vol.id, { termId: term.id, track: "VOLUNTEER", answers: { q1: "a", q2: "y" }, intake: {} }),
-  ).rejects.toBeInstanceOf(TrainingStateError);
+  const row = await prisma.training.findUniqueOrThrow({ where: { personId_termId_track: { personId: vol.id, termId: term.id, track: "VOLUNTEER" } } });
+  expect(row.locked).toBe(false);
+  expect(row.lockResetAt).not.toBeNull();
+  expect(row.status).toBe("PENDING");
 });
 
 it("does not reset a member whose training is already COMPLETE", async () => {
@@ -268,68 +219,6 @@ it("does not reset a member whose training is already COMPLETE", async () => {
   expect(after.status).toBe("COMPLETE");
   expect(after.lockResetAt).toBeNull();
   expect(after.completedAt?.getTime()).toBe(before.completedAt?.getTime());
-});
-
-it("getMyTraining returns the cycle, questions, and state for the volunteer", async () => {
-  const { vol } = await seedMember();
-  const trainings = await getMyTraining(vol.id);
-  const my = trainings[0]!;
-  expect(my.state).toBe("PENDING");
-  expect(my.locked).toBe(false);
-  expect(my.questions.map((q) => q.key)).toEqual(["q1", "q2"]);
-
-  // getMyTrainingForTerm now selects correctValue so it can count keyed
-  // questions (gradedQuestionCount), and my.questions is passed straight into a
-  // client component. The hand-written map that strips correctValue is the only
-  // thing keeping it off the wire, so assert on the serialized payload, not just
-  // the type, the way the sibling submitQuiz test does.
-  const serialized = JSON.stringify(my.questions);
-  expect(serialized).not.toContain("correctValue");
-  // Known correct answers from addQuiz: q1 -> "a", q2 -> "y". Unlike the
-  // submitQuiz payload, this one legitimately carries "a"/"y" once each already
-  // (they are valid option values, not secrets), so check the count rather than
-  // mere absence: a leak under a different field name would make either value
-  // appear a SECOND time alongside its own option.
-  expect(serialized.match(/"a"/g)?.length).toBe(1);
-  expect(serialized.match(/"y"/g)?.length).toBe(1);
-});
-
-it("gates the makeup quiz until the day after the in-person training date", async () => {
-  const { term, srr, vol, c1 } = await seedMember();
-  // Set an in-person date in the future -> makeup not open yet.
-  const future = new Date(Date.now() + 7 * 86_400_000);
-  await updateQuizSettings(c1.id, { quizPassPercent: 100, quizMaxAttempts: 3, inPersonTrainingDate: future, trainingLocation: null }, srr.id);
-
-  const beforeOpen = await getMyTraining(vol.id);
-  expect(beforeOpen[0]!.inPersonTrainingDate?.getTime()).toBe(future.getTime());
-  expect(beforeOpen[0]!.makeupOpen).toBe(false);
-
-  await expect(
-    submitQuiz(vol.id, { termId: term.id, track: "VOLUNTEER", answers: { q1: "a", q2: "y" }, intake: {} }),
-  ).rejects.toBeInstanceOf(TrainingStateError);
-
-  // Move the date to the past -> makeup open, submission works.
-  const past = new Date(Date.now() - 2 * 86_400_000);
-  await updateQuizSettings(c1.id, { quizPassPercent: 100, quizMaxAttempts: 3, inPersonTrainingDate: past, trainingLocation: null }, srr.id);
-  const afterOpen = await getMyTraining(vol.id);
-  expect(afterOpen[0]!.makeupOpen).toBe(true);
-  const r = await submitQuiz(vol.id, { termId: term.id, track: "VOLUNTEER", answers: { q1: "a", q2: "y" }, intake: {} });
-  expect(r.passed).toBe(true);
-});
-
-it("makeupOpen is true and submit works when no in-person date is set (backward compatible)", async () => {
-  const { term, vol } = await seedMember();
-  const my = await getMyTraining(vol.id);
-  expect(my[0]!.inPersonTrainingDate).toBeNull();
-  expect(my[0]!.makeupOpen).toBe(true);
-  const r = await submitQuiz(vol.id, { termId: term.id, track: "VOLUNTEER", answers: { q1: "a", q2: "y" }, intake: {} });
-  expect(r.passed).toBe(true);
-});
-
-it("submitQuiz rejects when already complete", async () => {
-  const { term, srr, vol, c1 } = await seedMember();
-  await completeTraining(prisma, { personId: vol.id, termId: term.id, cycleId: c1.id, track: "VOLUNTEER", via: "ATTENDANCE", actorId: srr.id });
-  await expect(submitQuiz(vol.id, { termId: term.id, track: "VOLUNTEER", answers: { q1: "a", q2: "y" }, intake: {} })).rejects.toBeInstanceOf(TrainingStateError);
 });
 
 it("listTrainingRoster lists in-scope active volunteers with cert + training state", async () => {
@@ -395,41 +284,16 @@ it("requiredTrainingTracks returns both tracks for a director+volunteer when bot
   expect(await requiredTrainingTracks(vol.id, term.id)).toEqual(["VOLUNTEER", "DIRECTOR"]);
 });
 
-it("a director completes director training via the quiz", async () => {
+it("completing director training leaves the same person's volunteer training alone", async () => {
   const { term, srr, dir } = await seedMember();
   const dirCycle = await prisma.recruitmentCycle.create({ data: { track: "DIRECTOR", termId: term.id, title: "D", publicSlug: "d", departments: ["SRHD"], createdById: srr.id, status: "OPEN" } });
   await addQuiz(dirCycle.id);
   await setTrainingCycle(dirCycle.id, true, srr.id);
-  await updateQuizSettings(dirCycle.id, { quizPassPercent: 100, quizMaxAttempts: 2, inPersonTrainingDate: null, trainingLocation: null }, srr.id);
 
-  const r = await submitQuiz(dir.id, { termId: term.id, track: "DIRECTOR", answers: { q1: "a", q2: "y" }, intake: {} });
-  expect(r.passed).toBe(true);
+  await completeTraining(prisma, { personId: dir.id, termId: term.id, cycleId: dirCycle.id, track: "DIRECTOR", via: "ATTENDANCE", actorId: srr.id });
   expect(await resolveTrainingState(dir.id, term.id, "DIRECTOR")).toBe("COMPLETE");
   // their (nonexistent) volunteer training is untouched
   expect(await resolveTrainingState(dir.id, term.id, "VOLUNTEER")).toBe("PENDING");
-});
-
-it("submitQuiz rejects a track the person has no active membership for", async () => {
-  const { term, srr, vol } = await seedMember();
-  const dirCycle = await prisma.recruitmentCycle.create({ data: { track: "DIRECTOR", termId: term.id, title: "D", publicSlug: "d", departments: ["SRHD"], createdById: srr.id, status: "OPEN" } });
-  await addQuiz(dirCycle.id);
-  await setTrainingCycle(dirCycle.id, true, srr.id);
-  await expect(submitQuiz(vol.id, { termId: term.id, track: "DIRECTOR", answers: { q1: "a", q2: "y" }, intake: {} }))
-    .rejects.toBeInstanceOf(TrainingStateError); // vol is not an active director
-});
-
-it("submitQuiz completes NEXT-term training while a different term is live", async () => {
-  const { srr, vol, dept } = await seedMember(); // live term SU26 is ACTIVE
-  const next = await prisma.term.create({ data: { code: "FA26", name: "Fall", startDate: new Date("2026-09-01"), endDate: new Date("2027-01-01"), status: "PLANNING" } });
-  const nextCycle = await prisma.recruitmentCycle.create({ data: { track: "VOLUNTEER", termId: next.id, title: "FA vol", publicSlug: "fa-vol", departments: ["SRHD"], createdById: srr.id, status: "OPEN" } });
-  await addQuiz(nextCycle.id);
-  await setTrainingCycle(nextCycle.id, true, srr.id);
-  await updateQuizSettings(nextCycle.id, { quizPassPercent: 100, quizMaxAttempts: 2, inPersonTrainingDate: null, trainingLocation: null }, srr.id);
-  await prisma.termMembership.create({ data: { personId: vol.id, termId: next.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" } });
-
-  const r = await submitQuiz(vol.id, { termId: next.id, track: "VOLUNTEER", answers: { q1: "a", q2: "y" }, intake: {} });
-  expect(r.passed).toBe(true);
-  expect(await resolveTrainingState(vol.id, next.id, "VOLUNTEER")).toBe("COMPLETE");
 });
 
 it("getMyTraining returns one entry per required track", async () => {
@@ -574,11 +438,12 @@ it("clearing an excuse removes it, and clearing twice is not an error", async ()
   expect(row.excuse).toBeNull();
 });
 
-it("keeps the excuse on the roster after training completes by makeup quiz", async () => {
+it("keeps the excuse on the roster after training completes by a makeup", async () => {
   const { term, srr, vol, c1 } = await seedMember();
   await recordAbsenceExcuse(c1.id, vol.id, "Exam", srr.id);
-  const result = await submitQuiz(vol.id, { termId: term.id, track: "VOLUNTEER", answers: { q1: "a", q2: "y" }, intake: {} });
-  expect(result.passed).toBe(true);
+  // A completion that is not attendance. QUIZ is the only such method today
+  // (the self-serve quiz is retired, but its completions remain as history).
+  await completeTraining(prisma, { personId: vol.id, termId: term.id, cycleId: c1.id, track: "VOLUNTEER", via: "QUIZ" });
 
   const row = memberRow(await listTrainingRoster(c1.id, srr.id), vol.id);
   expect(row.trainingState).toBe("COMPLETE");

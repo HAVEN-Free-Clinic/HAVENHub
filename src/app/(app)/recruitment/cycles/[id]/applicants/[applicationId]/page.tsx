@@ -437,7 +437,7 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
                   <p className="text-sm text-foreground">&ldquo;{excuse.reason}&rdquo;</p>
                   <p className="text-xs text-subtle-foreground">
                     Recorded {excuse.recordedByName ? `by ${excuse.recordedByName} ` : ""}
-                    on <DateTime value={excuse.recordedAt} />. They still need the makeup quiz.
+                    on <DateTime value={excuse.recordedAt} />. They still need to make up training.
                   </p>
                   {/* The training roster lists people accepted into the cycle, and
                       excuses arrive well before decisions do. Without this the

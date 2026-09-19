@@ -1,16 +1,5 @@
 import Link from "next/link";
-import {
-  Award,
-  Lock,
-  Clock,
-  AlertTriangle,
-  PlayCircle,
-  FileText,
-  CalendarDays,
-  CheckCircle2,
-  Check,
-  MessagesSquare,
-} from "lucide-react";
+import { Award, Clock, AlertTriangle, CalendarDays, Check } from "lucide-react";
 import type { TrainingMethod } from "@prisma/client";
 import { Card } from "@/platform/ui/card";
 import { StatusBanner } from "@/platform/ui/status-banner";
@@ -23,12 +12,12 @@ import { hubTrail } from "@/platform/ui/breadcrumb-trail";
 import { getAccessibleModules } from "@/platform/modules/access";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { getMyTraining, type MyTraining } from "@/modules/recruitment/services/training";
-import { makeupOpensOn } from "@/modules/recruitment/services/makeup-window";
 import { formatDateOnly } from "@/platform/dates";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
-import { TrainingQuiz } from "./training-quiz";
+import { MAKEUP_RETIRED_COPY } from "@/modules/recruitment/makeup-retired";
 
-/** "live session" / "quiz" for human-readable copy. */
+/** "live session" / "quiz" for human-readable copy. The quiz is retired, but
+ *  completions it granted in earlier terms still read that way. */
 function viaLabel(via: TrainingMethod | null): string {
   if (via === "ATTENDANCE") return "live session";
   if (via === "QUIZ") return "quiz";
@@ -61,20 +50,6 @@ function ClearanceHero({ my, zone }: { my: MyTraining; zone: string }) {
     );
   }
 
-  if (my.locked) {
-    return (
-      <StatusBanner
-        className="mb-6"
-        tone="critical"
-        icon={Lock}
-        eyebrow="Quiz locked"
-        title={<>You&apos;ve used all {my.maxAttempts} quiz attempts</>}
-        description="Your makeup quiz is locked. Contact your recruitment director to reset it, or attend a live session to complete training."
-        trailing="Action needed"
-      />
-    );
-  }
-
   if (!my.cycle) {
     return (
       <StatusBanner
@@ -100,78 +75,43 @@ function ClearanceHero({ my, zone }: { my: MyTraining; zone: string }) {
       icon={AlertTriangle}
       eyebrow="Not yet cleared"
       title={<>Complete training to be cleared for {term}</>}
-      description="Finish one of the two paths below. Most volunteers attend the live session; the makeup quiz is here if you miss it."
+      description="Attending the in-person session clears training. If you missed it, see below."
       trailing="Due before your first shift"
     />
   );
 }
 
 // ---------------------------------------------------------------------------
-// Two completion paths
+// Pending / complete detail panels
 // ---------------------------------------------------------------------------
 
-function PathCards({ my }: { my: MyTraining }) {
+/** What a member with training still open reads. The self-serve makeup quiz
+ *  that used to render here was retired; see MAKEUP_RETIRED_COPY. */
+function PendingDetail({ my, zone }: { my: MyTraining; zone: string }) {
   return (
-    <>
-      <SectionHeader level="title" className="mb-3.5 mt-7">Two ways to complete</SectionHeader>
-      <div className="mb-2 grid grid-cols-1 gap-3.5 sm:grid-cols-2">
-        <div className="relative rounded-2xl border border-brand/40 bg-surface p-4 shadow-sm ring-1 ring-inset ring-brand/20">
-          <span className="absolute right-3.5 top-3.5 rounded-full bg-brand-faint px-2 py-0.5 text-[10.5px] font-bold uppercase tracking-wide text-brand-fg">
-            Recommended
-          </span>
-          <div className="mb-3 flex items-center gap-3">
-            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-brand-faint text-brand-fg">
-              <PlayCircle aria-hidden className="h-5 w-5" />
-            </span>
-            <div>
-              <SectionHeader>Path 1</SectionHeader>
-              <p className="mt-px text-base font-bold leading-tight text-foreground">Attend the live session</p>
-            </div>
-          </div>
-          <p className="text-sm leading-relaxed text-foreground-soft">
-            Join the in-person orientation. Your director marks your attendance and you&apos;re cleared automatically,
-            no quiz needed.
-          </p>
-          <p className="mt-3 flex items-center gap-2 border-t border-border pt-3 text-xs font-semibold text-foreground">
-            <CalendarDays aria-hidden className="h-4 w-4 shrink-0 text-brand-fg" /> Recorded by your director at the
-            session
-          </p>
-        </div>
-
-        <Card pad={false} className="relative p-4">
-          <div className="mb-3 flex items-center gap-3">
-            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-brand-faint text-brand-fg">
-              <FileText aria-hidden className="h-5 w-5" />
-            </span>
-            <div>
-              <SectionHeader>Path 2</SectionHeader>
-              <p className="mt-px text-base font-bold leading-tight text-foreground">Take the makeup quiz</p>
-            </div>
-          </div>
-          <p className="text-sm leading-relaxed text-foreground-soft">
-            Missed the session? Review the handbook and pass the short quiz below to clear the requirement on your own
-            time.
-          </p>
-          <p className="mt-3 flex items-center gap-2 border-t border-border pt-3 text-xs font-semibold text-foreground">
-            <CheckCircle2 aria-hidden className="h-4 w-4 shrink-0 text-brand-fg" /> Need {my.passPercent}% to pass ·{" "}
-            {my.maxAttempts} attempts
-          </p>
-        </Card>
-      </div>
-    </>
+    <Card pad={false} className="mt-7 px-5 py-5">
+      <SectionHeader className="mb-1.5">Attend the in-person session</SectionHeader>
+      <p className="text-sm leading-relaxed text-foreground-soft">
+        {my.inPersonTrainingDate ? (
+          <>
+            In-person training:{" "}
+            <span className="font-semibold text-foreground">{formatDateOnly(my.inPersonTrainingDate, zone)}</span>.{" "}
+          </>
+        ) : null}
+        Your director marks you complete when you attend.
+      </p>
+      <SectionHeader className="mb-1.5 mt-5">Missed the session?</SectionHeader>
+      <p className="text-sm leading-relaxed text-foreground-soft">{MAKEUP_RETIRED_COPY}</p>
+    </Card>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Complete / locked detail panels
-// ---------------------------------------------------------------------------
 
 function CompleteDetail({ accessibleSchedule }: { accessibleSchedule: boolean }) {
   return (
     <Card pad={false} className="p-5">
       <SectionHeader className="mb-3.5">What you can do now</SectionHeader>
-      <DetailRow tone="success" title="Eligible for shift scheduling" sub="You can now be assigned to clinic shifts" />
-      <DetailRow tone="success" title="Training requirement met" sub="Shows as cleared on your volunteer compliance" />
+      <DetailRow title="Eligible for shift scheduling" sub="You can now be assigned to clinic shifts" />
+      <DetailRow title="Training requirement met" sub="Shows as cleared on your volunteer compliance" />
       {accessibleSchedule && (
         <div className="mt-4 flex flex-wrap gap-2.5">
           <Link href="/schedule" className={buttonClasses("primary", "md", "gap-2 shadow-sm")}>
@@ -183,46 +123,15 @@ function CompleteDetail({ accessibleSchedule }: { accessibleSchedule: boolean })
   );
 }
 
-function LockedDetail() {
-  return (
-    <Card pad={false} className="p-5">
-      <SectionHeader className="mb-3.5">Next steps</SectionHeader>
-      <DetailRow
-        tone="brand"
-        icon={<MessagesSquare aria-hidden className="h-4 w-4" />}
-        title="Contact your recruitment director"
-        sub="They can reset your quiz attempts"
-      />
-      <DetailRow
-        tone="brand"
-        icon={<PlayCircle aria-hidden className="h-4 w-4" />}
-        title="Or attend the live session"
-        sub="Your director records attendance and clears training instantly"
-      />
-    </Card>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Small shared bits
 // ---------------------------------------------------------------------------
 
-function DetailRow({
-  tone,
-  title,
-  sub,
-  icon,
-}: {
-  tone: "success" | "brand";
-  title: string;
-  sub: string;
-  icon?: React.ReactNode;
-}) {
-  const toneClass = tone === "success" ? "bg-success text-white" : "bg-brand-faint text-brand-fg";
+function DetailRow({ title, sub }: { title: string; sub: string }) {
   return (
     <div className="flex items-center gap-3 border-t border-border-subtle py-2.5 first:border-t-0 first:pt-0">
-      <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${toneClass}`}>
-        {icon ?? <Check aria-hidden className="h-4 w-4" />}
+      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-success text-white">
+        <Check aria-hidden className="h-4 w-4" />
       </span>
       <div className="min-w-0">
         <p className="text-sm font-semibold text-foreground">{title}</p>
@@ -270,43 +179,13 @@ export default async function TrainingPage() {
         </Card>
       ) : (
         trainings.map((my) => {
-          const pending = my.cycle && my.state !== "COMPLETE" && !my.locked;
+          const pending = my.cycle && my.state !== "COMPLETE";
           return (
             <section key={`${my.term.id}-${my.track}`} className="mb-9">
               <SectionHeader level="title" className="mb-3">{my.term.name} · {my.trackLabel}</SectionHeader>
               <ClearanceHero my={my} zone={zone} />
-              {pending && (
-                <>
-                  {my.makeupOpen ? (
-                    <>
-                      <PathCards my={my} />
-                      <SectionHeader level="title" className="mb-3.5 mt-7">Makeup quiz</SectionHeader>
-                      <TrainingQuiz
-                        termId={my.term.id}
-                        track={my.track}
-                        questions={my.questions}
-                        gradedQuestionCount={my.gradedQuestionCount}
-                        passPercent={my.passPercent}
-                        maxAttempts={my.maxAttempts}
-                        attemptsUsed={my.attemptsUsed}
-                        intake={my.intake}
-                      />
-                    </>
-                  ) : (
-                    <Card pad={false} className="mt-7 px-5 py-5">
-                      <SectionHeader className="mb-1.5">Attend the in-person session</SectionHeader>
-                      <p className="text-sm leading-relaxed text-foreground-soft">
-                        Your in-person training is on{" "}
-                        <span className="font-semibold text-foreground">{formatDateOnly(my.inPersonTrainingDate, zone)}</span>.
-                        Attend the live session and your director marks you complete. Missed it? The makeup quiz opens{" "}
-                        <span className="font-semibold text-foreground">{formatDateOnly(makeupOpensOn(my.inPersonTrainingDate!), zone)}</span>.
-                      </p>
-                    </Card>
-                  )}
-                </>
-              )}
+              {pending && <PendingDetail my={my} zone={zone} />}
               {my.state === "COMPLETE" && <CompleteDetail accessibleSchedule={canSchedule} />}
-              {my.locked && my.state !== "COMPLETE" && <LockedDetail />}
             </section>
           );
         })

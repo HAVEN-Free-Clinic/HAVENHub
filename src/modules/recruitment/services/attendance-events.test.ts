@@ -79,6 +79,10 @@ async function seed() {
       status: "OPEN",
       inPersonTrainingDate: new Date("2026-08-20T12:00:00.000Z"),
       trainingLocation: "SHM L110",
+      // The term's designated training: training-day standing is only ever
+      // computed against it (platform/training/standing.ts), exactly as the
+      // clearance engine only raises training for it.
+      isTermTraining: true,
     },
   });
 
@@ -1372,19 +1376,17 @@ it("undo leaves a quiz-completed training alone", async () => {
     track: "VOLUNTEER",
     via: "QUIZ",
   });
+  // The passed attempt is the durable record of the retired quiz: the check-in
+  // below re-derives the morning as ATTENDED, and the undo must find the quiz
+  // pass underneath it.
+  const training = await prisma.training.findFirstOrThrow({ where: { personId: member.id, termId: term.id } });
+  await prisma.quizAttempt.create({ data: { trainingId: training.id, answers: {}, score: 2, total: 2, passed: true } });
   const event = await trainingEvent(cycle.id, lead.id);
   const { attendanceId } = await recordEventCheckIn(
     event.id,
     { kind: "person", personId: member.id },
     lead.id,
   );
-  // The check-in re-stamped the row as ATTENDANCE, so put it back the way a
-  // member who passed the quiz and ALSO turned up would not: this test is about
-  // a completion that was never the check-in's to give.
-  await prisma.training.updateMany({
-    where: { personId: member.id, termId: term.id, track: "VOLUNTEER" },
-    data: { completedVia: "QUIZ" },
-  });
 
   await removeEventCheckIn(attendanceId, lead.id);
 
@@ -1491,4 +1493,69 @@ it("applies no term filter when asked about none", async () => {
   // unfiltered list beats a blank page that cannot say why it is blank.
   expect(await listEvents({ termIds: [] })).toHaveLength(1);
   expect(await listEvents({})).toHaveLength(1);
+});
+
+// ---------------------------------------------------------------------------
+// Training day's second part: mock clinic (platform/training/standing.ts).
+
+async function mockClinicEvent(termId: string, cycleId: string, actorId: string) {
+  return createEvent(
+    {
+      termId,
+      cycleId,
+      kind: "MOCK_CLINIC",
+      title: "Mock clinic",
+      startsAt: START,
+      endsAt: null,
+      location: null,
+      notes: null,
+    },
+    actorId,
+  );
+}
+
+it("a morning check-in leaves training owed while mock clinic is still ahead, and mock clinic finishes it", async () => {
+  const { term, deptA, cycle, lead } = await seed();
+  const member = await seedMember(term.id, deptA.id, "Vol", "vol@yale.edu");
+  const morning = await trainingEvent(cycle.id, lead.id);
+  const mock = await mockClinicEvent(term.id, cycle.id, lead.id);
+
+  const first = await recordEventCheckIn(morning.id, { kind: "person", personId: member.id }, lead.id);
+  expect(await resolveTrainingState(member.id, term.id, "VOLUNTEER")).toBe("PENDING");
+  // Still owed, so the door must not tell them otherwise.
+  expect(first.blockerKeys).toContain("training");
+
+  const second = await recordEventCheckIn(mock.id, { kind: "person", personId: member.id }, lead.id);
+  expect(second.trainingCredited).toBe(true);
+  expect(second.blockerKeys).not.toContain("training");
+  expect(await resolveTrainingState(member.id, term.id, "VOLUNTEER")).toBe("COMPLETE");
+
+  // And taking the mock clinic check-in back reopens it.
+  await removeEventCheckIn(second.attendanceId, lead.id);
+  expect(await resolveTrainingState(member.id, term.id, "VOLUNTEER")).toBe("PENDING");
+});
+
+it("a new clinical volunteer is cleared by mock clinic alone", async () => {
+  const { term, deptA, cycle, lead } = await seed();
+  await prisma.department.update({ where: { id: deptA.id }, data: { isClinical: true } });
+  const member = await seedMember(term.id, deptA.id, "Clinical", "clin@yale.edu");
+  await trainingEvent(cycle.id, lead.id);
+  const mock = await mockClinicEvent(term.id, cycle.id, lead.id);
+
+  await recordEventCheckIn(mock.id, { kind: "person", personId: member.id }, lead.id);
+
+  const row = await prisma.training.findUniqueOrThrow({
+    where: { personId_termId_track: { personId: member.id, termId: term.id, track: "VOLUNTEER" } },
+  });
+  expect(row).toMatchObject({ status: "COMPLETE", morningStatus: "NOT_REQUIRED", mockClinicStatus: "ATTENDED" });
+});
+
+it("refuses a mock clinic with no cycle", async () => {
+  const { term, lead } = await seed();
+  await expect(
+    createEvent(
+      { termId: term.id, cycleId: null, kind: "MOCK_CLINIC", title: "Mock", startsAt: START, endsAt: null, location: null, notes: null },
+      lead.id,
+    ),
+  ).rejects.toThrow("A mock clinic must belong to a recruitment cycle.");
 });

@@ -52,8 +52,9 @@ export type TrainingDayFacts = {
    *  are the fact; recompute never clears them, only an explicit undo does, so
    *  a mark-off survives a check-in that is later removed. */
   markedOff: boolean;
-  /** The row's current morning, read only to keep a retired-quiz pass. */
-  priorMorning: TrainingPartStatus | null;
+  /** Passed the retired makeup quiz: a passed QuizAttempt on the row, or a row
+   *  already carrying a QUIZ morning. History nothing else can re-derive. */
+  passedRetiredQuiz: boolean;
 };
 
 export type TrainingDayParts = { morning: TrainingPartStatus; mockClinic: TrainingPartStatus };
@@ -67,7 +68,7 @@ export function trainingDayParts(f: TrainingDayFacts): TrainingDayParts {
     ? "ATTENDED"
     : f.completedMakeupCourse
       ? "ONLINE_COURSE"
-      : f.priorMorning === "QUIZ"
+      : f.passedRetiredQuiz
         ? "QUIZ"
         : clinical
           ? "NOT_REQUIRED"
@@ -156,7 +157,7 @@ export async function loadTrainingDayFacts(
     db.attendanceEvent.count({ where: { ...eventScope, kind: "MOCK_CLINIC" } }),
     db.training.findUnique({
       where: { personId_termId_track: { personId, termId, track } },
-      select: { morningStatus: true, mockClinicMarkedAt: true },
+      select: { morningStatus: true, mockClinicMarkedAt: true, attempts: { where: { passed: true }, select: { id: true }, take: 1 } },
     }),
     db.course.findUnique({ where: { makeupForCycleId: cycle.id }, select: { id: true } }),
     isReturning(db, personId, cycle.id, termId, track),
@@ -179,7 +180,7 @@ export async function loadTrainingDayFacts(
       hasMockClinic: mockClinicEvents > 0,
       completedMakeupCourse,
       markedOff: row?.mockClinicMarkedAt != null,
-      priorMorning: row?.morningStatus ?? null,
+      passedRetiredQuiz: row?.morningStatus === "QUIZ" || (row?.attempts.length ?? 0) > 0,
     },
   };
 }
@@ -279,6 +280,18 @@ export async function recomputeTrainingStandingForTerm(
     }
   }
   return { people: people.length, nowComplete, nowPending };
+}
+
+/** Recompute the members of one department in every live or upcoming term,
+ *  after its clinical flag moved. */
+export async function recomputeTrainingStandingForDepartment(departmentId: string): Promise<void> {
+  const memberships = await prisma.termMembership.findMany({
+    where: { departmentId, status: "ACTIVE", term: { status: { in: ["ACTIVE", "PLANNING"] } } },
+    select: { personId: true, termId: true, kind: true },
+  });
+  for (const m of memberships) {
+    await recomputeTrainingStanding(prisma, { personId: m.personId, termId: m.termId, track: m.kind });
+  }
 }
 
 /** Recompute every term that has a designated training cycle and is live or

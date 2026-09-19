@@ -581,6 +581,20 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
     message: () => "Training reset.",
   },
   {
+    params: ["saved"],
+    matchValues: { saved: "mockClinicMarked" },
+    pathnames: [TRAINING_ROSTER_PATHNAME],
+    tone: "success",
+    message: () => "Mock clinic marked done.",
+  },
+  {
+    params: ["saved"],
+    matchValues: { saved: "mockClinicUndone" },
+    pathnames: [TRAINING_ROSTER_PATHNAME],
+    tone: "success",
+    message: () => "Mock clinic mark-off removed.",
+  },
+  {
     // admin/email/templates/[key]/page.tsx (resetAction). NOT a new group: it
     // shares `saved|saved=reset` with the training entry directly above, which is
     // exactly right -- the two are scoped to disjoint pathnames, so resolveScoped

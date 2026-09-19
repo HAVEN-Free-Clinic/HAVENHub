@@ -46,6 +46,7 @@ export default async function EditDepartmentPage({ params }: PageProps) {
       await updateDepartment(session.personId, id, {
         name: String(formData.get("name") ?? ""),
         isActive: formData.get("isActive") === "on",
+        isClinical: formData.get("isClinical") === "on",
         idealHeadcount: optionalInt(formData.get("idealHeadcount")),
         patientCapacityPerProvider: optionalInt(formData.get("patientCapacityPerProvider")),
         maxVolunteersPerShift: optionalInt(formData.get("maxVolunteersPerShift")),

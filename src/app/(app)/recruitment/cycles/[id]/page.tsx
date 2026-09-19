@@ -14,7 +14,6 @@ import { portalUrl } from "@/modules/recruitment/services/portal-url";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 import { publishCycleAction, closeCycleAction, reopenCycleAction, archiveCycleAction, unarchiveCycleAction, toggleRenewalsAction, setTrainingCycleAction, updateQuizSettingsAction, setCycleDepartmentsAction, setApplicationWindowAction } from "../../actions";
-import { countGradedQuestions } from "@/platform/quiz/graded";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Field, Input } from "@/platform/ui/input";
@@ -81,21 +80,12 @@ export default async function CycleOverviewPage({ params }: PageProps) {
   const afterClose = cycle.status === "OPEN" && cycle.closesAt !== null && cycle.closesAt < now;
   const liveByWindow = cycle.status === "OPEN" && !beforeOpen && !afterClose;
   const isTrainingTrack = cycle.track === "VOLUNTEER" || cycle.track === "DIRECTOR";
-  // Same filter as `quizQuestions` in the training service: SINGLE_SELECT fields
-  // in a QUIZ-purpose section, scoped to this cycle. Surfaced here so a director
-  // filling in the settings below can see the questions were never keyed, instead
-  // of discovering it only when designation is blocked. Keep the rows (not just
-  // the keyed count) so the render below can show keyed-against-total, not just
-  // the keyed count on its own: 1 keyed question out of 15 reads as fine, and R62
-  // exists precisely to stop a director believing that.
-  const quizFields = canManage && isTrainingTrack
-    ? await prisma.formField.findMany({
-        where: { cycleId: id, type: "SINGLE_SELECT", section: { purpose: "QUIZ" } },
-        select: { correctValue: true },
-      })
-    : [];
-  const gradedQuestionCount = countGradedQuestions(quizFields);
-  const totalQuestionCount = quizFields.length;
+  // The online course that makes up this cycle's morning session, set up (and
+  // linked to the cycle) from Learning. It replaced the makeup quiz on
+  // 2026-09-19, so the card below points there instead of at quiz questions.
+  const makeupCourse = canManage && isTrainingTrack
+    ? await prisma.course.findUnique({ where: { makeupForCycleId: id }, select: { id: true, title: true, isActive: true } })
+    : null;
   // Invite links are a manage_cycles capability: issuing one admits an applicant
   // past a closed deadline, which is a recruiting decision, not a viewing one.
   const inviteRows: InviteRow[] = canManage
@@ -293,30 +283,22 @@ export default async function CycleOverviewPage({ params }: PageProps) {
                   {cycle.isTermTraining ? "Stop using as this term's training" : "Use as this term's training"}
                 </SubmitButton>
               </form>
-              {gradedQuestionCount === 0 ? (
-                <p className="text-sm text-warning-foreground">
-                  No quiz questions with an answer key yet. Nobody can pass this quiz until you add some.{" "}
-                  <TextLink href={`/recruitment/cycles/${id}/builder/quiz`} className="font-medium">
-                    Add quiz questions
+              {makeupCourse ? (
+                <p className="text-sm text-muted-foreground">
+                  Online makeup course:{" "}
+                  <TextLink href={`/learning/manage/${makeupCourse.id}`} className="font-medium">
+                    {makeupCourse.title}
                   </TextLink>
+                  {makeupCourse.isActive ? "" : " (inactive, so nobody can see it yet)"}
                 </p>
               ) : (
-                <p className="text-sm text-muted-foreground">
-                  {gradedQuestionCount} of {totalQuestionCount} question{totalQuestionCount === 1 ? "" : "s"}{" "}
-                  {totalQuestionCount === 1 ? "has" : "have"} an answer key.{" "}
-                  <TextLink href={`/recruitment/cycles/${id}/builder/quiz`} className="font-medium">
-                    Edit quiz questions
-                  </TextLink>
-                </p>
+                <EmptyState inline>
+                  No online makeup course yet. Create a video course in Learning and link it to this
+                  cycle; members who owe the morning session will see it on their training page.
+                </EmptyState>
               )}
               <form action={updateQuizSettingsAction.bind(null, id)}>
                 <FormRow>
-                  <RowField label="Pass %" width="numeric">
-                    <Input name="quizPassPercent" type="number" min={0} max={100} defaultValue={cycle.quizPassPercent} />
-                  </RowField>
-                  <RowField label="Max attempts" width="numeric">
-                    <Input name="quizMaxAttempts" type="number" min={1} defaultValue={cycle.quizMaxAttempts} />
-                  </RowField>
                   <RowField label="In-person training date">
                     <Input
                       name="inPersonTrainingDate"
@@ -332,7 +314,7 @@ export default async function CycleOverviewPage({ params }: PageProps) {
                       placeholder="on Zoom at 10:00 AM"
                     />
                   </RowField>
-                  <SubmitButton size="sm" variant="outline" pendingLabel="Saving…">Save quiz settings</SubmitButton>
+                  <SubmitButton size="sm" variant="outline" pendingLabel="Saving…">Save training settings</SubmitButton>
                 </FormRow>
               </form>
             </>

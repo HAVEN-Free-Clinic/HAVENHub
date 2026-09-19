@@ -28,6 +28,7 @@
  * Tone is the Badge tone, so callers pass it straight through.
  */
 
+import type { TrainingPartStatus } from "@prisma/client";
 import type { ComplianceStatus, OverallClearance, TrainingState } from "./rules";
 import type { OnboardingTaskState } from "./task-state";
 
@@ -158,6 +159,24 @@ const TRAINING_STATE: Record<TrainingState, StatusLabel> = {
  */
 export function trainingStateLabel(state: TrainingState): StatusLabel {
   return TRAINING_STATE[state];
+}
+
+const TRAINING_PART: Record<TrainingPartStatus, StatusLabel> = {
+  OWED: { label: "Owed", tone: "warning" },
+  NOT_REQUIRED: { label: "Not required", tone: "default" },
+  ATTENDED: { label: "Attended", tone: "success" },
+  ONLINE_COURSE: { label: "Online course", tone: "success" },
+  QUIZ: { label: "Makeup quiz", tone: "success" },
+  MARKED_OFF: { label: "Marked off", tone: "success" },
+};
+
+/**
+ * Words and tone for one part of training day (the morning session or mock
+ * clinic). Null is "nothing recorded yet": an applicant row before promotion,
+ * or a member whose standing has not been computed.
+ */
+export function trainingPartLabel(part: TrainingPartStatus | null): StatusLabel {
+  return part ? TRAINING_PART[part] : { label: "Not yet", tone: "default" };
 }
 
 /**

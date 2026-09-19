@@ -20,6 +20,7 @@ export default async function NewDepartmentPage() {
         code: String(formData.get("code") ?? ""),
         name: String(formData.get("name") ?? ""),
         isActive: formData.get("isActive") === "on",
+        isClinical: formData.get("isClinical") === "on",
         idealHeadcount: optionalInt(formData.get("idealHeadcount")),
         patientCapacityPerProvider: optionalInt(formData.get("patientCapacityPerProvider")),
         maxVolunteersPerShift: optionalInt(formData.get("maxVolunteersPerShift")),

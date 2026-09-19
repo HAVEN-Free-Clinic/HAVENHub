@@ -20,6 +20,7 @@ import { log, flushLogs } from "@/platform/logging";
 import { runClearanceReminders } from "@/platform/email/reminders";
 import { runAttendanceNudges } from "@/platform/email/attendance-nudges";
 import { relinkUnlinkedAttendance } from "@/modules/recruitment/services/attendance-events";
+import { recomputeCurrentTrainingStanding } from "@/platform/training/standing";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,6 +28,18 @@ export const maxDuration = 300;
 
 export async function GET(req: Request): Promise<Response> {
   if (!authorizeCron(req)) return new Response("Unauthorized", { status: 401 });
+
+  // Training-day standing first, so the reminders below judge what people owe
+  // today. Every fact change recomputes the person it touches; this pass is for
+  // the ones that do not (a membership moved department, a term was
+  // designated). Guarded like the nudges below: it must never cost the
+  // compliance-critical run its heartbeat.
+  let standing = { people: 0, nowComplete: 0, nowPending: 0 };
+  try {
+    standing = await recomputeCurrentTrainingStanding();
+  } catch (error) {
+    log.error("[cron/reminders] training standing recompute failed", { error: String(error) });
+  }
 
   const r = await runClearanceReminders();
 
@@ -55,6 +68,9 @@ export async function GET(req: Request): Promise<Response> {
     attendanceResolved: attendance.resolved,
     attendanceSkipped: attendance.skipped,
     attendanceFailed: attendance.failed,
+    trainingStandingPeople: standing.people,
+    trainingStandingNowComplete: standing.nowComplete,
+    trainingStandingNowPending: standing.nowPending,
   });
   await recordCronHeartbeat("reminders");
   await flushLogs();

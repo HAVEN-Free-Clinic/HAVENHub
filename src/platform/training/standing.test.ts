@@ -21,7 +21,7 @@ const base: TrainingDayFacts = {
   hasMockClinic: true,
   completedMakeupCourse: false,
   markedOff: false,
-  priorMorning: null,
+  passedRetiredQuiz: false,
 };
 const parts = (f: Partial<TrainingDayFacts>) => trainingDayParts({ ...base, ...f });
 
@@ -81,9 +81,9 @@ describe("trainingDayParts: the rule table ops set on 2026-09-19", () => {
   });
 
   it("keeps a retired-quiz pass, which nothing can re-derive", () => {
-    expect(parts({ priorMorning: "QUIZ" }).morning).toBe("QUIZ");
-    // ...but does not latch anything else: a removed check-in takes ATTENDED back.
-    expect(parts({ priorMorning: "ATTENDED" }).morning).toBe("OWED");
+    expect(parts({ passedRetiredQuiz: true }).morning).toBe("QUIZ");
+    // Attendance still reads first when both happened.
+    expect(parts({ passedRetiredQuiz: true, attendedMorning: true }).morning).toBe("ATTENDED");
   });
 });
 

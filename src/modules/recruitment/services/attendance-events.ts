@@ -18,13 +18,14 @@
  * is a CONSEQUENCE of it rather than the storage for it:
  *
  *   recordEventCheckIn -> EventAttendance row (always)
- *                      -> completeTraining(via ATTENDANCE) when kind = TRAINING
- *                         and the attendee has a Person, membership or not
+ *                      -> recomputeTrainingStanding when kind = TRAINING or
+ *                         MOCK_CLINIC and the attendee has a Person,
+ *                         membership or not
  *                      -> nudge email when anything is still outstanding
  *
- * Training is keyed (personId, termId, track), so a completion written for
- * someone with no membership sits there harmlessly and starts counting the
- * moment promotion gives them one. A walk-up with no Person cannot have one
+ * Training is keyed (personId, termId, track), so a standing written for
+ * someone with no membership sits there harmlessly and is recomputed the
+ * moment promotion gives them one (their department decides what they owe). A walk-up with no Person cannot have one
  * written yet; linkAttendee backfills it when the row is matched to a person.
  *
  * Every mutation is idempotent. Two staffers working the same door, a
@@ -39,7 +40,7 @@ import { can } from "@/platform/rbac/engine";
 import { recordAudit } from "@/platform/audit";
 import { log, errorAttrs } from "@/platform/logging";
 import { RecruitmentAuthError, reviewScope } from "./review";
-import { completeTraining } from "./training";
+import { recomputeTrainingStanding, type RecomputeResult } from "@/platform/training/standing";
 import { resolveAttendanceBlockers, resolveApplicantStanding, blockersForStanding, NO_BLOCKERS, type ApplicantStanding, type AttendanceBlockers } from "@/platform/compliance/attendance-blockers";
 import type { OutstandingItemKey } from "@/platform/compliance/outstanding-items";
 import { sendAttendanceNudge } from "@/platform/email/attendance-nudges";
@@ -137,11 +138,16 @@ function validateEventInput(input: EventInput): EventInput {
   if (input.endsAt && input.endsAt.getTime() < input.startsAt.getTime()) {
     throw new AttendanceEventError("The event cannot end before it starts.");
   }
-  // A TRAINING event's cycle is what carries the track its check-ins complete
-  // training for, so an event without one could record attendance that silently
-  // credits nothing. The schema cannot express a conditional requirement.
-  if (input.kind === "TRAINING" && !input.cycleId) {
-    throw new AttendanceEventError("A training event must belong to a recruitment cycle.");
+  // A training-day event's cycle is what carries the track its check-ins
+  // count toward, so an event without one could record attendance that
+  // silently credits nothing. The schema cannot express a conditional
+  // requirement.
+  if (isTrainingDayKind(input.kind) && !input.cycleId) {
+    throw new AttendanceEventError(
+      input.kind === "MOCK_CLINIC"
+        ? "A mock clinic must belong to a recruitment cycle."
+        : "A training event must belong to a recruitment cycle.",
+    );
   }
   return {
     ...input,
@@ -966,18 +972,9 @@ export type CheckInOutcome = {
   nudgeQueued: boolean;
 };
 
-/**
- * Will this check-in complete training as a side effect?
- *
- * The same three conditions creditTrainingIfApplicable applies, named once so
- * the blocker list and the write cannot disagree about whether training just
- * happened.
- */
-function creditsTraining(
-  event: { kind: AttendanceEventKind; cycle: { track: Track } | null },
-  personId: string | null,
-): boolean {
-  return event.kind === "TRAINING" && personId !== null && event.cycle !== null;
+/** The two kinds of event that are a part of training day. */
+function isTrainingDayKind(kind: AttendanceEventKind): boolean {
+  return kind === "TRAINING" || kind === "MOCK_CLINIC";
 }
 
 /** The same blockers with this track's training task removed. */
@@ -1219,7 +1216,7 @@ export async function recordEventCheckIn(
       attendanceId: existing.id,
       name,
       alreadyCheckedIn: true,
-      trainingCredited: event.kind === "TRAINING" && personId !== null,
+      trainingCredited: isTrainingDayKind(event.kind) && personId !== null,
       blockers: blockers.items,
       blockerKeys: blockers.keys,
       contactEmail,
@@ -1240,19 +1237,18 @@ export async function recordEventCheckIn(
     : blockersForStanding(standing);
 
   // Clearance is measured BEFORE the transaction below credits this very
-  // session, so at a training door it reports the training the attendee is
+  // session, so at a training door it can report the training the attendee is
   // standing in the room for as still outstanding. Told to the operator that is
   // absurd, mailed to the attendee it is worse, and persisted into
   // blockersAtCheckIn it puts somebody with nothing else outstanding into the
   // nudge stream to be resolved on the next cron pass.
   //
-  // Subtracted rather than re-measured after the write: the credit and the
-  // measurement would have to share a transaction to be re-read consistently,
-  // and this is the one blocker whose resolution this function itself is
-  // causing, so it is knowable without asking again.
-  const blockers = creditsTraining(event, personId)
-    ? withoutTrainingKey(measured, event.cycle!.track)
-    : measured;
+  // So the training key comes off exactly when the recompute this check-in
+  // triggers says training is now complete. Not whenever the event is a
+  // training event: since training day has two parts, the morning check-in of
+  // someone who has mock clinic still ahead of them leaves training owed, and
+  // a mock clinic check-in can be the one that finishes it.
+  let blockers = measured;
 
   let attendance: EventAttendance;
   try {
@@ -1265,15 +1261,25 @@ export async function recordEventCheckIn(
           attendeeEmail: personId ? null : email,
           method: personId ? "STAFF" : "WALK_UP",
           recordedById: actorId,
-          blockersAtCheckIn: blockers.keys,
+          blockersAtCheckIn: measured.keys,
           // Nothing outstanding means there is nothing to chase, so the row starts
           // resolved rather than joining the nudge stream and being resolved on the
           // first pass.
-          resolvedAt: blockers.keys.length === 0 ? new Date() : null,
+          resolvedAt: measured.keys.length === 0 ? new Date() : null,
         },
       });
-      await creditTrainingIfApplicable(tx, event, personId, actorId);
-      return row;
+      const credited = await creditTrainingIfApplicable(tx, event, personId);
+      if (!credited?.complete || !event.cycle) return row;
+      const trimmed = withoutTrainingKey(measured, event.cycle.track);
+      if (trimmed.keys.length === measured.keys.length) return row;
+      blockers = trimmed;
+      return tx.eventAttendance.update({
+        where: { id: row.id },
+        data: {
+          blockersAtCheckIn: trimmed.keys,
+          resolvedAt: trimmed.keys.length === 0 ? new Date() : null,
+        },
+      });
     });
   } catch (err) {
     // Two staffers working the same door tapped the same person at the same
@@ -1289,7 +1295,7 @@ export async function recordEventCheckIn(
           attendanceId: raced.id,
           name,
           alreadyCheckedIn: true,
-          trainingCredited: event.kind === "TRAINING" && personId !== null,
+          trainingCredited: isTrainingDayKind(event.kind) && personId !== null,
           blockers: blockers.items,
           blockerKeys: blockers.keys,
           contactEmail,
@@ -1330,7 +1336,7 @@ export async function recordEventCheckIn(
     attendanceId: attendance.id,
     name,
     alreadyCheckedIn: false,
-    trainingCredited: event.kind === "TRAINING" && personId !== null,
+    trainingCredited: isTrainingDayKind(event.kind) && personId !== null,
     blockers: blockers.items,
     blockerKeys: blockers.keys,
     contactEmail,
@@ -1341,45 +1347,36 @@ export async function recordEventCheckIn(
 }
 
 /**
- * The training bridge: a TRAINING event's check-in completes training.
+ * The training bridge: a TRAINING or MOCK_CLINIC check-in is a fact the
+ * person's training-day standing is recomputed from (platform/training/
+ * standing.ts). The morning alone no longer completes training: a
+ * non-clinical volunteer owes mock clinic too.
  *
  * No membership check, unlike the recordAttendance it replaces. Training is
  * keyed (personId, termId, track), so writing it for someone who has not
  * onboarded yet is not a lie about their roster status -- it is the attendance
- * fact, waiting for the roster row promotion will create. Their /get-started
- * checklist then shows training complete the moment they have one, instead of
- * asking them to sit through a session they already attended.
+ * fact, waiting for the roster row promotion will create. Promotion recomputes
+ * it once their department says what they owe.
  */
 async function creditTrainingIfApplicable(
   tx: TransactionClient,
   event: { kind: AttendanceEventKind; termId: string; cycle: { id: string; track: Track } | null },
   personId: string | null,
-  /** Null on the system path (auto-link at promotion), where there is no actor. */
-  actorId: string | null,
-): Promise<boolean> {
-  if (event.kind !== "TRAINING" || personId === null) return false;
+): Promise<RecomputeResult> {
+  if (!isTrainingDayKind(event.kind) || personId === null) return null;
   // A TRAINING event always has a cycle at creation, but the relation is SetNull:
   // a deleted cycle leaves the event standing with no track to credit. Record the
   // attendance, credit nothing.
-  if (!event.cycle) return false;
-  await completeTraining(tx, {
-    personId,
-    termId: event.termId,
-    cycleId: event.cycle.id,
-    track: event.cycle.track,
-    via: "ATTENDANCE",
-    actorId: actorId ?? undefined,
-  });
-  return true;
+  if (!event.cycle) return null;
+  return recomputeTrainingStanding(tx, { personId, termId: event.termId, track: event.cycle.track });
 }
 
 /**
  * Undo a check-in.
  *
- * Reverses the training completion only when no OTHER training attendance for
- * the same person, term and track survives, and only when the completion is
- * actually attributable to attendance: a member who also passed the quiz keeps
- * their completion, because it was never this row's to give.
+ * The standing is recomputed without the row, so the credit goes exactly when
+ * nothing else supports it: another surviving check-in for the same part, a
+ * retired-quiz pass, the online course, or an IT mark-off all keep it.
  */
 export async function removeEventCheckIn(attendanceId: string, actorId: string): Promise<void> {
   const row = await prisma.eventAttendance.findUnique({
@@ -1405,32 +1402,7 @@ export async function removeEventCheckIn(attendanceId: string, actorId: string):
   await prisma.$transaction(async (tx) => {
     await tx.eventAttendance.delete({ where: { id: attendanceId } });
 
-    const { event, personId } = row;
-    if (event.kind !== "TRAINING" || personId === null || !event.cycle) return;
-
-    const others = await tx.eventAttendance.count({
-      where: {
-        personId,
-        event: { kind: "TRAINING", termId: event.termId, cycle: { track: event.cycle.track } },
-      },
-    });
-    if (others > 0) return;
-
-    await tx.training.updateMany({
-      where: {
-        personId,
-        termId: event.termId,
-        track: event.cycle.track,
-        completedVia: "ATTENDANCE",
-      },
-      data: {
-        status: "PENDING",
-        completedVia: null,
-        completedAt: null,
-        attendanceRecordedById: null,
-        attendanceRecordedAt: null,
-      },
-    });
+    await creditTrainingIfApplicable(tx, row.event, row.personId);
   });
 
   await recordAudit({
@@ -1505,7 +1477,7 @@ export async function linkAttendee(
         },
       });
     }
-    await creditTrainingIfApplicable(tx, row.event, personId, actorId);
+    await creditTrainingIfApplicable(tx, row.event, personId);
   });
 
   await recordAudit({
@@ -1594,7 +1566,7 @@ export async function linkAttendanceByEmail(
             data: { personId, attendeeName: null, attendeeEmail: null },
           });
         }
-        await creditTrainingIfApplicable(tx, row.event, personId, null);
+        await creditTrainingIfApplicable(tx, row.event, personId);
       });
       linked++;
     } catch (err) {

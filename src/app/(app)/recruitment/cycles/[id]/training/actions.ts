@@ -7,6 +7,8 @@ import {
   recordAbsenceExcuse,
   recordApplicantAbsenceExcuse,
   resetTraining,
+  markMockClinicDone,
+  undoMockClinicMarkOff,
   TrainingStateError,
 } from "@/modules/recruitment/services/training";
 import {
@@ -253,4 +255,31 @@ export async function recordExpectedAttendanceAction(cycleId: string, applicantI
     throw err;
   }
   redirect(bounce(cycleId, { saved: "attendance" }));
+}
+
+/** IT marks a member's mock clinic done after their director confirmed it. */
+export async function markMockClinicDoneAction(cycleId: string, personId: string, formData: FormData) {
+  const person = await requirePersonSession();
+  try {
+    await markMockClinicDone(cycleId, personId, String(formData.get("note") ?? ""), person.personId);
+  } catch (err) {
+    if (err instanceof RecruitmentAuthError || err instanceof TrainingStateError) {
+      redirect(bounce(cycleId, { error: (err as Error).message }));
+    }
+    throw err;
+  }
+  redirect(bounce(cycleId, { saved: "mockClinicMarked" }));
+}
+
+export async function undoMockClinicMarkOffAction(cycleId: string, personId: string) {
+  const person = await requirePersonSession();
+  try {
+    await undoMockClinicMarkOff(cycleId, personId, person.personId);
+  } catch (err) {
+    if (err instanceof RecruitmentAuthError || err instanceof TrainingStateError) {
+      redirect(bounce(cycleId, { error: (err as Error).message }));
+    }
+    throw err;
+  }
+  redirect(bounce(cycleId, { saved: "mockClinicUndone" }));
 }

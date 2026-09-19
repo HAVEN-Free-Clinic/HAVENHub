@@ -62,6 +62,7 @@ export default async function NewEventPage() {
               <Select name="kind" required defaultValue="INFO_SESSION">
                 <option value="INFO_SESSION">{KIND_LABELS.INFO_SESSION}</option>
                 <option value="TRAINING">{KIND_LABELS.TRAINING}</option>
+                <option value="MOCK_CLINIC">{KIND_LABELS.MOCK_CLINIC}</option>
                 <option value="OTHER">{KIND_LABELS.OTHER}</option>
               </Select>
             </Field>

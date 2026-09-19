@@ -1,8 +1,9 @@
-import type { Course, CourseAudience, CourseRecurrence } from "@prisma/client";
+import type { Course, CourseAudience, CourseKind, CourseRecurrence } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { recordAudit } from "@/platform/audit";
+import { courseHasContent } from "../engine/assignment";
 import { LearningAuthError, LearningValidationError } from "./errors";
 
 async function requireManager(actorId: string): Promise<void> {
@@ -17,6 +18,9 @@ export type CourseInput = {
   isActive?: boolean;
   /** Omitted leaves the existing value alone, same convention as isActive below. */
   recurrence?: CourseRecurrence;
+  /** Create only: a course's kind is fixed once made, since its content is
+   *  either a SCORM package or video sections, never both. */
+  kind?: CourseKind;
 };
 
 export async function createCourse(input: CourseInput, actorId: string): Promise<Course> {
@@ -29,6 +33,7 @@ export async function createCourse(input: CourseInput, actorId: string): Promise
       title,
       description: input.description?.trim() || null,
       isActive: input.isActive ?? true,
+      kind: input.kind ?? "SCORM",
       position: (max._max.position ?? -1) + 1,
     },
   });
@@ -37,7 +42,7 @@ export async function createCourse(input: CourseInput, actorId: string): Promise
     action: "learning.course_create",
     entityType: "Course",
     entityId: course.id,
-    after: { title },
+    after: { title, kind: course.kind },
   });
   return course;
 }
@@ -97,17 +102,26 @@ export type CourseListRow = {
   title: string;
   isActive: boolean;
   assignToAll: boolean;
+  kind: CourseKind;
+  /** Has content a learner can complete (see courseHasContent). */
   hasPackage: boolean;
+  /** Title of the training cycle this course makes up, when it is one. */
+  makeupForCycleTitle: string | null;
 };
 
 export async function listCourses(): Promise<CourseListRow[]> {
-  const courses = await prisma.course.findMany({ orderBy: { position: "asc" } });
+  const courses = await prisma.course.findMany({
+    orderBy: { position: "asc" },
+    include: { makeupForCycle: { select: { title: true } } },
+  });
   return courses.map((c) => ({
     id: c.id,
     title: c.title,
     isActive: c.isActive,
     assignToAll: c.assignToAll,
-    hasPackage: c.scormEntryHref != null,
+    kind: c.kind,
+    hasPackage: courseHasContent(c),
+    makeupForCycleTitle: c.makeupForCycle?.title ?? null,
   }));
 }
 

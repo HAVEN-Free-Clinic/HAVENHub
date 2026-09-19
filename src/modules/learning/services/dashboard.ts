@@ -3,9 +3,10 @@ import { comparePersonName } from "@/platform/person-name";
 import { can } from "@/platform/rbac/engine";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { recordAudit } from "@/platform/audit";
+import { recomputeTrainingStanding } from "@/platform/training/standing";
 import { deriveStatus } from "../engine/status";
 import { LearningAuthError, LearningValidationError } from "./errors";
-import { audienceToKind } from "../engine/assignment";
+import { audienceToKind, courseHasContent } from "../engine/assignment";
 
 async function requireViewer(actorId: string): Promise<void> {
   if (!(await can(actorId, "learning.view_progress"))) {
@@ -41,7 +42,12 @@ export async function getCourseCompletion(courseId: string, viewerId: string): P
   // consistent with the canonical resolver instead of listing every active member
   // as a NOT_STARTED (required-incomplete) learner for a course they were never
   // actually assigned.
-  if (!course.isActive || course.scormEntryHref == null) return [];
+  if (!course.isActive || !courseHasContent(course)) return [];
+  // A training makeup course is assigned to no one (see coursesForMember), so
+  // there is no roster of required learners to measure against. Its table is
+  // the people who have opened it, in the cycle's term, which is where its
+  // progress is recorded; who still owes it is the training roster's question.
+  if (course.makeupForCycleId) return makeupCompletion(courseId, course.makeupForCycleId);
   const term = await getActiveTerm();
   if (!term) return [];
 
@@ -111,6 +117,46 @@ export async function getCourseCompletion(courseId: string, viewerId: string): P
     .sort(comparePersonName);
 }
 
+/** Completion rows for a training makeup course: everyone with progress on it
+ *  in the cycle's term. */
+async function makeupCompletion(courseId: string, cycleId: string): Promise<CompletionRow[]> {
+  const cycle = await prisma.recruitmentCycle.findUnique({ where: { id: cycleId }, select: { termId: true, track: true } });
+  if (!cycle) return [];
+  const rows = await prisma.courseProgress.findMany({
+    where: { courseId, termId: cycle.termId },
+    select: {
+      status: true,
+      completedAt: true,
+      scoreRaw: true,
+      person: {
+        select: {
+          id: true,
+          name: true,
+          legalFirstName: true,
+          lastName: true,
+          memberships: {
+            where: { termId: cycle.termId, kind: cycle.track, status: "ACTIVE" },
+            select: { department: { select: { code: true } } },
+            take: 1,
+          },
+        },
+      },
+    },
+  });
+  return rows
+    .map<CompletionRow>((r) => ({
+      personId: r.person.id,
+      name: r.person.name,
+      legalFirstName: r.person.legalFirstName,
+      lastName: r.person.lastName,
+      departmentCode: r.person.memberships[0]?.department.code ?? "",
+      status: r.status === "COMPLETE" ? "COMPLETE" : "IN_PROGRESS",
+      completedAt: r.status === "COMPLETE" ? r.completedAt : null,
+      scoreRaw: r.scoreRaw,
+    }))
+    .sort(comparePersonName);
+}
+
 /**
  * Clear a learner's progress on a course so they can retake it.
  *
@@ -135,20 +181,37 @@ export async function resetCourseProgress(personId: string, courseId: string, ac
   if (!(await can(actorId, "learning.manage_courses"))) {
     throw new LearningAuthError("You do not have permission to reset progress.");
   }
-  const course = await prisma.course.findUnique({ where: { id: courseId }, select: { recurrence: true } });
+  const course = await prisma.course.findUnique({
+    where: { id: courseId },
+    select: { recurrence: true, makeupForCycle: { select: { termId: true, track: true } } },
+  });
   let termFilter: { termId?: string } = {};
-  if (course?.recurrence === "PER_TERM") {
+  if (course?.makeupForCycle) {
+    // A makeup course records progress against its cycle's term only.
+    termFilter = { termId: course.makeupForCycle.termId };
+  } else if (course?.recurrence === "PER_TERM") {
     const term = await getActiveTerm();
     if (!term) throw new LearningValidationError("No active term to reset progress against.");
     termFilter = { termId: term.id };
   }
-  // Delete both progress records in one transaction (mirrors the ingest-time
+  // Delete every progress record in one transaction (mirrors the ingest-time
   // resetProgress reset) so we never leave an orphaned course rollup or per-SCO
-  // rows if one delete fails.
+  // or per-section rows if one delete fails. SectionQuizAttempt rows cascade
+  // with their SectionProgress.
   await prisma.$transaction([
     prisma.courseProgress.deleteMany({ where: { personId, courseId, ...termFilter } }),
     prisma.scoProgress.deleteMany({ where: { personId, courseId, ...termFilter } }),
+    prisma.sectionProgress.deleteMany({ where: { personId, courseId, ...termFilter } }),
   ]);
+  // A makeup completion is what credited the morning; with it gone the
+  // standing must be re-derived, or the credit would outlive its evidence.
+  if (course?.makeupForCycle && termFilter.termId) {
+    await recomputeTrainingStanding(prisma, {
+      personId,
+      termId: termFilter.termId,
+      track: course.makeupForCycle.track,
+    });
+  }
   await recordAudit({
     actorPersonId: actorId,
     action: "learning.progress_reset",
@@ -164,7 +227,10 @@ export async function resetCourseProgress(personId: string, courseId: string, ac
 export async function listCoursesForDashboard(viewerId: string): Promise<{ id: string; title: string }[]> {
   await requireViewer(viewerId);
   return prisma.course.findMany({
-    where: { isActive: true, scormEntryHref: { not: null } },
+    where: {
+      isActive: true,
+      OR: [{ kind: "SCORM", scormEntryHref: { not: null } }, { kind: "VIDEO", videoReady: true }],
+    },
     orderBy: { position: "asc" },
     select: { id: true, title: true },
   });

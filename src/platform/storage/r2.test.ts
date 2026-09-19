@@ -24,6 +24,9 @@ vi.mock("@aws-sdk/client-s3", () => ({
   ListObjectsV2Command: vi.fn(function (input) {
     return { kind: "List", input };
   }),
+  HeadObjectCommand: vi.fn(function (input) {
+    return { kind: "Head", input };
+  }),
 }));
 
 vi.mock("@aws-sdk/s3-request-presigner", () => ({
@@ -174,5 +177,32 @@ describe("presignPut", () => {
       ContentType: "application/zip",
     });
     expect(options).toEqual({ expiresIn: 600 });
+  });
+});
+
+describe("presignGet", () => {
+  it("signs a GET for the bucket and key, pinning the response content type", async () => {
+    const { getSignedUrl } = await import("@aws-sdk/s3-request-presigner");
+    vi.mocked(getSignedUrl).mockClear();
+    await r2.presignGet("learning-video/c1/v.mp4", 3600, { contentType: "video/mp4" });
+    const [, command, options] = vi.mocked(getSignedUrl).mock.calls[0];
+    expect((command as unknown as { input: unknown }).input).toMatchObject({
+      Bucket: "test-bucket",
+      Key: "learning-video/c1/v.mp4",
+      ResponseContentType: "video/mp4",
+    });
+    expect(options).toEqual({ expiresIn: 3600 });
+  });
+});
+
+describe("objectSize", () => {
+  it("returns ContentLength from a HEAD", async () => {
+    send.mockResolvedValueOnce({ ContentLength: 1234 });
+    expect(await r2.objectSize("k")).toBe(1234);
+    expect(send.mock.calls[0][0]).toMatchObject({ kind: "Head", input: { Bucket: "test-bucket", Key: "k" } });
+  });
+  it("returns null for a missing object", async () => {
+    send.mockRejectedValueOnce(Object.assign(new Error("nf"), { name: "NotFound", $metadata: { httpStatusCode: 404 } }));
+    expect(await r2.objectSize("k")).toBeNull();
   });
 });

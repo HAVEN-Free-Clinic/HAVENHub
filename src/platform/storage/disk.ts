@@ -49,6 +49,35 @@ export async function getObject(key: string): Promise<Buffer | null> {
   }
 }
 
+/** The object's size in bytes, or null when it is missing. */
+export async function objectSize(key: string): Promise<number | null> {
+  try {
+    return (await fs.stat(localPath(key))).size;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read bytes `start` through `end` (inclusive) of the object, or null when it is
+ * missing. Lets the local-dev video route answer Range requests without loading
+ * a whole recording into memory.
+ */
+export async function getObjectRange(key: string, start: number, end: number): Promise<Buffer | null> {
+  let handle: fs.FileHandle | null = null;
+  try {
+    handle = await fs.open(localPath(key), "r");
+    const length = Math.max(0, end - start + 1);
+    const buffer = Buffer.alloc(length);
+    const { bytesRead } = await handle.read(buffer, 0, length, start);
+    return buffer.subarray(0, bytesRead);
+  } catch {
+    return null;
+  } finally {
+    await handle?.close();
+  }
+}
+
 /** Delete the object stored under `key`. Missing objects are a no-op. */
 export async function deleteObject(key: string): Promise<void> {
   await fs.rm(localPath(key), { force: true }).catch(() => undefined);

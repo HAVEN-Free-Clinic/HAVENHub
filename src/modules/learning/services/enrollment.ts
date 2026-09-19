@@ -5,7 +5,7 @@ import { getActiveTerm } from "@/platform/terms/active-term";
 import { getAccessTerm } from "@/platform/terms/access-term";
 import { captureEvent, flushEvents } from "@/platform/posthog/capture";
 import { activeTermGroup } from "@/platform/posthog/groups";
-import { coursesForMember, coursesSatisfiableInTerm, splitByRecurrence, type AssignableCourse, type MemberMembership } from "../engine/assignment";
+import { ASSIGNABLE_COURSE_SELECT, coursesForMember, coursesSatisfiableInTerm, splitByRecurrence, toAssignable, type MemberMembership } from "../engine/assignment";
 import { deriveStatus, rollupStatus } from "../engine/status";
 import type { ScoEntry } from "../engine/manifest";
 import { LearningAuthError, LearningValidationError } from "./errors";
@@ -45,17 +45,9 @@ async function assignedCourseIds(personId: string, termIdOverride?: string): Pro
   const memberships = await memberMemberships(personId, termId);
   const courses = await prisma.course.findMany({
     where: { isActive: true },
-    select: { id: true, isActive: true, assignToAll: true, audience: true, scormEntryHref: true, departments: { select: { departmentId: true } } },
+    select: ASSIGNABLE_COURSE_SELECT,
   });
-  const assignable: AssignableCourse[] = courses.map((c) => ({
-    id: c.id,
-    isActive: c.isActive,
-    assignToAll: c.assignToAll,
-    departmentIds: c.departments.map((d) => d.departmentId),
-    hasPackage: c.scormEntryHref != null,
-    audience: c.audience,
-  }));
-  return coursesForMember({ courses: assignable, memberships });
+  return coursesForMember({ courses: courses.map(toAssignable), memberships });
 }
 
 /**
@@ -74,19 +66,11 @@ export async function isCourseAssignedTo(personId: string, courseId: string): Pr
   if (!termId) return false;
   const course = await prisma.course.findUnique({
     where: { id: courseId },
-    select: { id: true, isActive: true, assignToAll: true, audience: true, scormEntryHref: true, departments: { select: { departmentId: true } } },
+    select: ASSIGNABLE_COURSE_SELECT,
   });
   if (!course) return false;
   const memberships = await memberMemberships(personId, termId);
-  const assignable: AssignableCourse = {
-    id: course.id,
-    isActive: course.isActive,
-    assignToAll: course.assignToAll,
-    departmentIds: course.departments.map((d) => d.departmentId),
-    hasPackage: course.scormEntryHref != null,
-    audience: course.audience,
-  };
-  return coursesForMember({ courses: [assignable], memberships }).includes(courseId);
+  return coursesForMember({ courses: [toAssignable(course)], memberships }).includes(courseId);
 }
 
 /**

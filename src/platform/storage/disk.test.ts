@@ -27,6 +27,28 @@ describe("putObject / getObject", () => {
   });
 });
 
+describe("objectSize / getObjectRange", () => {
+  it("reports the size and reads an inclusive byte range", async () => {
+    await disk.putObject("unit/v.bin", Buffer.from("0123456789"), "application/octet-stream");
+    expect(await disk.objectSize("unit/v.bin")).toBe(10);
+    expect(await disk.getObjectRange("unit/v.bin", 2, 5)).toEqual(Buffer.from("2345"));
+  });
+
+  it("truncates a range that runs past the end", async () => {
+    await disk.putObject("unit/v.bin", Buffer.from("0123456789"), "application/octet-stream");
+    expect(await disk.getObjectRange("unit/v.bin", 8, 20)).toEqual(Buffer.from("89"));
+  });
+
+  it("returns null for a missing object", async () => {
+    expect(await disk.objectSize("unit/none.bin")).toBeNull();
+    expect(await disk.getObjectRange("unit/none.bin", 0, 3)).toBeNull();
+  });
+
+  it("reads a traversing key as a miss", async () => {
+    expect(await disk.getObjectRange("../../etc/passwd", 0, 3)).toBeNull();
+  });
+});
+
 describe("path traversal", () => {
   // Keys reach this driver from user-influenced values. Escaping UPLOAD_DIR
   // would let a caller read or clobber arbitrary files on the host.

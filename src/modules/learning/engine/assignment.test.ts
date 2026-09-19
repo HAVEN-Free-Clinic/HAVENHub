@@ -1,11 +1,12 @@
 import { expect, it } from "vitest";
-import { coursesForMember, coursesSatisfiableInTerm, kindMatchesAudience, splitByRecurrence, type AssignableCourse, type MemberMembership } from "./assignment";
+import { courseHasContent, coursesForMember, coursesSatisfiableInTerm, kindMatchesAudience, splitByRecurrence, toAssignable, type AssignableCourse, type MemberMembership } from "./assignment";
 
 const course = (over: Partial<AssignableCourse> & { id: string }): AssignableCourse => ({
   isActive: true,
   assignToAll: false,
   departmentIds: [],
   hasPackage: true,
+  isMakeup: false,
   audience: "EVERYONE",
   ...over,
 });
@@ -131,4 +132,43 @@ it("coursesSatisfiableInTerm keeps everything for the active term", () => {
 it("coursesSatisfiableInTerm drops PER_TERM courses for a non-active term, keeping ONCE", () => {
   const list = [{ id: "a", recurrence: "ONCE" as const }, { id: "b", recurrence: "PER_TERM" as const }];
   expect(coursesSatisfiableInTerm(list, false)).toEqual([{ id: "a", recurrence: "ONCE" }]);
+});
+
+it("never assigns a training makeup course, whatever its scope", () => {
+  const list: AssignableCourse[] = [
+    course({ id: "ordinary", assignToAll: true }),
+    course({ id: "makeup", assignToAll: true, isMakeup: true }),
+  ];
+  const ids = coursesForMember({ courses: list, memberships: [vol("d-any")] });
+  expect(ids).toEqual(["ordinary"]);
+});
+
+it("courseHasContent reads a SCORM package or a ready VIDEO course", () => {
+  expect(courseHasContent({ kind: "SCORM", scormEntryHref: "index.html", videoReady: false })).toBe(true);
+  expect(courseHasContent({ kind: "SCORM", scormEntryHref: null, videoReady: true })).toBe(false);
+  expect(courseHasContent({ kind: "VIDEO", scormEntryHref: null, videoReady: true })).toBe(true);
+  expect(courseHasContent({ kind: "VIDEO", scormEntryHref: null, videoReady: false })).toBe(false);
+});
+
+it("toAssignable maps a course row, flagging a makeup course and VIDEO readiness", () => {
+  const row = {
+    id: "c1",
+    isActive: true,
+    assignToAll: true,
+    audience: "EVERYONE" as const,
+    kind: "VIDEO" as const,
+    scormEntryHref: null,
+    videoReady: true,
+    makeupForCycleId: "cycle-1",
+    departments: [{ departmentId: "d1" }],
+  };
+  expect(toAssignable(row)).toEqual({
+    id: "c1",
+    isActive: true,
+    assignToAll: true,
+    departmentIds: ["d1"],
+    hasPackage: true,
+    audience: "EVERYONE",
+    isMakeup: true,
+  });
 });

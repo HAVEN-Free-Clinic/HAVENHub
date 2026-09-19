@@ -1,5 +1,6 @@
 /** Pure assignment resolution. No DB. A member is assigned a course when it is
- *  active, has an uploaded SCORM package, falls in scope (org-wide assignToAll or
+ *  active, has content (an uploaded SCORM package or a ready VIDEO course), is
+ *  not a training makeup course, falls in scope (org-wide assignToAll or
  *  a department the member belongs to), and the member's matching membership kind
  *  satisfies the course audience. A course that is inactive, package-less, or has
  *  no scope (no departments and not assignToAll) is a draft assigned to no one.
@@ -7,18 +8,70 @@
  *  uploading its package from locking every assigned member out of the onboarding
  *  gate with a requirement they can never complete (the player has no SCO to
  *  finish). */
-import type { CourseAudience, CourseRecurrence, Track } from "@prisma/client";
+import type { CourseAudience, CourseKind, CourseRecurrence, Track } from "@prisma/client";
 
 export type AssignableCourse = {
   id: string;
   isActive: boolean;
   assignToAll: boolean;
   departmentIds: string[];
-  /** True once a SCORM package has been ingested (Course.scormEntryHref set). */
+  /** True once the course can be completed: a SCORM package has been ingested,
+   *  or a VIDEO course is ready (see courseHasContent). */
   hasPackage: boolean;
   /** Who the course targets: EVERYONE, DIRECTORS, or VOLUNTEERS. */
   audience: CourseAudience;
+  /** A training cycle's online makeup course. Never assigned: it is shown only
+   *  to volunteers whose morning is owed, from the training step, and counting
+   *  it here would put it on every member's learning gate. */
+  isMakeup: boolean;
 };
+
+/**
+ * Whether a course has content a learner can complete: an ingested SCORM
+ * package, or a VIDEO course whose sections are all ready (Course.videoReady).
+ * The one definition every assignment reader shares, so the checklist, the
+ * dashboard, and the schedule builder's clearance map cannot disagree about a
+ * half-built course.
+ */
+export function courseHasContent(course: { kind: CourseKind; scormEntryHref: string | null; videoReady: boolean }): boolean {
+  return course.kind === "VIDEO" ? course.videoReady : course.scormEntryHref != null;
+}
+
+/** The course columns toAssignable reads, for a Prisma `select`. */
+export const ASSIGNABLE_COURSE_SELECT = {
+  id: true,
+  isActive: true,
+  assignToAll: true,
+  audience: true,
+  kind: true,
+  scormEntryHref: true,
+  videoReady: true,
+  makeupForCycleId: true,
+  departments: { select: { departmentId: true } },
+} as const;
+
+/** A course row (selected with ASSIGNABLE_COURSE_SELECT) as the resolver sees it. */
+export function toAssignable(course: {
+  id: string;
+  isActive: boolean;
+  assignToAll: boolean;
+  audience: CourseAudience;
+  kind: CourseKind;
+  scormEntryHref: string | null;
+  videoReady: boolean;
+  makeupForCycleId: string | null;
+  departments: { departmentId: string }[];
+}): AssignableCourse {
+  return {
+    id: course.id,
+    isActive: course.isActive,
+    assignToAll: course.assignToAll,
+    departmentIds: course.departments.map((d) => d.departmentId),
+    hasPackage: courseHasContent(course),
+    audience: course.audience,
+    isMakeup: course.makeupForCycleId != null,
+  };
+}
 
 /** One of the member's active memberships: the department and the kind held in it. */
 export type MemberMembership = { departmentId: string; kind: Track };
@@ -101,6 +154,7 @@ export function coursesForMember(params: {
   for (const course of params.courses) {
     if (!course.isActive) continue;
     if (!course.hasPackage) continue;
+    if (course.isMakeup) continue;
     const assigned = params.memberships.some(
       (m) =>
         (course.assignToAll || course.departmentIds.includes(m.departmentId)) &&

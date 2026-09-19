@@ -4,9 +4,11 @@ import { effectiveComplianceStatus, type CertFacts } from "@/platform/compliance
 import { loadEhsItemsMap } from "@/platform/ehs/services/status";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import {
+  ASSIGNABLE_COURSE_SELECT,
   coursesForMember,
   coursesSatisfiableInTerm,
   splitByRecurrence,
+  toAssignable,
   type AssignableCourse,
   type MemberMembership,
 } from "@/modules/learning/engine/assignment";
@@ -86,15 +88,7 @@ export async function loadClearanceMap(
       }),
       prisma.course.findMany({
         where: { isActive: true },
-        select: {
-          id: true,
-          isActive: true,
-          assignToAll: true,
-          audience: true,
-          scormEntryHref: true,
-          recurrence: true,
-          departments: { select: { departmentId: true } },
-        },
+        select: { ...ASSIGNABLE_COURSE_SELECT, recurrence: true },
       }),
       loadEhsItemsMap(termId),
     ]);
@@ -138,14 +132,7 @@ export async function loadClearanceMap(
   // is what keeps this map and a member's own checklist agreeing (audit 14, L1).
   const satisfiableCourses = coursesSatisfiableInTerm(activeCourses, activeTerm?.id === termId);
 
-  const assignable: AssignableCourse[] = satisfiableCourses.map((c) => ({
-    id: c.id,
-    isActive: c.isActive,
-    assignToAll: c.assignToAll,
-    departmentIds: c.departments.map((d) => d.departmentId),
-    hasPackage: c.scormEntryHref != null,
-    audience: c.audience,
-  }));
+  const assignable: AssignableCourse[] = satisfiableCourses.map(toAssignable);
   const activeCourseIds = assignable.map((c) => c.id);
 
   // Scope the progress lookup by term for PER_TERM courses only, exactly like

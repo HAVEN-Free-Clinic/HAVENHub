@@ -74,6 +74,36 @@ export async function deleteObject(key: string): Promise<void> {
   return disk.deleteObject(key);
 }
 
+/** The object's size in bytes, or null when it is missing. */
+export async function objectSize(key: string): Promise<number | null> {
+  if (r2Active) return (await import("./r2")).objectSize(key);
+  return disk.objectSize(key);
+}
+
+/**
+ * A URL the browser can GET `key` from directly, with Range support, or null
+ * when bytes live on local disk and the caller must serve them itself (see
+ * getLocalObjectRange). Only ever for content the caller has already
+ * authorized this viewer to see: the URL is a bearer credential until it
+ * expires.
+ */
+export async function presignGetUrl(
+  key: string,
+  expiresIn: number,
+  opts: { contentType?: string } = {}
+): Promise<string | null> {
+  if (!r2Active) return null;
+  return (await import("./r2")).presignGet(key, expiresIn, opts);
+}
+
+/** Bytes `start` through `end` (inclusive) from local disk. The local-dev
+ *  counterpart of presignGetUrl; null on R2 (use the presigned URL there) or
+ *  when the object is missing. */
+export async function getLocalObjectRange(key: string, start: number, end: number): Promise<Buffer | null> {
+  if (r2Active) return null;
+  return disk.getObjectRange(key, start, end);
+}
+
 /**
  * Delete every object stored under `prefix` (e.g. "scorm/<courseId>/"). Used when
  * replacing a SCORM package so stale files from the previous upload don't linger.

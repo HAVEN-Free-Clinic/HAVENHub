@@ -106,7 +106,11 @@ async function createTerm(clinicDates: Date[], status: "ACTIVE" | "PLANNING" = "
 
 async function createDepartment(
   code: string,
-  opts: { idealHeadcount?: number; patientCapacityPerProvider?: number } = {}
+  opts: {
+    idealHeadcount?: number;
+    patientCapacityPerProvider?: number;
+    maxVolunteersPerShift?: number;
+  } = {}
 ) {
   return prisma.department.upsert({
     where: { code },
@@ -116,6 +120,7 @@ async function createDepartment(
       name: `${code} Dept`,
       idealHeadcount: opts.idealHeadcount,
       patientCapacityPerProvider: opts.patientCapacityPerProvider,
+      maxVolunteersPerShift: opts.maxVolunteersPerShift,
     },
   });
 }
@@ -464,6 +469,85 @@ describe("canManageAnyScheduleDept", () => {
 // ---------------------------------------------------------------------------
 // setAssignment - happy path + validations
 // ---------------------------------------------------------------------------
+
+describe("setAssignment: the volunteer cap", () => {
+  it("refuses an assignment past the department's volunteer cap", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const dept = await createDepartment("PCAR", { maxVolunteersPerShift: 2 });
+    const director = await createPerson("Director");
+    const v1 = await createPerson("V1");
+    const v2 = await createPerson("V2");
+    const v3 = await createPerson("V3");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    for (const v of [v1, v2, v3]) {
+      await createMembership(v.id, term.id, dept.id, "VOLUNTEER");
+    }
+
+    const dateKey = isoDateKey(dates[0]);
+    const assign = (personId: string) =>
+      setAssignment(director.id, {
+        termId: term.id,
+        departmentId: dept.id,
+        dateKey,
+        personId,
+        role: "VOLUNTEER" as const,
+      });
+
+    await assign(v1.id);
+    await assign(v2.id);
+    await expect(assign(v3.id)).rejects.toBeInstanceOf(BuilderValidationError);
+  });
+
+  it("counts only volunteers toward the cap, never directors or shadows", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const dept = await createDepartment("PCAR", { maxVolunteersPerShift: 1 });
+    const director = await createPerson("Director");
+    const shadow = await createPerson("Shadow");
+    const volunteer = await createPerson("Volunteer");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(shadow.id, term.id, dept.id, "VOLUNTEER");
+    await createMembership(volunteer.id, term.id, dept.id, "VOLUNTEER");
+
+    const dateKey = isoDateKey(dates[0]);
+    const base = { termId: term.id, departmentId: dept.id, dateKey };
+
+    await setAssignment(director.id, { ...base, personId: director.id, role: "DIRECTOR" });
+    await setAssignment(director.id, { ...base, personId: shadow.id, role: "SHADOW" });
+
+    // Neither of the above is a volunteer, so the single capped seat is still free.
+    await expect(
+      setAssignment(director.id, { ...base, personId: volunteer.id, role: "VOLUNTEER" }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("leaves a department with no cap uncapped", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm(dates);
+    const dept = await createDepartment("PCAR");
+    const director = await createPerson("Director");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    const dateKey = isoDateKey(dates[0]);
+
+    for (let i = 0; i < 5; i++) {
+      const v = await createPerson(`V${i}`);
+      await createMembership(v.id, term.id, dept.id, "VOLUNTEER");
+      await setAssignment(director.id, {
+        termId: term.id,
+        departmentId: dept.id,
+        dateKey,
+        personId: v.id,
+        role: "VOLUNTEER",
+      });
+    }
+
+    const count = await prisma.shiftAssignment.count({
+      where: { termId: term.id, departmentId: dept.id, role: "VOLUNTEER" },
+    });
+    expect(count).toBe(5);
+  });
+});
 
 describe("setAssignment", () => {
   it("creates a volunteer assignment with tags false", async () => {

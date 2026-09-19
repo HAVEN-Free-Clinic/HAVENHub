@@ -12,6 +12,7 @@ function department(id: string, name: string, code: string): Department {
     isActive: true,
     idealHeadcount: null,
     patientCapacityPerProvider: null,
+    maxVolunteersPerShift: null,
     requiresEpicDirector: "NONE",
     requiresEpicVolunteer: "NONE",
     epicGuidance: null,

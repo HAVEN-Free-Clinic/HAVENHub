@@ -87,6 +87,9 @@ export async function createDepartment(
     isActive?: boolean;
     idealHeadcount?: number | null;
     patientCapacityPerProvider?: number | null;
+    /** Absent → null, meaning uncapped. The ceiling on volunteers staffed on one
+     *  clinic date; a new department never silently arrives with one. */
+    maxVolunteersPerShift?: number | null;
     // Per-track Epic requirement driving the onboarding contract's Epic section
     // (see contract/epic-requirement.ts). Absent → NONE, matching the column default.
     requiresEpicDirector?: EpicRequirement;
@@ -123,6 +126,10 @@ export async function createDepartment(
     "Patient capacity per provider",
     input.patientCapacityPerProvider ?? null
   );
+  const maxVolunteersPerShift = validateCapacity(
+    "Max volunteers per shift",
+    input.maxVolunteersPerShift ?? null
+  );
   const requiresEpicDirector = input.requiresEpicDirector ?? "NONE";
   const requiresEpicVolunteer = input.requiresEpicVolunteer ?? "NONE";
   const minInterpreterScore = validateInterpreterBar(input.minInterpreterScore ?? null);
@@ -137,6 +144,7 @@ export async function createDepartment(
     dept = await prisma.department.create({
       data: {
         code, name, isActive: input.isActive ?? true, idealHeadcount, patientCapacityPerProvider,
+        maxVolunteersPerShift,
         requiresEpicDirector, requiresEpicVolunteer,
         autoRouteApplicants: input.autoRouteApplicants ?? false,
         allowShiftDrop: input.allowShiftDrop ?? true,
@@ -166,6 +174,7 @@ export async function createDepartment(
       isActive: dept.isActive,
       idealHeadcount: dept.idealHeadcount,
       patientCapacityPerProvider: dept.patientCapacityPerProvider,
+      maxVolunteersPerShift: dept.maxVolunteersPerShift,
       requiresEpicDirector: dept.requiresEpicDirector,
       requiresEpicVolunteer: dept.requiresEpicVolunteer,
       allowShiftDrop: dept.allowShiftDrop,
@@ -183,6 +192,9 @@ export async function updateDepartment(
     isActive: boolean;
     idealHeadcount: number | null;
     patientCapacityPerProvider: number | null;
+    /** Explicit null clears the cap; undefined leaves it untouched, so an edit
+     *  that does not touch it cannot silently uncap the department. */
+    maxVolunteersPerShift?: number | null;
     // Optional so an update that does not touch Epic preserves the existing
     // values rather than resetting them to NONE.
     requiresEpicDirector?: EpicRequirement;
@@ -218,6 +230,10 @@ export async function updateDepartment(
     "Patient capacity per provider",
     input.patientCapacityPerProvider
   );
+  const maxVolunteersPerShift =
+    input.maxVolunteersPerShift === undefined
+      ? before.maxVolunteersPerShift
+      : validateCapacity("Max volunteers per shift", input.maxVolunteersPerShift);
   const requiresEpicDirector = input.requiresEpicDirector ?? before.requiresEpicDirector;
   const requiresEpicVolunteer = input.requiresEpicVolunteer ?? before.requiresEpicVolunteer;
   const autoRouteApplicants = input.autoRouteApplicants ?? before.autoRouteApplicants;
@@ -239,7 +255,7 @@ export async function updateDepartment(
 
   const dept = await prisma.department.update({
     where: { id },
-    data: { name, isActive: input.isActive, idealHeadcount, patientCapacityPerProvider, requiresEpicDirector, requiresEpicVolunteer, autoRouteApplicants, allowShiftDrop, hoursPerShift, minInterpreterScore, assessLanguageBeforeAcceptance, assessSpanishRegardlessOfClaim },
+    data: { name, isActive: input.isActive, idealHeadcount, patientCapacityPerProvider, maxVolunteersPerShift, requiresEpicDirector, requiresEpicVolunteer, autoRouteApplicants, allowShiftDrop, hoursPerShift, minInterpreterScore, assessLanguageBeforeAcceptance, assessSpanishRegardlessOfClaim },
   });
 
   await recordAudit({
@@ -252,6 +268,7 @@ export async function updateDepartment(
       isActive: before.isActive,
       idealHeadcount: before.idealHeadcount,
       patientCapacityPerProvider: before.patientCapacityPerProvider,
+      maxVolunteersPerShift: before.maxVolunteersPerShift,
       requiresEpicDirector: before.requiresEpicDirector,
       requiresEpicVolunteer: before.requiresEpicVolunteer,
       autoRouteApplicants: before.autoRouteApplicants,
@@ -265,6 +282,7 @@ export async function updateDepartment(
       isActive: dept.isActive,
       idealHeadcount: dept.idealHeadcount,
       patientCapacityPerProvider: dept.patientCapacityPerProvider,
+      maxVolunteersPerShift: dept.maxVolunteersPerShift,
       requiresEpicDirector: dept.requiresEpicDirector,
       requiresEpicVolunteer: dept.requiresEpicVolunteer,
       autoRouteApplicants: dept.autoRouteApplicants,

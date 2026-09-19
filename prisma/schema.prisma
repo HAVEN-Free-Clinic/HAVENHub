@@ -509,6 +509,15 @@ model Department {
   idealHeadcount             Int?
   /// Capacity panel config: imported then admin-maintained.
   patientCapacityPerProvider Int?
+  /// The most volunteers this department will staff on ONE clinic date.
+  ///
+  /// Deliberately not idealHeadcount, which is a target the capacity panel
+  /// colours a badge against and nothing enforces. This is a ceiling: every
+  /// assignment is refused past it, generated or placed by hand, because a cap
+  /// only the generator respects is one a single manual click walks through.
+  ///
+  /// Null means uncapped, which is every department that has not asked for one.
+  maxVolunteersPerShift      Int?
   /// Epic account requirement for this department's directors and volunteers.
   /// Drives OnboardingContract.epicNeeded, which promotion.ts uses to raise the
   /// EpicRequest. Defaults are deliberately NONE so a newly created department

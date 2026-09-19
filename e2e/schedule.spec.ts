@@ -1,6 +1,12 @@
 import { expect, test } from "@playwright/test";
 import { devLogin } from "./auth";
-import { seedRhdAttending, seedCapacityConfig, seedComplianceMember } from "./fixtures";
+import {
+  prisma,
+  seedRhdAttending,
+  seedCapacityConfig,
+  seedComplianceMember,
+  seedSchedulableVolunteer,
+} from "./fixtures";
 
 /**
  * Select a department option whose text contains the given code (e.g. "VADM").
@@ -827,3 +833,52 @@ test("builder: a grid click saves in place, without reloading or losing scroll",
   ).toBeVisible({ timeout: 15_000 });
 });
 
+
+// ---------------------------------------------------------------------------
+// Auto-assign: generate, review, place
+// ---------------------------------------------------------------------------
+
+/**
+ * The generator end to end, through the page that server-renders it.
+ *
+ * Deterministic by construction: no seeded member in this database carries any
+ * availability, so the one volunteer seeded here is the only person the engine
+ * can propose. That makes "place it and expect exactly one row" an exact
+ * assertion rather than a count that drifts with ambient data.
+ */
+test("Auto-assign: Jack generates a VADM schedule, reviews it, then places it", async ({ page }) => {
+  const member = await seedSchedulableVolunteer("VADM");
+  try {
+    await devLogin(page, "j.carney@yale.edu");
+    await page.goto("/schedule/builder");
+    await page.waitForURL((url) => url.pathname === "/schedule/builder");
+    await goToDept(page, await selectDeptByCode(page, "VADM"));
+
+    const generate = page.getByRole("button", { name: "Generate schedule" });
+    await expect(generate).toBeVisible();
+
+    const isAutoAssign = (r: import("@playwright/test").Response) =>
+      r.url().includes("/api/schedule/auto-assign") && r.request().method() === "POST";
+
+    const [previewRes] = await Promise.all([page.waitForResponse(isAutoAssign), generate.click()]);
+    expect(previewRes.status()).toBe(200);
+
+    // Nothing is written by a preview.
+    expect(await prisma.shiftAssignment.count({ where: { personId: member.person.id } })).toBe(0);
+
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText(member.person.name)).toBeVisible();
+
+    const [applyRes] = await Promise.all([
+      page.waitForResponse(isAutoAssign),
+      dialog.getByRole("button", { name: /^Place / }).click(),
+    ]);
+    expect(applyRes.status()).toBe(200);
+    await expect(dialog).toBeHidden();
+
+    expect(await prisma.shiftAssignment.count({ where: { personId: member.person.id } })).toBe(1);
+  } finally {
+    await member.cleanup();
+  }
+});

@@ -75,6 +75,7 @@ import { BuilderDayView } from "@/modules/schedule/components/builder-day-view";
 import { BuilderAvailabilityView } from "@/modules/schedule/components/builder-availability-view";
 import { BuilderToolbar, resolveBuilderView } from "@/modules/schedule/components/builder-toolbar";
 import { ClinicDateStrip } from "@/modules/schedule/components/clinic-date-strip";
+import { AutoAssignPanel } from "@/modules/schedule/components/auto-assign-panel";
 import { CapacityPanel } from "@/modules/schedule/components/capacity-panel";
 import { ReadinessPanel } from "@/modules/schedule/components/readiness-panel";
 import { EmailList } from "@/platform/ui/email-list";
@@ -534,6 +535,15 @@ export default async function BuilderPage({ searchParams }: PageProps) {
         liveTermId={liveTerm?.id ?? null}
         hrefForTerm={(termId) => buildHref("/schedule/builder", { dept: dept.id, view, mode, gmode, term: termId ?? undefined })}
       />
+
+      {/* Sits above both boards rather than inside either: generating is a
+          whole-term action, and a director runs it from wherever they happen to
+          be looking. Hidden on an archived term, which is read-only. */}
+      {editable && (
+        <div className="mt-4">
+          <AutoAssignPanel termId={workingTerm.id} departmentId={dept.id} deptCode={dept.code} />
+        </div>
+      )}
 
       {/* Archived read-only banner */}
       {!editable && (

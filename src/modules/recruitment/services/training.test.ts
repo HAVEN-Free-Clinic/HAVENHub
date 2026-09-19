@@ -1108,3 +1108,32 @@ it("refuses a mark-off without clinic-wide attendance authority, and one with no
   await expect(markMockClinicDone(c1.id, vol.id, "   ", srr.id)).rejects.toBeInstanceOf(TrainingStateError);
   expect(await prisma.training.findUnique({ where: { personId_termId_track: { personId: vol.id, termId: term.id, track: "VOLUNTEER" } } })).toBeNull();
 });
+
+it("a released makeup means the session is over, even on the training day itself", async () => {
+  const { term, srr, vol, c1 } = await seedMember();
+  // The session is TODAY: the calendar rule alone still says "come on the day".
+  const today = new Date();
+  await prisma.recruitmentCycle.update({
+    where: { id: c1.id },
+    data: { inPersonTrainingDate: new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), 12)) },
+  });
+
+  const before = (await getMyTraining(vol.id))[0];
+  expect(before!.sessionHeld).toBe(false);
+
+  // Releasing is a lead saying the session has happened, and it is the same act
+  // that emails these people to say they missed it. The page must not then tell
+  // them to attend it.
+  await prisma.course.create({
+    data: { title: "Makeup", kind: "VIDEO", makeupForCycleId: c1.id, isActive: true, videoReady: true },
+  });
+  await prisma.recruitmentCycle.update({ where: { id: c1.id }, data: { makeupReleasedAt: new Date() } });
+
+  const after = (await getMyTraining(vol.id))[0];
+  expect(after!.sessionHeld).toBe(true);
+  // And the course they were told to take is now the thing they are offered.
+  expect(after!.makeupCourseId).not.toBeNull();
+  expect(after!.morning).toBe("OWED");
+  expect(srr.id).toBeTruthy();
+  expect(term.id).toBeTruthy();
+});

@@ -61,12 +61,10 @@ test("training: author quiz, designate training cycle, roster renders", async ({
   // toBeChecked timeouts plus CI's retries: 1.
   await expect(questionInput).toHaveValue("What does HIPAA protect?");
 
-  // A newly added question has zero options and no answer key. The designation
-  // guard (setTrainingCycle -> countGradedQuestions) refuses to designate a
-  // cycle whose quiz has no keyed question, so give this one an option and
-  // mark it correct before designating below, or the "Use as this term's
-  // training" click further down throws TrainingStateError and the button
-  // never flips.
+  // A newly added question has zero options and no answer key. Designation no
+  // longer requires a keyed question (the self-serve quiz was retired on
+  // 2026-09-19), but keying one still exercises the option editor, which is
+  // what this half of the spec is for.
   await quizSection.getByRole("button", { name: "Add option" }).click();
   // Wait for the option's radio to appear after startTransition + refresh,
   // same convention as the question card wait above, so it exists before we
@@ -78,14 +76,13 @@ test("training: author quiz, designate training cycle, roster renders", async ({
   // so it only reads as checked once correctValue is saved and the refresh lands.
   await expect(correctAnswerRadio).toBeChecked({ timeout: 15000 });
 
-  // --- Overview: save quiz settings, then designate as this term's training ---
+  // --- Overview: save training settings, then designate as this term's training ---
   await page.goto(`/recruitment/cycles/${cycleId}`);
-  const quizSettingsForm = page.locator('form:has(button:has-text("Save quiz settings"))');
-  await quizSettingsForm.locator('input[name="quizPassPercent"]').fill("80");
-  await quizSettingsForm.locator('input[name="quizMaxAttempts"]').fill("3");
-  await quizSettingsForm.locator('button:has-text("Save quiz settings")').click();
+  const trainingSettingsForm = page.locator('form:has(button:has-text("Save training settings"))');
+  await trainingSettingsForm.locator('input[name="inPersonTrainingDate"]').fill("2026-09-19");
+  await trainingSettingsForm.locator('button:has-text("Save training settings")').click();
 
-  // Wait for the quiz settings save to fully revalidate before clicking designate.
+  // Wait for the training settings save to fully revalidate before clicking designate.
   await expect(page.locator('button:has-text("Use as this term\'s training")')).toBeVisible({ timeout: 15000 });
   // Designate as training; the button text flips after revalidation.
   await page.click('button:has-text("Use as this term\'s training")');

@@ -37,7 +37,7 @@
 import { prisma } from "@/platform/db";
 import { getSetting } from "@/platform/settings/service";
 import { log, errorAttrs } from "@/platform/logging";
-import { effectiveCompliance, certExpiresAt } from "@/platform/compliance/rules";
+import { effectiveCompliance, certExpiresAt, type CertFacts } from "@/platform/compliance/rules";
 import { outstandingItems } from "@/platform/compliance/outstanding-items";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { getNextTerm } from "@/platform/terms/next-term";
@@ -195,13 +195,17 @@ export async function runClearanceReminders(
   const allCerts = await prisma.hipaaCertificate.findMany({
     where: { personId: { in: personIds } },
     orderBy: [{ personId: "asc" }, { uploadedAt: "desc" }],
-    select: { personId: true, completionDate: true, verifiedAt: true },
+    select: { personId: true, completionDate: true, verifiedAt: true, rejectedAt: true },
   });
 
-  const certsByPerson = new Map<string, Array<{ completionDate: Date | null; verifiedAt: Date | null }>>();
+  const certsByPerson = new Map<string, CertFacts[]>();
   for (const c of allCerts) {
     const list = certsByPerson.get(c.personId);
-    const entry = { completionDate: c.completionDate, verifiedAt: c.verifiedAt };
+    const entry: CertFacts = {
+      completionDate: c.completionDate,
+      verifiedAt: c.verifiedAt,
+      rejectedAt: c.rejectedAt,
+    };
     if (list) list.push(entry);
     else certsByPerson.set(c.personId, [entry]);
   }

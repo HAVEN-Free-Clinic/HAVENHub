@@ -3,7 +3,12 @@ import { getSetting } from "@/platform/settings/service";
 import { peopleWithAnyPermission } from "@/platform/rbac/holders";
 import { notify } from "@/platform/notifications/notify";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
-import { complianceDateReviewContext, complianceVerificationReviewContext, complianceCertVerifiedContext } from "@/platform/email/templates/compliance";
+import {
+  complianceDateReviewContext,
+  complianceVerificationReviewContext,
+  complianceCertVerifiedContext,
+  complianceCertRejectedContext,
+} from "@/platform/email/templates/compliance";
 import { log } from "@/platform/logging";
 
 
@@ -147,6 +152,57 @@ export async function notifyCertVerified(
     teams: {
       title: "Your HIPAA certificate is verified",
       summary: "A compliance manager confirmed your HIPAA certificate. Nothing further is needed for this requirement.",
+      link: myInfoLink,
+    },
+  });
+}
+
+
+/**
+ * Tell a volunteer their HIPAA certificate was refused, and what to do instead.
+ *
+ * This is the whole point of rejecting rather than deleting. A deleted
+ * certificate leaves the member reading "Not uploaded" for a file they know they
+ * uploaded, so they upload the same wrong PDF again and the clinic learns
+ * nothing; a rejected one names the problem while the file is still on the
+ * record. The explanation is built by rejectionExplanation() upstream, so the
+ * email and the HIPAA panel cannot end up telling the same member two different
+ * things about the same certificate.
+ *
+ * Like notifyCertVerified, this runs after the rejection is durably committed
+ * and audited: a notification failure must never surface to the manager as a
+ * failed rejection.
+ */
+export async function notifyCertRejected(
+  db: Db,
+  volunteer: { id: string; name: string; entraObjectId: string | null; contactEmail: string | null },
+  rejection: { explanation: string; reasonLabel: string },
+): Promise<void> {
+  const baseUrl = await getSetting<string>("app.baseUrl");
+  const myInfoLink = `${baseUrl}/my-info`;
+  const rendered = await renderEmail(
+    "compliance-cert-rejected",
+    complianceCertRejectedContext({
+      volunteerName: volunteer.name,
+      explanation: rejection.explanation,
+      myInfoLink,
+    }),
+  );
+
+  await notify(db, {
+    type: "compliance-cert-rejected",
+    person: {
+      id: volunteer.id,
+      entraObjectId: volunteer.entraObjectId,
+      contactEmail: volunteer.contactEmail,
+    },
+    email: { subject: rendered.subject, html: rendered.html },
+    teams: {
+      title: "Your HIPAA certificate was not accepted",
+      // The reason label rather than the full explanation: a Teams card summary
+      // is one line, and the member gets the detail the moment they follow the
+      // link to My Info, where the same sentence is on the panel.
+      summary: `${rejection.reasonLabel}. Please upload the correct certificate in HAVEN Hub.`,
       link: myInfoLink,
     },
   });

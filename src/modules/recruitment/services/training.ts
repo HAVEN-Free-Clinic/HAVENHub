@@ -719,7 +719,12 @@ export type TrainingRosterRow =
     });
 
 /** The shape effectiveCompliance judges, plus the date it must be ordered by. */
-type DatedCertificate = { completionDate: Date | null; verifiedAt: Date | null; uploadedAt: Date };
+type DatedCertificate = {
+  completionDate: Date | null;
+  verifiedAt: Date | null;
+  rejectedAt: Date | null;
+  uploadedAt: Date;
+};
 
 /**
  * Every HIPAA certificate the clinic holds for one accepted applicant, newest
@@ -744,6 +749,12 @@ function certificatesOnFile(
     // unverified too, so an applicant must not read as more cleared than the
     // member they are about to become.
     verifiedAt: null,
+    // Nor rejectable: rejection is a decision recorded on a HipaaCertificate
+    // row, and this one is synthesized from the contract's own columns. If the
+    // clinic refuses the file after promotion copies it onto the Person, it is
+    // that copy that carries the rejection -- and this synthetic row is gone by
+    // then, because the applicant has become a member.
+    rejectedAt: null,
     uploadedAt: contract.submittedAt ?? contract.updatedAt,
   };
   return [...onAccount, fromContract].sort((a, b) => b.uploadedAt.getTime() - a.uploadedAt.getTime());

@@ -60,13 +60,13 @@ describe("complianceStatus - null cert", () => {
 describe("complianceStatus - null completionDate", () => {
   it("returns UNKNOWN_DATE when cert exists but completionDate is null", () => {
     const now = noon(2025, 6, 1);
-    expect(complianceStatus({ completionDate: null, verifiedAt: null }, null, now)).toBe("UNKNOWN_DATE");
+    expect(complianceStatus({ completionDate: null, verifiedAt: null, rejectedAt: null }, null, now)).toBe("UNKNOWN_DATE");
   });
 
   it("returns UNKNOWN_DATE with a termEnd too", () => {
     const now = noon(2025, 6, 1);
     const termEnd = noon(2025, 8, 15);
-    expect(complianceStatus({ completionDate: null, verifiedAt: null }, termEnd, now)).toBe("UNKNOWN_DATE");
+    expect(complianceStatus({ completionDate: null, verifiedAt: null, rejectedAt: null }, termEnd, now)).toBe("UNKNOWN_DATE");
   });
 });
 
@@ -75,7 +75,7 @@ describe("complianceStatus - EXPIRED", () => {
     // completionDate = 2024-01-01; expiresAt = 2025-01-01; now = 2025-06-01 -> expired
     const completion = noon(2024, 1, 1);
     const now = noon(2025, 6, 1);
-    expect(complianceStatus({ completionDate: completion, verifiedAt: now }, null, now)).toBe("EXPIRED");
+    expect(complianceStatus({ completionDate: completion, verifiedAt: now, rejectedAt: null }, null, now)).toBe("EXPIRED");
   });
 
   it("does NOT return EXPIRED when expiresAt === now (>= semantics)", () => {
@@ -83,7 +83,7 @@ describe("complianceStatus - EXPIRED", () => {
     const completion = noon(2024, 6, 1);
     const expiresAt = certExpiresAt(completion); // noon 2025-06-01
     const now = expiresAt;
-    const status = complianceStatus({ completionDate: completion, verifiedAt: now }, null, now);
+    const status = complianceStatus({ completionDate: completion, verifiedAt: now, rejectedAt: null }, null, now);
     expect(status).not.toBe("EXPIRED");
     // expiresAt === now means it is NOT >= now+60d, so EXPIRING_SOON
     expect(status).toBe("EXPIRING_SOON");
@@ -96,7 +96,7 @@ describe("complianceStatus - without termEnd (no active term)", () => {
     // now + 60d = 2025-07-31; expiresAt 2026-01-01 >= 2025-07-31 -> COMPLIANT
     const completion = noon(2025, 1, 1);
     const now = noon(2025, 6, 1);
-    expect(complianceStatus({ completionDate: completion, verifiedAt: now }, null, now)).toBe("COMPLIANT");
+    expect(complianceStatus({ completionDate: completion, verifiedAt: now, rejectedAt: null }, null, now)).toBe("COMPLIANT");
   });
 
   it("returns EXPIRING_SOON when expiresAt < now + 60d (but not expired)", () => {
@@ -104,7 +104,7 @@ describe("complianceStatus - without termEnd (no active term)", () => {
     // now + 60d = 2025-07-14; expiresAt 2025-06-15 < 2025-07-14 -> EXPIRING_SOON
     const completion = noon(2024, 6, 15);
     const now = noon(2025, 5, 15);
-    expect(complianceStatus({ completionDate: completion, verifiedAt: now }, null, now)).toBe("EXPIRING_SOON");
+    expect(complianceStatus({ completionDate: completion, verifiedAt: now, rejectedAt: null }, null, now)).toBe("EXPIRING_SOON");
   });
 
   it("returns COMPLIANT exactly at the now + 60d boundary", () => {
@@ -113,14 +113,14 @@ describe("complianceStatus - without termEnd (no active term)", () => {
     const nowPlus60 = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000);
     // work backward: completionDate such that expiresAt = nowPlus60
     const completion = new Date(nowPlus60.getTime() - 365 * 24 * 60 * 60 * 1000);
-    expect(complianceStatus({ completionDate: completion, verifiedAt: now }, null, now)).toBe("COMPLIANT");
+    expect(complianceStatus({ completionDate: completion, verifiedAt: now, rejectedAt: null }, null, now)).toBe("COMPLIANT");
   });
 
   it("returns EXPIRING_SOON exactly 1ms before the now + 60d boundary", () => {
     const now = noon(2025, 6, 1);
     const nowPlus60MinusMs = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000 - 1);
     const completion = new Date(nowPlus60MinusMs.getTime() - 365 * 24 * 60 * 60 * 1000);
-    expect(complianceStatus({ completionDate: completion, verifiedAt: now }, null, now)).toBe("EXPIRING_SOON");
+    expect(complianceStatus({ completionDate: completion, verifiedAt: now, rejectedAt: null }, null, now)).toBe("EXPIRING_SOON");
   });
 });
 
@@ -133,7 +133,7 @@ describe("complianceStatus - with termEnd", () => {
     const completion = noon(2025, 1, 1);
     const now = noon(2025, 6, 1);
     const termEnd = noon(2025, 8, 15);
-    expect(complianceStatus({ completionDate: completion, verifiedAt: now }, termEnd, now)).toBe("COMPLIANT");
+    expect(complianceStatus({ completionDate: completion, verifiedAt: now, rejectedAt: null }, termEnd, now)).toBe("COMPLIANT");
   });
 
   it("returns COMPLIANT exactly at termEnd + 30d boundary", () => {
@@ -145,7 +145,7 @@ describe("complianceStatus - with termEnd", () => {
     // termEndPlus30 = 2025-09-14; need expiresAt = 2025-09-14
     // expiresAt >= now+60d = 2025-07-31? Yes, 2025-09-14 >= 2025-07-31
     const completion = new Date(termEndPlus30.getTime() - 365 * 24 * 60 * 60 * 1000);
-    expect(complianceStatus({ completionDate: completion, verifiedAt: now }, termEnd, now)).toBe("COMPLIANT");
+    expect(complianceStatus({ completionDate: completion, verifiedAt: now, rejectedAt: null }, termEnd, now)).toBe("COMPLIANT");
   });
 
   it("returns EXPIRING_SOON 1ms before termEnd + 30d boundary", () => {
@@ -153,7 +153,7 @@ describe("complianceStatus - with termEnd", () => {
     const termEnd = noon(2025, 8, 15);
     const termEndPlus30MinusMs = new Date(termEnd.getTime() + 30 * 24 * 60 * 60 * 1000 - 1);
     const completion = new Date(termEndPlus30MinusMs.getTime() - 365 * 24 * 60 * 60 * 1000);
-    const status = complianceStatus({ completionDate: completion, verifiedAt: now }, termEnd, now);
+    const status = complianceStatus({ completionDate: completion, verifiedAt: now, rejectedAt: null }, termEnd, now);
     expect(status).toBe("EXPIRING_SOON");
   });
 
@@ -168,7 +168,7 @@ describe("complianceStatus - with termEnd", () => {
     // pick expiresAt = termEndPlus30 + 6 days = 2025-09-15 (>= termEnd+30d but < now+60d)
     const expiresAt = new Date(termEndPlus30.getTime() + 6 * 24 * 60 * 60 * 1000);
     const completion = new Date(expiresAt.getTime() - 365 * 24 * 60 * 60 * 1000);
-    expect(complianceStatus({ completionDate: completion, verifiedAt: now }, termEnd, now)).toBe("EXPIRING_SOON");
+    expect(complianceStatus({ completionDate: completion, verifiedAt: now, rejectedAt: null }, termEnd, now)).toBe("EXPIRING_SOON");
   });
 
   it("returns EXPIRING_SOON when valid today but term bar not met", () => {
@@ -178,7 +178,7 @@ describe("complianceStatus - with termEnd", () => {
     // expiresAt = 2025-08-01 -> in future but termEnd+30d = 2025-12-30; 2025-08-01 < 2025-12-30
     const expiresAt = noon(2025, 8, 1);
     const completion = new Date(expiresAt.getTime() - 365 * 24 * 60 * 60 * 1000);
-    expect(complianceStatus({ completionDate: completion, verifiedAt: now }, termEnd, now)).toBe("EXPIRING_SOON");
+    expect(complianceStatus({ completionDate: completion, verifiedAt: now, rejectedAt: null }, termEnd, now)).toBe("EXPIRING_SOON");
   });
 });
 
@@ -189,7 +189,7 @@ describe("overallClearance", () => {
     expect(overallClearance("COMPLIANT", false)).toBe("NOT_CLEARED");
   });
   it("is NOT_CLEARED for any invalid cert even when trainings are complete", () => {
-    for (const s of ["EXPIRED", "UNKNOWN_DATE", "NO_CERTIFICATE"] as const) {
+    for (const s of ["EXPIRED", "UNKNOWN_DATE", "REJECTED", "NO_CERTIFICATE"] as const) {
       expect(overallClearance(s, true)).toBe("NOT_CLEARED");
     }
   });
@@ -202,23 +202,23 @@ describe("complianceStatus - verification gate", () => {
   it("dated but unverified -> PENDING_VERIFICATION", () => {
     const now = new Date("2026-06-29T12:00:00Z");
     const completion = new Date("2026-06-01T12:00:00Z");
-    expect(complianceStatus({ completionDate: completion, verifiedAt: null }, null, now)).toBe("PENDING_VERIFICATION");
+    expect(complianceStatus({ completionDate: completion, verifiedAt: null, rejectedAt: null }, null, now)).toBe("PENDING_VERIFICATION");
   });
 
   it("dated and verified -> COMPLIANT", () => {
     const now = new Date("2026-06-29T12:00:00Z");
     const completion = new Date("2026-06-01T12:00:00Z");
-    expect(complianceStatus({ completionDate: completion, verifiedAt: now }, null, now)).toBe("COMPLIANT");
+    expect(complianceStatus({ completionDate: completion, verifiedAt: now, rejectedAt: null }, null, now)).toBe("COMPLIANT");
   });
 
   it("PENDING takes precedence over expiry math", () => {
     const now = new Date("2026-06-29T12:00:00Z");
     const old = new Date("2020-01-01T12:00:00Z"); // would be EXPIRED if verified
-    expect(complianceStatus({ completionDate: old, verifiedAt: null }, null, now)).toBe("PENDING_VERIFICATION");
+    expect(complianceStatus({ completionDate: old, verifiedAt: null, rejectedAt: null }, null, now)).toBe("PENDING_VERIFICATION");
   });
 
   it("no date is still UNKNOWN_DATE regardless of verifiedAt", () => {
-    expect(complianceStatus({ completionDate: null, verifiedAt: null }, null)).toBe("UNKNOWN_DATE");
+    expect(complianceStatus({ completionDate: null, verifiedAt: null, rejectedAt: null }, null)).toBe("UNKNOWN_DATE");
   });
 });
 
@@ -228,32 +228,109 @@ describe("overallClearance - PENDING is not cleared", () => {
   });
 });
 
+describe("complianceStatus - a refused certificate", () => {
+  const now = noon(2026, 7, 15);
+
+  it("is REJECTED even when the certificate is dated and verified", () => {
+    // Rejection has to outrank the verified stamp, or withdrawing a certificate
+    // that was verified by mistake (the wrong person's) would be impossible: the
+    // stamp is left on the row on purpose, as the record of who accepted it.
+    const cert = {
+      completionDate: noon(2026, 7, 1),
+      verifiedAt: noon(2026, 7, 2),
+      rejectedAt: noon(2026, 7, 10),
+    };
+    expect(complianceStatus(cert, null, now)).toBe("REJECTED");
+  });
+
+  it("is REJECTED ahead of UNKNOWN_DATE for a refused dateless certificate", () => {
+    // Otherwise the member is told "a compliance manager will set the date, no
+    // action is needed from you" about a file that was thrown out.
+    const cert = { completionDate: null, verifiedAt: null, rejectedAt: noon(2026, 7, 10) };
+    expect(complianceStatus(cert, null, now)).toBe("REJECTED");
+  });
+
+  it("sends a rejected member back to the training link", () => {
+    // Workday is where the real certificate is downloaded, which is exactly what
+    // somebody who uploaded the course transcript by mistake needs to find.
+    expect(hipaaNeedsTrainingLink("REJECTED")).toBe(true);
+  });
+});
+
+describe("effectiveCompliance - a refused certificate", () => {
+  const now = noon(2026, 7, 15);
+
+  it("stays compliant when a rejected upload sits over a still-valid verified cert", () => {
+    // The case that makes rejecting safe to offer on any certificate: refusing a
+    // stray upload must not un-clear a member whose real certificate is still
+    // covering them. Without the REJECTED fallback this returned REJECTED and
+    // locked an active volunteer out of the hub mid-term.
+    const certs = [
+      { completionDate: noon(2026, 7, 10), verifiedAt: null, rejectedAt: noon(2026, 7, 11) },
+      { completionDate: noon(2026, 6, 1), verifiedAt: noon(2026, 6, 2), rejectedAt: null },
+    ];
+    const { status, cert } = effectiveCompliance(certs, null, now);
+    expect(status).toBe("COMPLIANT");
+    // And it is the OLDER certificate the status describes, so anything printing
+    // an expiry beside it quotes the coverage that actually exists.
+    expect(cert).toBe(certs[1]);
+  });
+
+  it("is REJECTED when the refused certificate is the only one", () => {
+    const certs = [
+      { completionDate: noon(2026, 7, 10), verifiedAt: null, rejectedAt: noon(2026, 7, 11) },
+    ];
+    expect(effectiveComplianceStatus(certs, null, now)).toBe("REJECTED");
+  });
+
+  it("never falls back to a rejected certificate, however valid it looks", () => {
+    // A withdrawn certificate must stay withdrawn: it is dated, verified and
+    // in-date, and the ONLY thing disqualifying it is the rejection.
+    const certs = [
+      { completionDate: null, verifiedAt: null, rejectedAt: null }, // newest: unreadable
+      { completionDate: noon(2026, 6, 1), verifiedAt: noon(2026, 6, 2), rejectedAt: noon(2026, 6, 20) },
+    ];
+    expect(effectiveComplianceStatus(certs, null, now)).toBe("UNKNOWN_DATE");
+  });
+
+  it("falls back past a rejected certificate to an older good one", () => {
+    const certs = [
+      { completionDate: noon(2026, 7, 10), verifiedAt: null, rejectedAt: null }, // unverified renewal
+      { completionDate: noon(2026, 7, 1), verifiedAt: noon(2026, 7, 2), rejectedAt: noon(2026, 7, 3) }, // refused
+      { completionDate: noon(2026, 6, 1), verifiedAt: noon(2026, 6, 2), rejectedAt: null }, // the real one
+    ];
+    const { status, cert } = effectiveCompliance(certs, null, now);
+    expect(status).toBe("COMPLIANT");
+    expect(cert).toBe(certs[2]);
+  });
+});
+
 describe("effectiveComplianceStatus - early-renewal fallback (audit #17)", () => {
   const now = noon(2026, 7, 15);
 
   it("stays compliant when an unverified renewal is uploaded over a still-valid verified cert", () => {
     const certs = [
-      { completionDate: noon(2026, 7, 10), verifiedAt: null }, // newest: early renewal, unverified
-      { completionDate: noon(2026, 6, 1), verifiedAt: noon(2026, 6, 2) }, // still-valid verified cert
+      { completionDate: noon(2026, 7, 10), verifiedAt: null, rejectedAt: null }, // newest: early renewal, unverified
+      { completionDate: noon(2026, 6, 1), verifiedAt: noon(2026, 6, 2), rejectedAt: null }, // still-valid verified cert
     ];
     expect(effectiveComplianceStatus(certs, null, now)).toBe("COMPLIANT");
   });
 
   it("is PENDING_VERIFICATION when the only cert is unverified", () => {
-    const certs = [{ completionDate: noon(2026, 7, 10), verifiedAt: null }];
+    const certs = [{ completionDate: noon(2026, 7, 10), verifiedAt: null, rejectedAt: null }];
     expect(effectiveComplianceStatus(certs, null, now)).toBe("PENDING_VERIFICATION");
   });
 
   it("does not fall back to an expired verified cert", () => {
     const certs = [
-      { completionDate: noon(2026, 7, 10), verifiedAt: null }, // unverified renewal
-      { completionDate: noon(2024, 1, 1), verifiedAt: noon(2024, 1, 2) }, // verified but expired (>365d old)
+      { completionDate: noon(2026, 7, 10), verifiedAt: null, rejectedAt: null }, // unverified renewal
+      { completionDate: noon(2024, 1, 1), verifiedAt: noon(2024, 1, 2), rejectedAt: null }, // verified but expired (>365d old)
     ];
     expect(effectiveComplianceStatus(certs, null, now)).toBe("PENDING_VERIFICATION");
   });
 
   it("uses the newest cert directly when it is verified", () => {
-    const certs = [{ completionDate: noon(2026, 7, 10), verifiedAt: noon(2026, 7, 11) }];
+    const certs = [{ completionDate: noon(2026, 7, 10), verifiedAt: noon(2026, 7, 11), rejectedAt: null }];
     expect(effectiveComplianceStatus(certs, null, now)).toBe("COMPLIANT");
   });
 
@@ -263,21 +340,21 @@ describe("effectiveComplianceStatus - early-renewal fallback (audit #17)", () =>
   // manager must act on it, NOT that the prior cert stopped being valid.
   it("stays compliant when the newest cert has no readable date but an older verified cert is valid", () => {
     const certs = [
-      { completionDate: null, verifiedAt: null }, // newest: PDF date unreadable -> UNKNOWN_DATE
-      { completionDate: noon(2026, 6, 1), verifiedAt: noon(2026, 6, 2) }, // still-valid verified cert
+      { completionDate: null, verifiedAt: null, rejectedAt: null }, // newest: PDF date unreadable -> UNKNOWN_DATE
+      { completionDate: noon(2026, 6, 1), verifiedAt: noon(2026, 6, 2), rejectedAt: null }, // still-valid verified cert
     ];
     expect(effectiveComplianceStatus(certs, null, now)).toBe("COMPLIANT");
   });
 
   it("is UNKNOWN_DATE when a dateless cert is the only one", () => {
-    const certs = [{ completionDate: null, verifiedAt: null }];
+    const certs = [{ completionDate: null, verifiedAt: null, rejectedAt: null }];
     expect(effectiveComplianceStatus(certs, null, now)).toBe("UNKNOWN_DATE");
   });
 
   it("does not fall back to an expired verified cert for a dateless newest cert", () => {
     const certs = [
-      { completionDate: null, verifiedAt: null },
-      { completionDate: noon(2024, 1, 1), verifiedAt: noon(2024, 1, 2) }, // verified but expired
+      { completionDate: null, verifiedAt: null, rejectedAt: null },
+      { completionDate: noon(2024, 1, 1), verifiedAt: noon(2024, 1, 2), rejectedAt: null }, // verified but expired
     ];
     expect(effectiveComplianceStatus(certs, null, now)).toBe("UNKNOWN_DATE");
   });
@@ -294,8 +371,8 @@ describe("effectiveCompliance returns the cert the status came from", () => {
   const now = noon(2026, 7, 15);
 
   it("returns the older VERIFIED cert when an unverified renewal sits on top of it", () => {
-    const renewal = { completionDate: noon(2026, 7, 10), verifiedAt: null };
-    const verified = { completionDate: noon(2026, 6, 1), verifiedAt: noon(2026, 6, 2) };
+    const renewal = { completionDate: noon(2026, 7, 10), verifiedAt: null, rejectedAt: null };
+    const verified = { completionDate: noon(2026, 6, 1), verifiedAt: noon(2026, 6, 2), rejectedAt: null };
 
     const { status, cert } = effectiveCompliance([renewal, verified], null, now);
 
@@ -307,13 +384,13 @@ describe("effectiveCompliance returns the cert the status came from", () => {
   });
 
   it("returns the newest cert whenever no fallback fires", () => {
-    const newest = { completionDate: noon(2026, 7, 10), verifiedAt: noon(2026, 7, 11) };
+    const newest = { completionDate: noon(2026, 7, 10), verifiedAt: noon(2026, 7, 11), rejectedAt: null };
     expect(effectiveCompliance([newest], null, now).cert).toBe(newest);
   });
 
   it("returns the newest cert when the fallback finds nothing usable, so the caller still has a row", () => {
-    const unverified = { completionDate: noon(2026, 7, 10), verifiedAt: null };
-    const expired = { completionDate: noon(2024, 1, 1), verifiedAt: noon(2024, 1, 2) };
+    const unverified = { completionDate: noon(2026, 7, 10), verifiedAt: null, rejectedAt: null };
+    const expired = { completionDate: noon(2024, 1, 1), verifiedAt: noon(2024, 1, 2), rejectedAt: null };
     const { status, cert } = effectiveCompliance([unverified, expired], null, now);
     expect(status).toBe("PENDING_VERIFICATION");
     expect(cert).toBe(unverified);
@@ -324,17 +401,17 @@ describe("effectiveCompliance returns the cert the status came from", () => {
   });
 
   it("agrees with effectiveComplianceStatus on every status it reports", () => {
-    const cases: Array<{ completionDate: Date | null; verifiedAt: Date | null }[]> = [
+    const cases: Array<{ completionDate: Date | null; verifiedAt: Date | null; rejectedAt: Date | null }[]> = [
       [],
-      [{ completionDate: noon(2026, 7, 10), verifiedAt: null }],
-      [{ completionDate: null, verifiedAt: null }],
+      [{ completionDate: noon(2026, 7, 10), verifiedAt: null, rejectedAt: null }],
+      [{ completionDate: null, verifiedAt: null, rejectedAt: null }],
       [
-        { completionDate: noon(2026, 7, 10), verifiedAt: null },
-        { completionDate: noon(2026, 6, 1), verifiedAt: noon(2026, 6, 2) },
+        { completionDate: noon(2026, 7, 10), verifiedAt: null, rejectedAt: null },
+        { completionDate: noon(2026, 6, 1), verifiedAt: noon(2026, 6, 2), rejectedAt: null },
       ],
       [
-        { completionDate: null, verifiedAt: null },
-        { completionDate: noon(2024, 1, 1), verifiedAt: noon(2024, 1, 2) },
+        { completionDate: null, verifiedAt: null, rejectedAt: null },
+        { completionDate: noon(2024, 1, 1), verifiedAt: noon(2024, 1, 2), rejectedAt: null },
       ],
     ];
     for (const certs of cases) {

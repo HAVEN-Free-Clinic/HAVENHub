@@ -398,7 +398,7 @@ export async function lookupOnFile(
     photoKey: true,
     hipaaCertificates: {
       orderBy: { uploadedAt: "desc" as const },
-      select: { completionDate: true, verifiedAt: true },
+      select: { completionDate: true, verifiedAt: true, rejectedAt: true },
     },
   };
   const byNetId = key

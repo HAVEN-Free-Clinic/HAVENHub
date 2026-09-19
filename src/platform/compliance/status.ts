@@ -1,7 +1,13 @@
 import { prisma } from "@/platform/db";
-import { certExpiresAt, effectiveCompliance, effectiveComplianceStatus, type ComplianceStatus } from "./rules";
+import {
+  certExpiresAt,
+  effectiveCompliance,
+  effectiveComplianceStatus,
+  type CertFacts,
+  type ComplianceStatus,
+} from "./rules";
 
-type CertRow = { completionDate: Date | null; verifiedAt: Date | null };
+type CertRow = CertFacts;
 
 /**
  * Every person's full certificate history, newest-first (personId asc,
@@ -17,13 +23,18 @@ type CertRow = { completionDate: Date | null; verifiedAt: Date | null };
 async function loadCertHistoryByPerson(): Promise<Map<string, CertRow[]>> {
   const certs = await prisma.hipaaCertificate.findMany({
     orderBy: [{ personId: "asc" }, { uploadedAt: "desc" }],
-    select: { personId: true, completionDate: true, verifiedAt: true },
+    select: { personId: true, completionDate: true, verifiedAt: true, rejectedAt: true },
   });
   const certsByPerson = new Map<string, CertRow[]>();
   for (const c of certs) {
     const list = certsByPerson.get(c.personId);
-    if (list) list.push({ completionDate: c.completionDate, verifiedAt: c.verifiedAt });
-    else certsByPerson.set(c.personId, [{ completionDate: c.completionDate, verifiedAt: c.verifiedAt }]);
+    const row: CertRow = {
+      completionDate: c.completionDate,
+      verifiedAt: c.verifiedAt,
+      rejectedAt: c.rejectedAt,
+    };
+    if (list) list.push(row);
+    else certsByPerson.set(c.personId, [row]);
   }
   return certsByPerson;
 }

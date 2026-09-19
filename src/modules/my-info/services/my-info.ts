@@ -360,13 +360,21 @@ export async function saveCertificate(
   const priorNewest = await prisma.hipaaCertificate.findFirst({
     where: { personId },
     orderBy: { uploadedAt: "desc" },
-    select: { completionDate: true, verifiedAt: true },
+    select: { completionDate: true, verifiedAt: true, rejectedAt: true },
   });
+  // A REJECTED prior upload is not pending anything, so it must not suppress the
+  // alert on the replacement. This is the whole point of the re-upload: the
+  // member was told to send the right file, and the manager who asked for it has
+  // to be told it arrived. Without this guard the dedup reads a rejected dateless
+  // cert as "already in the queue" and the replacement lands silently -- the
+  // exact stall that rejecting was meant to end.
+  const priorIsPending = priorNewest != null && priorNewest.rejectedAt === null;
   // Dateless: newest existing cert already had no date (parse also failed now).
-  const alreadyPending = parsedDate === null && priorNewest?.completionDate === null;
+  const alreadyPending =
+    parsedDate === null && priorIsPending && priorNewest.completionDate === null;
   // Awaiting verification: newest existing cert already had a date but was unverified.
   const alreadyPendingVerification =
-    priorNewest != null && priorNewest.completionDate !== null && priorNewest.verifiedAt === null;
+    priorIsPending && priorNewest.completionDate !== null && priorNewest.verifiedAt === null;
 
   // --- 3. Transaction: create the certificate row ---
   const cert = await prisma.$transaction(async (tx) => {

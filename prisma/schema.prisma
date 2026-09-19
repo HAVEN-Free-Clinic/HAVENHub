@@ -88,6 +88,17 @@ enum CertificateExtraction {
   NONE
 }
 
+/// Why a compliance manager refused a HIPAA certificate. Presets rather than free
+/// text alone, so the member-facing explanation stays clear even when the manager
+/// skips the optional note (see platform/compliance/rejection.ts for the wording).
+enum CertificateRejectionReason {
+  NOT_A_CERTIFICATE
+  WRONG_PERSON
+  UNREADABLE
+  OUT_OF_DATE
+  OTHER
+}
+
 enum PatientImpact {
   YES
   NO
@@ -408,6 +419,16 @@ model HipaaCertificate {
   extraction     CertificateExtraction @default(NONE)
   verifiedById   String?
   verifiedAt     DateTime?
+  /// Set when a compliance manager refused this file (wrong document, wrong
+  /// person, unreadable). A rejected certificate never counts toward clearance --
+  /// complianceStatus checks this BEFORE the verified stamp, so rejecting an
+  /// already-verified certificate revokes what it was providing. The verify stamp
+  /// is deliberately left in place as the record of who accepted it first.
+  rejectedAt     DateTime?
+  rejectedById   String?
+  rejectionReason CertificateRejectionReason?
+  /// Optional free-text note from the manager, shown to the member verbatim.
+  rejectionNote  String?
   uploadedAt     DateTime              @default(now())
   person         Person                @relation(fields: [personId], references: [id], onDelete: Cascade)
 

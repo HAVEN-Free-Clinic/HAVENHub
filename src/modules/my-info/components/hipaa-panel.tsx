@@ -38,6 +38,8 @@ import { UploadSizeField } from "@/platform/ui/upload-size-field";
 import { SupportLink } from "@/platform/branding/support-link";
 import { EmptyState } from "@/platform/ui/empty-state";
 import { complianceStatusLabel } from "@/platform/compliance/labels";
+import { rejectionExplanation } from "@/platform/compliance/rejection";
+import { Alert } from "@/platform/ui/alert";
 
 function formatSize(bytes: number): string {
   const kb = bytes / 1024;
@@ -84,7 +86,13 @@ function StatusBadge({ status, cert }: { status: ComplianceStatus; cert: HipaaCe
     return null; // handled below
   }
   const { label, tone } = complianceStatusLabel(status, "member");
-  const expiresAt = cert?.completionDate ? certExpiresAt(cert.completionDate) : null;
+  // No expiry beside a refused certificate. The date is real -- it was parsed off
+  // the PDF -- but printing "Expires <a year out>" next to "Not accepted" reads
+  // as coverage the member does not have, which is the same mistake the
+  // mid-renewal badge made before it started asking which cert the status
+  // actually came from (audit 14, L3).
+  const expiresAt =
+    status !== "REJECTED" && cert?.completionDate ? certExpiresAt(cert.completionDate) : null;
   return (
     <>
       <Badge tone={tone}>{label}</Badge>
@@ -110,12 +118,22 @@ export async function HipaaPanel({
   ]);
   const latest = certificates[0] ?? null;
   const history = certificates.slice(1);
+  // The newest upload having been refused is a fact about THIS FILE, and it is
+  // not the same question as `status`, which describes the whole history: a
+  // member who uploads a bad renewal over a still-valid verified certificate
+  // reads as COMPLIANT overall while the file in front of them was rejected.
+  // Both things need saying, so this is read off the row rather than the status.
+  const rejected = latest?.rejectedAt ? latest : null;
   // While a certificate is under review, re-uploading does nothing: it does not
   // speed up a manager confirming or setting the date. Collapse the section
   // behind a disclosure so it stops reading as the obvious next step, without
   // removing it or gating it behind a permission (a member who uploaded the
   // wrong file must still be able to fix it).
-  const underReview = status === "PENDING_VERIFICATION" || status === "UNKNOWN_DATE";
+  // A refused certificate is never "under review": nothing is pending on the
+  // clinic's side and uploading again is the entire point, so the form stays
+  // open rather than folded into the disclosure.
+  const underReview =
+    !rejected && (status === "PENDING_VERIFICATION" || status === "UNKNOWN_DATE");
 
   const uploadForm = (
     <>
@@ -160,7 +178,7 @@ export async function HipaaPanel({
             {/* Compliance status badge */}
             <div className="flex items-center gap-2">
               <StatusBadge status={status} cert={statusCert} />
-              {latest.completionDate && (
+              {latest.completionDate && !rejected && (
                 <span className="text-xs text-subtle-foreground">
                   Detected completion date: {formatCalendarDate(latest.completionDate)}
                 </span>
@@ -178,13 +196,25 @@ export async function HipaaPanel({
                 renewal that fails to parse while their prior verified cert is
                 still valid reads as COMPLIANT overall even though the newest
                 file is dateless and unacknowledged otherwise. */}
-            {(status === "UNKNOWN_DATE" || latest.completionDate === null) && (
+            {/* Why it was refused, and the one thing to do about it. This
+                displaces the two waiting notices below rather than joining
+                them: a rejected dateless certificate would otherwise be
+                reported as "a compliance manager will set the date. No action
+                is needed from you", which is the opposite of the truth. */}
+            {rejected && (
+              <Alert tone="error" className="mt-2">
+                <span className="font-medium">This certificate was not accepted.</span>{" "}
+                {rejectionExplanation(rejected.rejectionReason, rejected.rejectionNote)}{" "}
+                Please upload the correct certificate below.
+              </Alert>
+            )}
+            {!rejected && (status === "UNKNOWN_DATE" || latest.completionDate === null) && (
               <p className="mt-2 text-sm text-muted-foreground">
                 We could not read a completion date from this file, so a compliance manager will
                 set it. No action is needed from you.
               </p>
             )}
-            {status === "PENDING_VERIFICATION" && (
+            {!rejected && status === "PENDING_VERIFICATION" && (
               <p className="mt-2 text-sm text-muted-foreground">
                 We have your certificate and read a completion date of{" "}
                 {latest.completionDate ? formatCalendarDate(latest.completionDate) : "the date on the file"}.
@@ -192,7 +222,7 @@ export async function HipaaPanel({
                 happens, and you do not need to upload it again.
               </p>
             )}
-            {status === "PENDING_VERIFICATION" && support.email && (
+            {!rejected && status === "PENDING_VERIFICATION" && support.email && (
               <p className="mt-1 text-sm text-muted-foreground">
                 If this is taking longer than expected,{" "}
                 <SupportLink email={support.email}>{support.label}</SupportLink>.
@@ -238,6 +268,9 @@ export async function HipaaPanel({
                     : formatDateOnly(cert.uploadedAt, zone)}
                 </span>
                 <span className="text-subtle-foreground">{formatSize(cert.size)}</span>
+                {/* Otherwise a member who uploaded three files sees three
+                    identical rows and cannot tell which one was the problem. */}
+                {cert.rejectedAt && <Badge tone="critical">Not accepted</Badge>}
                 <CertificateViewer certId={cert.id} fileName={cert.fileName} />
               </li>
             ))}

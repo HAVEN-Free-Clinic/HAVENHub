@@ -63,7 +63,7 @@ export function ComplianceRosterSkeleton() {
       <span className="sr-only">Loading the compliance roster</span>
 
       {/* Summary stat cards */}
-      <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7">
         {SUMMARY_LABELS.map((label) => (
           <StatCardSkeleton key={label} label={label} />
         ))}

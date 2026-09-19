@@ -18,7 +18,14 @@ import { parseCompletionDate, CompletionDateError } from "@/platform/compliance/
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { getNextTerm } from "@/platform/terms/next-term";
 import { loadClearanceMap, type ClearanceSummary } from "@/platform/clearance";
-import { notifyCertVerified } from "@/platform/compliance/review-notifications";
+import { notifyCertVerified, notifyCertRejected } from "@/platform/compliance/review-notifications";
+import {
+  isRejectionReason,
+  rejectionExplanation,
+  rejectionReasonLabel,
+  REJECTION_NOTE_MAX,
+  type RejectionReason,
+} from "@/platform/compliance/rejection";
 import type { Sort } from "@/platform/lists/sort";
 import { log, errorAttrs } from "@/platform/logging";
 import { comparePersonName } from "@/platform/person-name";
@@ -48,6 +55,21 @@ export class ComplianceForbiddenError extends Error {
   }
 }
 
+/**
+ * A rejection the service refused to record: an unrecognised reason, an
+ * over-long note, or a certificate whose rejected state is already what the
+ * caller asked for.
+ *
+ * Carries `reason` as a member-readable sentence so a page action can surface it
+ * in the modal, exactly as CompletionDateError already does for date entry.
+ */
+export class CertificateRejectionError extends Error {
+  constructor(public readonly reason: string) {
+    super(reason);
+    this.name = "CertificateRejectionError";
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -69,11 +91,15 @@ export type MemberCompliance = {
 
 const STATUS_ORDER: Record<ComplianceStatus, number> = {
   NO_CERTIFICATE: 0,
-  EXPIRED: 1,
-  PENDING_VERIFICATION: 2,
-  UNKNOWN_DATE: 3,
-  EXPIRING_SOON: 4,
-  COMPLIANT: 5,
+  // Directly behind "no certificate", and ahead of EXPIRED, because it is the
+  // same gap plus a member who thinks they have already dealt with it. Those are
+  // the rows most likely to go stale unchased, so they belong on page 1.
+  REJECTED: 1,
+  EXPIRED: 2,
+  PENDING_VERIFICATION: 3,
+  UNKNOWN_DATE: 4,
+  EXPIRING_SOON: 5,
+  COMPLIANT: 6,
 };
 
 /**
@@ -158,6 +184,7 @@ const EMPTY_SUMMARY: Record<ComplianceStatus, number> = {
   EXPIRED: 0,
   PENDING_VERIFICATION: 0,
   UNKNOWN_DATE: 0,
+  REJECTED: 0,
   NO_CERTIFICATE: 0,
 };
 
@@ -304,7 +331,13 @@ export async function masterCompliance(
       person.hipaaCertificates.length > 0 ? person.hipaaCertificates[0] : null;
 
     const computedStatus = complianceStatus(
-      newestCert ? { completionDate: newestCert.completionDate, verifiedAt: newestCert.verifiedAt } : null,
+      newestCert
+        ? {
+            completionDate: newestCert.completionDate,
+            verifiedAt: newestCert.verifiedAt,
+            rejectedAt: newestCert.rejectedAt,
+          }
+        : null,
       shownTerm.endDate
     );
 
@@ -573,6 +606,258 @@ export async function setCompletionDateAsManager(
       groups: await activeTermGroup(),
     });
 
+    await notifyCertOwnerOfVerification(cert.personId, cert.id);
+  }
+}
+
+/**
+ * Notify a certificate owner that their certificate was refused.
+ *
+ * Isolated exactly like notifyCertOwnerOfVerification: the rejection is already
+ * durably written and audited by the time this runs, so a notification failure
+ * must not surface to the manager as a failed rejection and leave them clicking
+ * Reject a second time on a certificate that is already rejected.
+ */
+async function notifyCertOwnerOfRejection(
+  personId: string,
+  certId: string,
+  rejection: { explanation: string; reasonLabel: string },
+): Promise<void> {
+  try {
+    const owner = await prisma.person.findUnique({
+      where: { id: personId },
+      select: { name: true, entraObjectId: true, contactEmail: true },
+    });
+    if (owner) {
+      await notifyCertRejected(
+        prisma,
+        {
+          id: personId,
+          name: owner.name,
+          entraObjectId: owner.entraObjectId,
+          contactEmail: owner.contactEmail,
+        },
+        rejection,
+      );
+    }
+  } catch (err) {
+    log.error("[compliance] failed to notify member of certificate rejection", errorAttrs(err, { certId }));
+  }
+}
+
+/** What a manager supplies when refusing a certificate: a preset reason, plus an
+ *  optional note that is appended to the member-facing explanation. */
+export type RejectCertificateInput = {
+  reason: RejectionReason;
+  note?: string | null;
+};
+
+/**
+ * Refuse a HIPAA certificate: the file is not a certificate, belongs to somebody
+ * else, is unreadable, or is out of date.
+ *
+ * The alternative this replaces is deleting the row, and it is worse in both
+ * directions. The member is left reading "Not uploaded" for a file they know
+ * they uploaded, so they upload the same wrong PDF again; and the clinic loses
+ * the record that anybody ever looked at it. Rejecting keeps the document, names
+ * the problem, and tells the member what to do instead.
+ *
+ * A rejected certificate stops counting immediately, because complianceStatus
+ * checks `rejectedAt` ahead of the verified stamp. That means this can be called
+ * on an ALREADY-VERIFIED certificate to withdraw it -- which is deliberate, since
+ * "we verified it, then noticed it was the wrong person" is exactly the case with
+ * no other remedy. The caller is responsible for warning the manager first; the
+ * certificate viewer does. The verify stamp is left in place rather than cleared:
+ * it is the record of who accepted it, which is the first thing anyone will want
+ * when working out how a wrong certificate got through.
+ *
+ * Authorization mirrors verifyCertificate: `volunteers.manage_compliance` or
+ * `admin.access`, never a department director, and never on one's own
+ * certificate. The existence check fires first, so probing a nonexistent certId
+ * still returns CertificateNotFoundError rather than leaking the difference.
+ *
+ * Throws CertificateNotFoundError, ComplianceForbiddenError, or
+ * CertificateRejectionError (unknown reason, over-long note, already rejected).
+ */
+export async function rejectCertificate(
+  actorPersonId: string,
+  certId: string,
+  input: RejectCertificateInput
+): Promise<void> {
+  const cert = await prisma.hipaaCertificate.findUnique({ where: { id: certId } });
+  if (!cert) throw new CertificateNotFoundError(certId);
+
+  const isManager = await can(actorPersonId, "volunteers.manage_compliance");
+  const isAdmin = await can(actorPersonId, "admin.access");
+  if (!isManager && !isAdmin) {
+    throw new ComplianceForbiddenError(
+      "Only compliance managers or admins can reject certificates."
+    );
+  }
+
+  // Separation of duties, the same rule verification runs under. Rejecting is
+  // the mirror image of verifying and needs the same independence: without this,
+  // a manager could withdraw the certificate that is recording their own lapsed
+  // training, or clear the record of it.
+  if (cert.personId === actorPersonId) {
+    throw new ComplianceForbiddenError(
+      "You cannot reject your own certificate; another compliance manager or admin must."
+    );
+  }
+
+  // Validate the reason against the shared vocabulary rather than trusting the
+  // select: a server action is a public endpoint, and the reason is rendered
+  // into an email to the member.
+  if (!isRejectionReason(input.reason)) {
+    throw new CertificateRejectionError("Choose a reason for not accepting this certificate.");
+  }
+
+  const note = (input.note ?? "").trim();
+  if (note.length > REJECTION_NOTE_MAX) {
+    throw new CertificateRejectionError(
+      `Keep the note to ${REJECTION_NOTE_MAX} characters or fewer.`
+    );
+  }
+
+  // Not an idempotent no-op: re-rejecting would send the member a second email
+  // about a certificate they have already been told about, and overwrite the
+  // original reason and timestamp with whatever the second manager picked.
+  if (cert.rejectedAt !== null) {
+    throw new CertificateRejectionError("This certificate has already been rejected.");
+  }
+
+  const now = new Date();
+  const before = {
+    rejectedAt: null,
+    rejectedById: null,
+    rejectionReason: null,
+    rejectionNote: null,
+    verifiedAt: cert.verifiedAt ?? null,
+    completionDate: cert.completionDate ?? null,
+  };
+
+  await prisma.hipaaCertificate.update({
+    where: { id: cert.id },
+    data: {
+      rejectedAt: now,
+      rejectedById: actorPersonId,
+      rejectionReason: input.reason,
+      rejectionNote: note === "" ? null : note,
+    },
+  });
+
+  await recordAudit({
+    actorPersonId,
+    action: "compliance.reject",
+    entityType: "HipaaCertificate",
+    entityId: cert.id,
+    before,
+    after: {
+      certId: cert.id,
+      ownerPersonId: cert.personId,
+      rejectedAt: now,
+      rejectedById: actorPersonId,
+      rejectionReason: input.reason,
+      rejectionNote: note === "" ? null : note,
+      // The single most important fact for anyone reading this row back: whether
+      // this rejection took a working clearance away from an active member, or
+      // merely cleaned a bad file out of the review queue.
+      revokedVerifiedCertificate: cert.verifiedAt !== null,
+    },
+  });
+
+  await captureEvent({
+    event: "hipaa_certificate_rejected",
+    distinctId: cert.personId,
+    properties: {
+      rejected_by: actorPersonId,
+      reason: input.reason,
+      had_note: note !== "",
+      revoked_verified: cert.verifiedAt !== null,
+    },
+    groups: await activeTermGroup(),
+  });
+
+  await notifyCertOwnerOfRejection(cert.personId, cert.id, {
+    explanation: rejectionExplanation(input.reason, note === "" ? null : note),
+    reasonLabel: rejectionReasonLabel(input.reason),
+  });
+}
+
+/**
+ * Undo a rejection, putting the certificate back exactly where it was.
+ *
+ * Exists because rejecting reaches verified certificates, so a misclick can
+ * un-clear an active member mid-term, and without this the only remedies are
+ * asking them to re-upload a file they already sent or editing the database by
+ * hand. Clearing all four columns restores the row's previous status for free:
+ * complianceStatus derives everything else from completionDate and verifiedAt,
+ * which a rejection never touched.
+ *
+ * Re-notifies the member ONLY when the restored certificate is verified, i.e.
+ * when they are cleared again. They were told it was refused, so leaving that as
+ * the last word would be wrong; but a certificate that merely returns to the
+ * verification queue has nothing to announce yet, and will send its own email
+ * the moment a manager verifies it.
+ *
+ * Same authorization and same separation of duties as rejectCertificate.
+ */
+export async function undoCertificateRejection(
+  actorPersonId: string,
+  certId: string
+): Promise<void> {
+  const cert = await prisma.hipaaCertificate.findUnique({ where: { id: certId } });
+  if (!cert) throw new CertificateNotFoundError(certId);
+
+  const isManager = await can(actorPersonId, "volunteers.manage_compliance");
+  const isAdmin = await can(actorPersonId, "admin.access");
+  if (!isManager && !isAdmin) {
+    throw new ComplianceForbiddenError(
+      "Only compliance managers or admins can undo a certificate rejection."
+    );
+  }
+
+  // Restoring your own rejected certificate restores your own clearance, which
+  // is the self-attestation the verify path already refuses.
+  if (cert.personId === actorPersonId) {
+    throw new ComplianceForbiddenError(
+      "You cannot undo the rejection of your own certificate; another compliance manager or admin must."
+    );
+  }
+
+  if (cert.rejectedAt === null) {
+    throw new CertificateRejectionError("This certificate has not been rejected.");
+  }
+
+  const before = {
+    rejectedAt: cert.rejectedAt,
+    rejectedById: cert.rejectedById ?? null,
+    rejectionReason: cert.rejectionReason ?? null,
+    rejectionNote: cert.rejectionNote ?? null,
+  };
+
+  await prisma.hipaaCertificate.update({
+    where: { id: cert.id },
+    data: {
+      rejectedAt: null,
+      rejectedById: null,
+      rejectionReason: null,
+      rejectionNote: null,
+    },
+  });
+
+  await recordAudit({
+    actorPersonId,
+    action: "compliance.unreject",
+    entityType: "HipaaCertificate",
+    entityId: cert.id,
+    before,
+    after: { certId: cert.id, ownerPersonId: cert.personId, rejectedAt: null },
+  });
+
+  // Back to a usable clearance: tell them, because the last thing they heard was
+  // that it had been refused.
+  if (cert.verifiedAt !== null) {
     await notifyCertOwnerOfVerification(cert.personId, cert.id);
   }
 }

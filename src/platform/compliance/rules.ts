@@ -31,6 +31,8 @@ export type TrainingState = "COMPLETE" | "PENDING";
  * The computed compliance status. Never stored; always re-derived from data.
  *
  *   NO_CERTIFICATE       no cert record on file
+ *   REJECTED             a compliance manager refused the file (not a certificate,
+ *                        wrong person, unreadable). Never counts toward clearance.
  *   UNKNOWN_DATE         cert on file but no completionDate parsed yet
  *   PENDING_VERIFICATION cert has a completionDate but has not been verified by a coordinator
  *   EXPIRED              expiresAt < now (verified cert)
@@ -44,18 +46,43 @@ export type ComplianceStatus =
   | "EXPIRED"
   | "UNKNOWN_DATE"
   | "PENDING_VERIFICATION"
+  | "REJECTED"
   | "NO_CERTIFICATE";
 
 /**
+ * The certificate fields every rule in this module reads.
+ *
+ * `rejectedAt` is REQUIRED, not optional, and that is the point: a caller that
+ * selects only completionDate/verifiedAt would read a refused certificate as a
+ * perfectly good one and silently clear somebody the clinic rejected. Making it
+ * required moves that into tsc, so every query that feeds these rules has to say
+ * out loud that it fetched the column. Two separate queries computing "the
+ * effective certificate" from differently-shaped data is the exact drift that
+ * made campaign audiences disagree with the compliance page once already
+ * (see effectiveCompliance below).
+ */
+export type CertFacts = {
+  completionDate: Date | null;
+  verifiedAt: Date | null;
+  rejectedAt: Date | null;
+};
+
+/**
  * Whether to show the "complete HIPAA training in Workday" link for a status.
- * True when the person must (re)take the course: no cert on file, expired, or
- * expiring soon. False when a cert is on file awaiting a manager
- * (UNKNOWN_DATE, PENDING_VERIFICATION) or already compliant, where sending them
- * back to the course would misdirect.
+ * True when the person must (re)take the course or go back for the right file:
+ * no cert on file, expired, expiring soon, or rejected. False when a cert is on
+ * file awaiting a manager (UNKNOWN_DATE, PENDING_VERIFICATION) or already
+ * compliant, where sending them back to the course would misdirect.
+ *
+ * REJECTED is on the true side even though the member may not need to retake
+ * anything: Workday is where the real certificate is downloaded, and somebody
+ * who just uploaded the course transcript by mistake is precisely the person who
+ * needs to be shown where the actual certificate lives.
  */
 export function hipaaNeedsTrainingLink(status: ComplianceStatus): boolean {
   return (
     status === "NO_CERTIFICATE" ||
+    status === "REJECTED" ||
     status === "EXPIRED" ||
     status === "EXPIRING_SOON"
   );
@@ -69,11 +96,18 @@ export function hipaaNeedsTrainingLink(status: ComplianceStatus): boolean {
  * @param now      The reference point in time (defaults to Date.now()).
  */
 export function complianceStatus(
-  cert: { completionDate: Date | null; verifiedAt: Date | null } | null,
+  cert: CertFacts | null,
   termEnd: Date | null,
   now: Date = new Date()
 ): ComplianceStatus {
   if (cert === null) return "NO_CERTIFICATE";
+  // Rejection outranks every other fact about the certificate, including the
+  // verified stamp. A manager may refuse a cert that was verified earlier (it
+  // turned out to be the wrong person's), and that has to revoke what the stamp
+  // was providing rather than be outvoted by it. The stamp itself is left on the
+  // row deliberately -- it is the record of who accepted it first -- so this
+  // ordering is the only thing keeping a withdrawn certificate withdrawn.
+  if (cert.rejectedAt !== null) return "REJECTED";
   if (cert.completionDate === null) return "UNKNOWN_DATE";
   // A self-asserted date does not count toward clearance until a human verifies it.
   // Precedes the expiry math: we do not compute expiry from an unconfirmed date.
@@ -113,18 +147,21 @@ export function complianceStatus(
  * one expires must not revoke clearance while the new upload awaits verification.
  * `certs` must be newest-first (uploadedAt desc).
  *
- * The fallback triggers for BOTH PENDING_VERIFICATION and UNKNOWN_DATE: each means
- * "the newest upload is not yet a usable clearance and a manager must act on it"
- * (unverified, or its completion date could not be read), NOT that the older
- * verified cert stopped being valid. Without UNKNOWN_DATE in the fallback, a
- * dateless renewal upload short-circuited and returned UNKNOWN_DATE, un-clearing a
+ * The fallback triggers for PENDING_VERIFICATION, UNKNOWN_DATE and REJECTED: each
+ * means "the newest upload is not a usable clearance" (unverified, its completion
+ * date could not be read, or a manager refused it), NOT that the older verified
+ * cert stopped being valid. Without UNKNOWN_DATE in the fallback, a dateless
+ * renewal upload short-circuited and returned UNKNOWN_DATE, un-clearing a
  * volunteer whose prior verified cert was still valid and locking them out of the
- * hub. deriveHipaaTaskState no longer bundles UNKNOWN_DATE into the same
- * terminal state as NO_CERTIFICATE, but the task remains unsatisfied and
- * still blocks onboarding until a manager acts on it.
+ * hub. REJECTED joins them for exactly that reason: a member who uploads the
+ * wrong file for NEXT year's renewal must not lose the certificate that is
+ * covering them right now, or refusing a stray upload would un-clear somebody
+ * mid-term as a side effect. deriveHipaaTaskState no longer bundles UNKNOWN_DATE
+ * into the same terminal state as NO_CERTIFICATE, but the task remains
+ * unsatisfied and still blocks onboarding until a manager acts on it.
  */
 export function effectiveComplianceStatus(
-  certs: Array<{ completionDate: Date | null; verifiedAt: Date | null }>,
+  certs: CertFacts[],
   termEnd: Date | null,
   now: Date = new Date()
 ): ComplianceStatus {
@@ -148,7 +185,7 @@ export function effectiveComplianceStatus(
  * that need to say something about the newest UPLOAD (e.g. "your renewal is
  * awaiting verification") should read certs[0] themselves, deliberately.
  */
-export function effectiveCompliance<T extends { completionDate: Date | null; verifiedAt: Date | null }>(
+export function effectiveCompliance<T extends CertFacts>(
   certs: T[],
   termEnd: Date | null,
   now: Date = new Date()
@@ -156,10 +193,19 @@ export function effectiveCompliance<T extends { completionDate: Date | null; ver
   if (certs.length === 0) return { status: complianceStatus(null, termEnd, now), cert: null };
   const newest = certs[0];
   const newestStatus = complianceStatus(newest, termEnd, now);
-  if (newestStatus !== "PENDING_VERIFICATION" && newestStatus !== "UNKNOWN_DATE") {
+  if (
+    newestStatus !== "PENDING_VERIFICATION" &&
+    newestStatus !== "UNKNOWN_DATE" &&
+    newestStatus !== "REJECTED"
+  ) {
     return { status: newestStatus, cert: newest };
   }
   for (const cert of certs) {
+    // Neither an unverified nor a refused certificate can serve as the fallback.
+    // The rejected guard is not merely defensive: complianceStatus would return
+    // REJECTED for such a row and the test below would drop it anyway, but saying
+    // it here keeps "what may stand in as a clearance" readable in one place.
+    if (cert.rejectedAt !== null) continue;
     if (cert.verifiedAt === null) continue;
     const status = complianceStatus(cert, termEnd, now);
     if (status === "COMPLIANT" || status === "EXPIRING_SOON") return { status, cert };

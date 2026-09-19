@@ -94,8 +94,13 @@ test("training: author quiz, designate training cycle, roster renders", async ({
   // --- Training roster: designated cycle renders the roster, not the gate ---
   await page.goto(`/recruitment/cycles/${cycleId}/training`);
   // PageHeader renders title="Training" and description=cycle.title separately;
-  // the h1 text is just "Training", not "Training: Training E2E"
-  await expect(page.getByRole("heading", { name: "Training" })).toBeVisible();
+  // the h1 text is just "Training", not "Training: Training E2E".
+  //
+  // exact, because Playwright matches an accessible name as a SUBSTRING by
+  // default: the page now also carries "Online makeup training" and "Training
+  // day" card headings, and without this the locator resolves to three
+  // elements and fails on strict mode.
+  await expect(page.getByRole("heading", { name: "Training", exact: true })).toBeVisible();
   // Designation worked: the "not the term's training cycle" gate must be absent.
   await expect(page.getByText("This cycle is not the term's training cycle.")).toHaveCount(0);
   // The roster body renders for the designated cycle: either real director

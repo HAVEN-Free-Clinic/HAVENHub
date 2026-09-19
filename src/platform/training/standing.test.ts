@@ -260,6 +260,19 @@ describe("recomputeTrainingStanding", () => {
     expect(await standing(p.id, fx.term.id)).toBeNull();
   });
 
+  it("recomputes a whole term without touching rows that do not move", async () => {
+    const fx = await fixture();
+    const settled = await volunteer(fx, { dept: "clinical", type: "RENEWAL", email: "settled@x.edu" });
+    await recomputeTrainingStandingForTerm(fx.term.id, "VOLUNTEER");
+    const before = await standing(settled.id, fx.term.id);
+
+    const again = await recomputeTrainingStandingForTerm(fx.term.id, "VOLUNTEER");
+
+    expect(again).toEqual({ people: 1, nowComplete: 0, nowPending: 0 });
+    // Same row, not rewritten: updatedAt is what a needless write would move.
+    expect((await standing(settled.id, fx.term.id))?.updatedAt).toEqual(before?.updatedAt);
+  });
+
   it("recomputes a whole term and reports who flipped", async () => {
     const fx = await fixture();
     const a = await volunteer(fx, { dept: "clinical", type: "RENEWAL", email: "a@x.edu" });

@@ -185,6 +185,32 @@ export async function loadTrainingDayFacts(
   };
 }
 
+/** The columns a standing write sets, shared by the single and bulk paths so
+ *  the two cannot disagree about what a recompute means. */
+function standingWrite(
+  parts: TrainingDayParts,
+  complete: boolean,
+  prior: {
+    wasComplete: boolean;
+    completedAt: Date | null;
+    /** The first morning check-in, which is who recorded it and when. */
+    morningAttendance: { recordedById: string | null; checkedInAt: Date } | null;
+  },
+) {
+  return {
+    morningStatus: parts.morning,
+    mockClinicStatus: parts.mockClinic,
+    status: complete ? ("COMPLETE" as const) : ("PENDING" as const),
+    completedVia: complete ? completedViaFor(parts.morning) : null,
+    // Keep the original completion instant across recomputes; a fresh one only
+    // when it becomes complete.
+    completedAt: complete ? (prior.wasComplete ? prior.completedAt : new Date()) : null,
+    attendanceRecordedById: parts.morning === "ATTENDED" ? prior.morningAttendance?.recordedById ?? null : null,
+    attendanceRecordedAt: parts.morning === "ATTENDED" ? prior.morningAttendance?.checkedInAt ?? null : null,
+    ...(complete ? { locked: false } : {}),
+  };
+}
+
 export type RecomputeResult = {
   parts: TrainingDayParts;
   complete: boolean;
@@ -211,33 +237,25 @@ export async function recomputeTrainingStanding(
 
   const existing = await db.training.findUnique({
     where: { personId_termId_track: { personId, termId, track } },
-    select: { status: true, completedAt: true, attendanceRecordedById: true, attendanceRecordedAt: true },
+    select: { status: true, completedAt: true },
   });
 
   // Who recorded the morning, for the roster's "recorded by" line. Only a
   // morning that was attended has one.
-  let recordedBy: { id: string | null; at: Date | null } = { id: null, at: null };
-  if (parts.morning === "ATTENDED") {
-    const first = await db.eventAttendance.findFirst({
-      where: { personId, event: { termId, kind: "TRAINING", cycle: { track } } },
-      orderBy: { checkedInAt: "asc" },
-      select: { recordedById: true, checkedInAt: true },
-    });
-    recordedBy = { id: first?.recordedById ?? null, at: first?.checkedInAt ?? null };
-  }
+  const morningAttendance =
+    parts.morning === "ATTENDED"
+      ? await db.eventAttendance.findFirst({
+          where: { personId, event: { termId, kind: "TRAINING", cycle: { track } } },
+          orderBy: { checkedInAt: "asc" },
+          select: { recordedById: true, checkedInAt: true },
+        })
+      : null;
 
-  const data = {
-    morningStatus: parts.morning,
-    mockClinicStatus: parts.mockClinic,
-    status: complete ? ("COMPLETE" as const) : ("PENDING" as const),
-    completedVia: complete ? completedViaFor(parts.morning) : null,
-    // Keep the original completion instant across recomputes; a fresh one only
-    // when it becomes complete.
-    completedAt: complete ? (existing?.status === "COMPLETE" ? existing.completedAt : new Date()) : null,
-    attendanceRecordedById: recordedBy.id,
-    attendanceRecordedAt: recordedBy.at,
-    ...(complete ? { locked: false } : {}),
-  };
+  const data = standingWrite(parts, complete, {
+    wasComplete: existing?.status === "COMPLETE",
+    completedAt: existing?.completedAt ?? null,
+    morningAttendance,
+  });
 
   await db.training.upsert({
     where: { personId_termId_track: { personId, termId, track } },
@@ -248,11 +266,16 @@ export async function recomputeTrainingStanding(
   return { parts, complete, changed: (existing?.status === "COMPLETE") !== complete };
 }
 
-/** Recompute everyone the designated cycle's training concerns: every ACTIVE
- *  member of the track that term, plus anyone who already has a row (a walk-up
- *  credited before promotion). Sequential on purpose: a few hundred people,
- *  run from the reminders sweep and after a department's clinical flag moves,
- *  and never worth a connection-pool spike. */
+/**
+ * Recompute everyone the designated cycle's training concerns: every ACTIVE
+ * member of the track that term, plus anyone who already has a row (a walk-up
+ * credited before promotion).
+ *
+ * Bulk on purpose. Per-person recompute is eight queries, and this runs over a
+ * few hundred people on every reminders pass; loading the facts for the whole
+ * term in one pass and writing only the rows that actually move keeps a daily
+ * cron in the seconds rather than the minutes.
+ */
 export async function recomputeTrainingStandingForTerm(
   termId: string,
   track: Track
@@ -260,22 +283,120 @@ export async function recomputeTrainingStandingForTerm(
   const cycle = await designatedCycle(prisma, termId, track);
   if (!cycle) return { people: 0, nowComplete: 0, nowPending: 0 };
 
-  const [members, rows] = await Promise.all([
+  const eventScope = { termId, cycle: { track } };
+  const [memberships, rows, attendance, mockClinicEvents, makeup, term] = await Promise.all([
     prisma.termMembership.findMany({
       where: { termId, kind: track, status: "ACTIVE" },
-      select: { personId: true },
-      distinct: ["personId"],
+      select: { personId: true, department: { select: { isClinical: true } } },
     }),
-    prisma.training.findMany({ where: { termId, track }, select: { personId: true } }),
+    prisma.training.findMany({
+      where: { termId, track },
+      select: {
+        id: true, personId: true, status: true, morningStatus: true, mockClinicStatus: true,
+        mockClinicMarkedAt: true, completedAt: true,
+        attempts: { where: { passed: true }, select: { id: true }, take: 1 },
+      },
+    }),
+    prisma.eventAttendance.findMany({
+      where: { personId: { not: null }, event: { ...eventScope, kind: { in: ["TRAINING", "MOCK_CLINIC"] } } },
+      orderBy: { checkedInAt: "asc" },
+      select: { personId: true, recordedById: true, checkedInAt: true, event: { select: { kind: true } } },
+    }),
+    prisma.attendanceEvent.count({ where: { ...eventScope, kind: "MOCK_CLINIC" } }),
+    prisma.course.findUnique({ where: { makeupForCycleId: cycle.id }, select: { id: true } }),
+    prisma.term.findUnique({ where: { id: termId }, select: { startDate: true } }),
   ]);
-  const people = [...new Set([...members, ...rows].map((r) => r.personId))];
+
+  const people = [...new Set([...memberships, ...rows].map((r) => r.personId))];
+  if (people.length === 0) return { people: 0, nowComplete: 0, nowPending: 0 };
+
+  const [courseDone, contracts, earlier] = await Promise.all([
+    makeup
+      ? prisma.courseProgress.findMany({
+          where: { courseId: makeup.id, termId, status: "COMPLETE", personId: { in: people } },
+          select: { personId: true },
+        })
+      : Promise.resolve([]),
+    prisma.onboardingContract.findMany({
+      where: { promotedPersonId: { in: people }, acceptance: { application: { cycleId: cycle.id } } },
+      select: {
+        promotedPersonId: true,
+        acceptance: { select: { application: { select: { applicantType: true } } } },
+      },
+    }),
+    term
+      ? prisma.termMembership.findMany({
+          where: { personId: { in: people }, kind: track, termId: { not: termId }, term: { startDate: { lt: term.startDate } } },
+          select: { personId: true },
+          distinct: ["personId"],
+        })
+      : Promise.resolve([]),
+  ]);
+
+  // Facts, indexed by person.
+  const clinicalByPerson = new Map<string, boolean>();
+  for (const m of memberships) {
+    const soFar = clinicalByPerson.get(m.personId);
+    clinicalByPerson.set(m.personId, (soFar ?? true) && m.department.isClinical);
+  }
+  const morningBy = new Map<string, { recordedById: string | null; checkedInAt: Date }>();
+  const mockBy = new Set<string>();
+  for (const a of attendance) {
+    if (!a.personId) continue;
+    if (a.event.kind === "MOCK_CLINIC") mockBy.add(a.personId);
+    else if (!morningBy.has(a.personId)) morningBy.set(a.personId, { recordedById: a.recordedById, checkedInAt: a.checkedInAt });
+  }
+  const courseDoneBy = new Set(courseDone.map((p) => p.personId));
+  const renewalBy = new Set<string>();
+  const hasContract = new Set<string>();
+  for (const c of contracts) {
+    if (!c.promotedPersonId) continue;
+    hasContract.add(c.promotedPersonId);
+    if (c.acceptance.application.applicantType === "RENEWAL") renewalBy.add(c.promotedPersonId);
+  }
+  const earlierBy = new Set(earlier.map((m) => m.personId));
+  const rowBy = new Map(rows.map((r) => [r.personId, r]));
 
   let nowComplete = 0;
   let nowPending = 0;
   for (const personId of people) {
-    const result = await recomputeTrainingStanding(prisma, { personId, termId, track });
-    if (result?.changed) {
-      if (result.complete) nowComplete += 1;
+    const row = rowBy.get(personId);
+    const morningAttendance = morningBy.get(personId);
+    const parts = trainingDayParts({
+      track,
+      clinical: clinicalByPerson.get(personId) ?? false,
+      returning: hasContract.has(personId) ? renewalBy.has(personId) : earlierBy.has(personId),
+      attendedMorning: morningAttendance !== undefined,
+      attendedMockClinic: mockBy.has(personId),
+      hasMockClinic: mockClinicEvents > 0,
+      completedMakeupCourse: courseDoneBy.has(personId),
+      markedOff: row?.mockClinicMarkedAt != null,
+      passedRetiredQuiz: row?.morningStatus === "QUIZ" || (row?.attempts.length ?? 0) > 0,
+    });
+    const complete = partsComplete(parts);
+    const data = standingWrite(parts, complete, {
+      wasComplete: row?.status === "COMPLETE",
+      completedAt: row?.completedAt ?? null,
+      morningAttendance: morningAttendance ?? null,
+    });
+
+    // Only rows that actually move are written: a daily pass over a settled
+    // term should touch nothing at all.
+    if (
+      row &&
+      row.status === data.status &&
+      row.morningStatus === parts.morning &&
+      row.mockClinicStatus === parts.mockClinic
+    ) {
+      continue;
+    }
+    await prisma.training.upsert({
+      where: { personId_termId_track: { personId, termId, track } },
+      create: { personId, termId, cycleId: cycle.id, track, ...data },
+      update: data,
+    });
+    if ((row?.status === "COMPLETE") !== complete) {
+      if (complete) nowComplete += 1;
       else nowPending += 1;
     }
   }

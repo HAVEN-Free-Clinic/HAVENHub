@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import posthog from "posthog-js";
 import type { EpicRequirement, Track } from "@prisma/client";
 import { submitOnboarding, type SubmitResult } from "./actions";
 import { ContractField } from "./contract-field";
@@ -125,6 +126,59 @@ export function OnboardForm({
   // focusing it.
   const errorSummaryRef = useRef<HTMLDivElement>(null);
 
+  // A net under the silent submit dead-end #910 fixed. A `required` control the
+  // browser cannot focus -- one rendered inside a `hidden` wrapper, as
+  // DetailsReview hides a summarized detail -- fails constraint validation, but
+  // the browser aborts the submit with no message anywhere and never runs
+  // onSubmit. It emitted no event either, so the last time this shipped it
+  // surfaced only as dead clicks on the button. This listens for the native
+  // refusal so it is measurable, and re-opens the summary when the blamed
+  // control is hidden, so the applicant is never left pressing a button that
+  // does nothing. A refusal on a VISIBLE required field is left untouched: the
+  // browser already focuses it and says what is wrong.
+  const formRef = useRef<HTMLFormElement>(null);
+  useEffect(() => {
+    const form = formRef.current;
+    if (!form) return;
+    // The invalid event does not bubble, so a form-level listener sees a
+    // descendant's refusal only in the capture phase. All of a submit attempt's
+    // refusals fire synchronously, so they are batched into one signal.
+    let blocked: string[] = [];
+    let hidden = false;
+    let scheduled = false;
+    const onInvalid = (e: Event) => {
+      const control = e.target as Element | null;
+      if (!control) return;
+      // The `hidden` attribute is how the contract hides a summarized field's
+      // inputs, and a required one inside it is exactly what the browser refuses
+      // AND cannot focus. Stop the default (a prompt on a control no one can
+      // see) and take the reader to the summary instead.
+      if (control.closest("[hidden]")) {
+        e.preventDefault();
+        hidden = true;
+      }
+      blocked.push(control.getAttribute("name") || "(unnamed)");
+      if (scheduled) return;
+      scheduled = true;
+      queueMicrotask(() => {
+        posthog.capture("onboarding_submit_blocked", { fields: blocked, field_count: blocked.length, hidden });
+        if (hidden) {
+          setResult({
+            ok: false,
+            message:
+              "We couldn't submit your onboarding. A required detail is missing but not shown on the form. Please reload the page, and contact us if this keeps happening.",
+          });
+          requestAnimationFrame(() => errorSummaryRef.current?.focus());
+        }
+        blocked = [];
+        hidden = false;
+        scheduled = false;
+      });
+    };
+    form.addEventListener("invalid", onInvalid, true);
+    return () => form.removeEventListener("invalid", onInvalid, true);
+  }, []);
+
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
@@ -204,7 +258,7 @@ export function OnboardForm({
   );
 
   return (
-    <form onSubmit={onSubmit} onChange={markDirty} onInput={markDirty} className="mt-6">
+    <form ref={formRef} onSubmit={onSubmit} onChange={markDirty} onInput={markDirty} className="mt-6">
       <Card className="space-y-6">
         {/* Sits above the first field, not beside the submit button: it is only
             useful before someone starts typing. The certificate sentence is

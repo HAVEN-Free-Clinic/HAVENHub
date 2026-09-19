@@ -648,6 +648,43 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
     tone: "success",
     message: () => "Assignment saved.",
   },
+  // The video-course editor adds four more forms to the same page, for the same
+  // reason each is named: nothing on screen moves when one of them saves.
+  {
+    params: ["saved"],
+    matchValues: { saved: "section" },
+    pathnames: [COURSE_MANAGE_PATHNAME],
+    tone: "success",
+    message: () => "Section saved.",
+  },
+  {
+    params: ["saved"],
+    matchValues: { saved: "question" },
+    pathnames: [COURSE_MANAGE_PATHNAME],
+    tone: "success",
+    message: () => "Question saved.",
+  },
+  {
+    params: ["saved"],
+    matchValues: { saved: "video" },
+    pathnames: [COURSE_MANAGE_PATHNAME],
+    tone: "success",
+    message: () => "Video removed.",
+  },
+  {
+    params: ["saved"],
+    matchValues: { saved: "captions" },
+    pathnames: [COURSE_MANAGE_PATHNAME],
+    tone: "success",
+    message: () => "Captions removed.",
+  },
+  {
+    params: ["saved"],
+    matchValues: { saved: "makeup" },
+    pathnames: [COURSE_MANAGE_PATHNAME],
+    tone: "success",
+    message: () => "Makeup link saved.",
+  },
 
   // outreach/scopes/[id]/page.tsx (grantAction, revokeAction). Both land back on
   // the same page as the scope edit itself, so the generic "Scope saved." below

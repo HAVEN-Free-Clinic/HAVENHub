@@ -22,7 +22,11 @@ export async function createCourseAction(formData: FormData): Promise<void> {
   let course;
   try {
     course = await createCourse(
-      { title: String(formData.get("title") ?? ""), description: String(formData.get("description") ?? "") },
+      {
+        title: String(formData.get("title") ?? ""),
+        description: String(formData.get("description") ?? ""),
+        kind: formData.get("kind") === "VIDEO" ? "VIDEO" : "SCORM",
+      },
       person.personId
     );
   } catch (err) {

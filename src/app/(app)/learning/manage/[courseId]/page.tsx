@@ -17,6 +17,7 @@ import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { supportsPresignedUpload } from "@/platform/storage";
 import { updateCourseAction, setAssignmentAction } from "../actions";
 import { UploadPackageForm } from "./UploadPackageForm";
+import { VideoCourseEditor } from "./VideoCourseEditor";
 import { SetBreadcrumbLeaf } from "@/platform/ui/breadcrumb-context";
 
 /**
@@ -48,17 +49,19 @@ export default async function EditCoursePage({
   // assignment isn't dropped by this replace-set form's next save (#21).
   const departments = await scopeEditorDepartments([...assignedDeptIds]);
   const isAssigned = course.assignToAll || course.departments.length > 0;
-  const hasPackage = course.scormEntryHref != null;
+  const isVideo = course.kind === "VIDEO";
+  const hasContent = isVideo ? course.videoReady : course.scormEntryHref != null;
 
   return (
     <>
       <SetBreadcrumbLeaf label={course.title} />
       <PageHeader title={course.title} status={<ActiveBadge active={course.isActive} />} />
       <div className="mt-6 grid max-w-3xl gap-8">
-        {course.isActive && isAssigned && !hasPackage && (
+        {course.isActive && isAssigned && !hasContent && (
           <Alert tone="warning">
-            This course is assigned but has no SCORM package yet, so it is hidden from members and does
-            not count toward onboarding. Upload a package below to make it visible and required.
+            {isVideo
+              ? "This course is assigned but is not finished yet, so it is hidden from members and does not count toward onboarding. Every section needs a video, a length, and at least one question with a right answer."
+              : "This course is assigned but has no SCORM package yet, so it is hidden from members and does not count toward onboarding. Upload a package below to make it visible and required."}
           </Alert>
         )}
         {/* space-y-4 and a heading, matching the Assignment peer below. Three
@@ -140,15 +143,19 @@ export default async function EditCoursePage({
           </form>
         </Card>
 
-        <Card className="space-y-4">
-          <SectionHeader level="title">SCORM package</SectionHeader>
-          <p className="text-sm text-muted-foreground">
-            {course.scormEntryHref
-              ? `Uploaded${course.scormUploadedAt ? ` ${formatDateOnly(course.scormUploadedAt, zone)}` : ""} · launch: ${course.scormEntryHref} · SCORM ${course.scormVersion ?? "1.2"}`
-              : "No package uploaded yet."}
-          </p>
-          <UploadPackageForm courseId={course.id} hasPackage={course.scormEntryHref != null} supportsPresignedUpload={supportsPresignedUpload} />
-        </Card>
+        {isVideo ? (
+          <VideoCourseEditor courseId={course.id} />
+        ) : (
+          <Card className="space-y-4">
+            <SectionHeader level="title">SCORM package</SectionHeader>
+            <p className="text-sm text-muted-foreground">
+              {course.scormEntryHref
+                ? `Uploaded${course.scormUploadedAt ? ` ${formatDateOnly(course.scormUploadedAt, zone)}` : ""} · launch: ${course.scormEntryHref} · SCORM ${course.scormVersion ?? "1.2"}`
+                : "No package uploaded yet."}
+            </p>
+            <UploadPackageForm courseId={course.id} hasPackage={course.scormEntryHref != null} supportsPresignedUpload={supportsPresignedUpload} />
+          </Card>
+        )}
       </div>
     </>
   );

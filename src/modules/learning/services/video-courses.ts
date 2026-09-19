@@ -13,6 +13,7 @@ import { deleteObject, objectSize } from "@/platform/storage";
 import { countGradedQuestions } from "@/platform/quiz/graded";
 import { sectionLength } from "../engine/watch";
 import { videoCourseReady } from "../engine/video-course";
+import { VIDEO_CONTENT_TYPES } from "../engine/video-limits";
 import { LearningAuthError, LearningValidationError } from "./errors";
 
 type Db = typeof prisma | TransactionClient;
@@ -104,7 +105,7 @@ export type RegisterVideoInput = {
   durationSeconds: number | null;
 };
 
-const VIDEO_CONTENT_TYPES = new Set(["video/mp4", "video/webm", "video/quicktime"]);
+const VIDEO_TYPES = new Set<string>(VIDEO_CONTENT_TYPES);
 
 /**
  * Record a video the browser already uploaded straight to storage. The stored
@@ -116,7 +117,7 @@ export async function registerCourseVideo(courseId: string, input: RegisterVideo
   await requireManager(actorId);
   await requireVideoCourse(prisma, courseId);
   if (!isCourseVideoKey(input.key, courseId)) throw new LearningValidationError("Invalid upload reference.");
-  if (!VIDEO_CONTENT_TYPES.has(input.contentType)) {
+  if (!VIDEO_TYPES.has(input.contentType)) {
     throw new LearningValidationError("Upload an MP4 video.");
   }
   const size = await objectSize(input.key);

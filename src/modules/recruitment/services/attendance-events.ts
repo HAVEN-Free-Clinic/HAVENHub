@@ -1280,6 +1280,12 @@ export async function recordEventCheckIn(
           resolvedAt: trimmed.keys.length === 0 ? new Date() : null,
         },
       });
+    }, {
+      // The credit inside is a recompute of the whole training-day standing
+      // (several reads), not the single write it used to be. The default 5s
+      // interactive-transaction budget is thin for that at a busy door, where a
+      // timeout would refuse a check-in that has already happened in the room.
+      timeout: 15_000,
     });
   } catch (err) {
     // Two staffers working the same door tapped the same person at the same

@@ -53,11 +53,15 @@ import {
   masterCompliance,
   setCompletionDateAsManager,
   verifyCertificate,
+  rejectCertificate,
+  undoCertificateRejection,
   ComplianceForbiddenError,
   CertificateNotFoundError,
+  CertificateRejectionError,
   MASTER_SORT_KEYS,
   type MasterSortKey,
 } from "@/modules/volunteers/services/compliance";
+import { isRejectionReason } from "@/platform/compliance/rejection";
 import { CompletionDateError } from "@/platform/compliance/completion-date";
 import { revalidatePath } from "next/cache";
 import { CertificateViewer } from "@/modules/my-info/components/certificate-viewer";
@@ -321,6 +325,48 @@ async function RosterBody(props: BodyProps) {
     return {};
   }
 
+  // Refusing a certificate: the other outcome of reading the same PDF, on the
+  // same permission. The reason is narrowed here as well as in the service --
+  // not as a second gate (the service is the one that matters, since a server
+  // action is a public endpoint) but so the value reaching it is typed rather
+  // than cast from a form field.
+  async function rejectAction(
+    certId: string,
+    reason: string,
+    note: string,
+  ): Promise<{ error?: string }> {
+    "use server";
+    const actor = await requirePermission("volunteers.manage_compliance");
+    if (!isRejectionReason(reason)) {
+      return { error: "Choose a reason for not accepting this certificate." };
+    }
+    try {
+      await rejectCertificate(actor.personId, certId, { reason, note });
+    } catch (err) {
+      if (err instanceof CertificateRejectionError) return { error: err.reason };
+      if (err instanceof ComplianceForbiddenError) return { error: err.message };
+      if (err instanceof CertificateNotFoundError) return { error: "Certificate not found." };
+      throw err;
+    }
+    revalidatePath(ROSTER_PATH);
+    return {};
+  }
+
+  async function undoRejectAction(certId: string): Promise<{ error?: string }> {
+    "use server";
+    const actor = await requirePermission("volunteers.manage_compliance");
+    try {
+      await undoCertificateRejection(actor.personId, certId);
+    } catch (err) {
+      if (err instanceof CertificateRejectionError) return { error: err.reason };
+      if (err instanceof ComplianceForbiddenError) return { error: err.message };
+      if (err instanceof CertificateNotFoundError) return { error: "Certificate not found." };
+      throw err;
+    }
+    revalidatePath(ROSTER_PATH);
+    return {};
+  }
+
   // Every roster link carries the full state, so neither a filter nor the sort
   // is dropped by navigating. Page is left implicit for page 1, which is also
   // how a header link asks for "sorted, from the top".
@@ -352,7 +398,7 @@ async function RosterBody(props: BodyProps) {
           Not on a phone: six tiles plus the two below stacked into four rows
           of two before the first person, and the Status filter right under
           them carries the same breakdown. The clearance pair stays. */}
-      <div className="mt-6 hidden gap-3 sm:grid sm:grid-cols-3 lg:grid-cols-6">
+      <div className="mt-6 hidden gap-3 sm:grid sm:grid-cols-3 lg:grid-cols-7">
         {ALL_STATUSES.map((s) => {
           const { label, tone } = complianceStatusLabel(s, "staff");
           return <StatCard key={s} label={label} value={result.summary[s]} tone={tone} />;
@@ -449,6 +495,10 @@ async function RosterBody(props: BodyProps) {
                         canVerify={isManager}
                         verified={Boolean(row.cert.verifiedAt)}
                         onVerify={verifyAction.bind(null, row.cert.id)}
+                        canReject={isManager}
+                        rejected={Boolean(row.cert.rejectedAt)}
+                        onReject={rejectAction.bind(null, row.cert.id)}
+                        onUndoReject={undoRejectAction.bind(null, row.cert.id)}
                       />
                     )}
                   </div>

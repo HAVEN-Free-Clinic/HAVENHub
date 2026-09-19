@@ -1,6 +1,6 @@
 import type { Track } from "@prisma/client";
 import { prisma } from "@/platform/db";
-import { effectiveComplianceStatus } from "@/platform/compliance/rules";
+import { effectiveComplianceStatus, type CertFacts } from "@/platform/compliance/rules";
 import { loadEhsItemsMap } from "@/platform/ehs/services/status";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import {
@@ -74,7 +74,7 @@ export async function loadClearanceMap(
       prisma.hipaaCertificate.findMany({
         where: { personId: { in: personIds } },
         orderBy: { uploadedAt: "desc" },
-        select: { personId: true, completionDate: true, verifiedAt: true },
+        select: { personId: true, completionDate: true, verifiedAt: true, rejectedAt: true },
       }),
       prisma.training.findMany({
         where: { personId: { in: personIds }, termId, status: "COMPLETE" },
@@ -102,10 +102,17 @@ export async function loadClearanceMap(
   // All certs per person, newest first (rows are uploadedAt desc), so an early
   // renewal (an unverified newest cert) can fall back to a still-valid verified
   // cert instead of un-clearing the volunteer while the upload awaits verification.
-  const certsByPerson = new Map<string, { completionDate: Date | null; verifiedAt: Date | null }[]>();
+  // rejectedAt rides along for the same reason: this map is what decides whether
+  // somebody is CLEARED, so a refused certificate has to stop counting here or
+  // the gate would keep letting them through on a file the clinic threw out.
+  const certsByPerson = new Map<string, CertFacts[]>();
   for (const c of certRows) {
     const list = certsByPerson.get(c.personId) ?? [];
-    list.push({ completionDate: c.completionDate, verifiedAt: c.verifiedAt });
+    list.push({
+      completionDate: c.completionDate,
+      verifiedAt: c.verifiedAt,
+      rejectedAt: c.rejectedAt,
+    });
     certsByPerson.set(c.personId, list);
   }
 

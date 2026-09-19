@@ -100,6 +100,23 @@ export function complianceReminderContext(p: ComplianceReminderParams): Record<s
       actionLine =
         "No action is needed from you right now. A coordinator will verify your certificate before it counts toward your clearance.";
       break;
+    case "REJECTED":
+      // Actionable, unlike the two waiting states above: the clinic has refused
+      // the file and is waiting on the member. This branch is load-bearing --
+      // the reminder engine treats every non-COMPLIANT status as unsatisfied, so
+      // without it the first rejected member in the run hits the default throw
+      // and takes the whole daily job's per-person guard with them.
+      //
+      // The specific reason is NOT repeated here. It was already sent once, at
+      // rejection time, by the compliance-cert-rejected template, and this is a
+      // recurring nag: quoting a reason from weeks ago alongside "upload or
+      // renew" reads as a second rejection of a file they may have long since
+      // replaced. The CTA sends them to My Info, where the live reason sits on
+      // the panel.
+      statusLine =
+        "The HIPAA certificate you uploaded was not accepted, so we still do not have a current one on file for you.";
+      showCta = true;
+      break;
     // No COMPLIANT branch: the engine only calls this for a member whose HIPAA
     // status is actually unsatisfied. A COMPLIANT status reaching here means the
     // caller's gate is wrong, so the default throw below is the right answer.
@@ -160,6 +177,39 @@ export type ComplianceCertVerifiedParams = {
 export function complianceCertVerifiedContext(p: ComplianceCertVerifiedParams): Record<string, unknown> {
   return {
     volunteerName: p.volunteerName,
+    myInfoLink: p.myInfoLink,
+  };
+}
+
+/** Params for the member-facing "your certificate was not accepted" email. */
+export type ComplianceCertRejectedParams = {
+  volunteerName: string;
+  /**
+   * The complete explanation, already assembled by
+   * platform/compliance/rejection.ts: the preset sentence for the reason, plus
+   * the manager's note when they left one.
+   *
+   * Passed in rather than rebuilt here so this email and the HIPAA panel render
+   * the same words from the same function. Building it twice is how the
+   * UNKNOWN_DATE copy ended up with three vocabularies.
+   */
+  explanation: string;
+  myInfoLink: string;
+};
+
+/**
+ * Build the context for the compliance-cert-rejected template, sent to the
+ * certificate OWNER when a manager refuses it.
+ *
+ * The counterpart to complianceCertVerifiedContext: one closes the loop when a
+ * certificate is accepted, this one when it is not. Both exist because the
+ * member is blocked by the onboarding gate either way and has no other way to
+ * find out which happened.
+ */
+export function complianceCertRejectedContext(p: ComplianceCertRejectedParams): Record<string, unknown> {
+  return {
+    volunteerName: p.volunteerName,
+    explanation: p.explanation,
     myInfoLink: p.myInfoLink,
   };
 }
@@ -287,6 +337,39 @@ export const complianceDescriptors: TemplateDescriptor[] = [
 <p>A compliance manager has confirmed your HIPAA certificate. Nothing further is needed from you for this requirement.</p>
 
 <p><a href="{{ myInfoLink }}">View your certificate</a></p>
+
+<p>Thank you,<br>HAVEN Free Clinic</p>`,
+  },
+  {
+    key: "compliance-cert-rejected",
+    name: "Compliance: certificate not accepted (member)",
+    category: "transactional",
+    group: "compliance",
+    variables: [
+      { name: "volunteerName", label: "Volunteer name", sampleValue: "Jane Doe" },
+      {
+        name: "explanation",
+        label: "Why it was not accepted (preset reason plus the manager's note)",
+        sampleValue:
+          "The file you uploaded is not a HIPAA training certificate. This looks like the Workday course transcript.",
+      },
+      {
+        name: "myInfoLink",
+        label: "Link to the member's own info page",
+        sampleValue: "https://hub.havenfreeclinic.org/my-info",
+      },
+    ],
+    defaultSubject: "[HAVEN] Your HIPAA certificate was not accepted",
+    // Names the problem, then the single next step. No apology and no "please
+    // note": the member did something ordinary and fixable, and the one thing
+    // this email has to achieve is that the RIGHT file gets uploaded next time.
+    defaultBody: `<p>Hi {{ volunteerName }},</p>
+
+<p>{{ explanation }}</p>
+
+<p>Please upload your HIPAA training certificate in <a href="{{ myInfoLink }}">HAVEN Hub</a>. Your clearance for the term is on hold until we have it.</p>
+
+<p>If you are not sure which file we need, reply to this email and we will help.</p>
 
 <p>Thank you,<br>HAVEN Free Clinic</p>`,
   },

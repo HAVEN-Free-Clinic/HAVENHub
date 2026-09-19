@@ -10,6 +10,7 @@ describe("notification registry", () => {
         "compliance-date-review",
         "compliance-verification-review",
         "compliance-cert-verified",
+        "compliance-cert-rejected",
         "compliance-reminder",
         "onboarding-reminder",
         "clearance-digest",

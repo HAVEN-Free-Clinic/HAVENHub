@@ -52,9 +52,13 @@ import { CertificateViewer } from "@/modules/my-info/components/certificate-view
 import {
   setCompletionDateAsManager,
   verifyCertificate,
+  rejectCertificate,
+  undoCertificateRejection,
   ComplianceForbiddenError,
   CertificateNotFoundError,
+  CertificateRejectionError,
 } from "@/modules/volunteers/services/compliance";
+import { isRejectionReason } from "@/platform/compliance/rejection";
 import { getMemberProfileBasics } from "@/modules/volunteers/services/member-profile";
 import { CompletionDateError } from "@/platform/compliance/completion-date";
 import { CalendarDate } from "@/platform/dates/display";
@@ -141,6 +145,47 @@ export default async function PersonCompliancePage({ params }: PageProps) {
     try {
       await verifyCertificate(actor.personId, certId);
     } catch (err) {
+      if (err instanceof ComplianceForbiddenError) return { error: err.message };
+      if (err instanceof CertificateNotFoundError) return { error: "Certificate not found." };
+      throw err;
+    }
+    revalidatePath(`/volunteers/compliance/${personId}`);
+    return {};
+  }
+
+  // Refusing the certificate, on the same permission as verifying it. The reason
+  // is narrowed here too, so the value handed to the service is typed rather
+  // than cast out of a form field; the service re-validates, because a server
+  // action is a public endpoint in its own right.
+  async function rejectAction(
+    certId: string,
+    reason: string,
+    note: string,
+  ): Promise<{ error?: string }> {
+    "use server";
+    const actor = await requirePermission("volunteers.manage_compliance");
+    if (!isRejectionReason(reason)) {
+      return { error: "Choose a reason for not accepting this certificate." };
+    }
+    try {
+      await rejectCertificate(actor.personId, certId, { reason, note });
+    } catch (err) {
+      if (err instanceof CertificateRejectionError) return { error: err.reason };
+      if (err instanceof ComplianceForbiddenError) return { error: err.message };
+      if (err instanceof CertificateNotFoundError) return { error: "Certificate not found." };
+      throw err;
+    }
+    revalidatePath(`/volunteers/compliance/${personId}`);
+    return {};
+  }
+
+  async function undoRejectAction(certId: string): Promise<{ error?: string }> {
+    "use server";
+    const actor = await requirePermission("volunteers.manage_compliance");
+    try {
+      await undoCertificateRejection(actor.personId, certId);
+    } catch (err) {
+      if (err instanceof CertificateRejectionError) return { error: err.reason };
       if (err instanceof ComplianceForbiddenError) return { error: err.message };
       if (err instanceof CertificateNotFoundError) return { error: "Certificate not found." };
       throw err;
@@ -272,9 +317,18 @@ export default async function PersonCompliancePage({ params }: PageProps) {
           {newestCert ? (
             <div className="flex flex-wrap items-center gap-4">
               <Badge tone={certReq.tone}>{certReq.statusLabel}</Badge>
-              <span className="text-sm text-foreground-soft tabular-nums">
-                Completed <CalendarDate value={newestCert.completionDate} /> &middot; Expires <CalendarDate value={expiresAt} />
-              </span>
+              {/* No dates beside a refused certificate: they were parsed off a
+                  file the clinic threw out, and "Completed ... Expires ..." next
+                  to a rejection reads as coverage this member does not have. */}
+              {newestCert.rejectedAt ? (
+                <span className="text-sm text-foreground-soft">
+                  Not accepted &middot; rejected <CalendarDate value={newestCert.rejectedAt} />
+                </span>
+              ) : (
+                <span className="text-sm text-foreground-soft tabular-nums">
+                  Completed <CalendarDate value={newestCert.completionDate} /> &middot; Expires <CalendarDate value={expiresAt} />
+                </span>
+              )}
               <CertificateViewer
                 certId={newestCert.id}
                 fileName={newestCert.fileName}
@@ -286,6 +340,10 @@ export default async function PersonCompliancePage({ params }: PageProps) {
                 canVerify={isManager}
                 verified={Boolean(newestCert.verifiedAt)}
                 onVerify={verifyAction.bind(null, newestCert.id)}
+                canReject={isManager}
+                rejected={Boolean(newestCert.rejectedAt)}
+                onReject={rejectAction.bind(null, newestCert.id)}
+                onUndoReject={undoRejectAction.bind(null, newestCert.id)}
               />
             </div>
           ) : (

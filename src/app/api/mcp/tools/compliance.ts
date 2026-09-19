@@ -28,7 +28,14 @@ async function describeOutstandingTask(personId: string, task: OnboardingTask): 
   if (task.key !== "hipaa" || task.state !== "INCOMPLETE") return base;
 
   const certs = await listMyCertificates(personId);
-  const completionDate = certs[0]?.completionDate ?? null;
+  const newest = certs[0] ?? null;
+  // A REJECTED certificate is also INCOMPLETE, and it carries a parsed
+  // completionDate, so without this guard Fin would answer "it expired on
+  // <date>" about a file the clinic refused -- sending the member off to renew
+  // training when what they actually need is to upload the right document. The
+  // generic task copy already covers them correctly.
+  if (!newest || newest.rejectedAt !== null) return base;
+  const completionDate = newest.completionDate ?? null;
   if (!completionDate) return base; // no certificate on file at all; the generic copy above already covers this
 
   // completionDate, like clinicDate, is normalized to a fixed UTC instant for a

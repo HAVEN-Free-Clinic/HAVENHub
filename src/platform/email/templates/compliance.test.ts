@@ -14,6 +14,7 @@ import { renderEmail } from "./renderEmail";
 import {
   complianceReminderContext,
   complianceDateReviewContext,
+  complianceCertRejectedContext,
   type ComplianceReminderParams,
   type ComplianceDateReviewParams,
 } from "./compliance";
@@ -242,5 +243,111 @@ describe("compliance-date-review via renderEmail", () => {
     );
     expect(html).not.toContain("<script>evil");
     expect(html).toContain("&lt;script&gt;");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The REJECTED reminder branch
+//
+// Load-bearing rather than cosmetic: the reminder engine treats every
+// non-COMPLIANT status as unsatisfied, so a missing branch here is not a copy
+// bug -- complianceReminderContext throws, and the first rejected member in the
+// nightly run takes their whole per-person iteration with them.
+// ---------------------------------------------------------------------------
+
+describe("compliance-reminder REJECTED via renderEmail", () => {
+  const APP_URL = "https://hub.example.org";
+
+  function rejectedParams(over: Partial<ComplianceReminderParams> = {}): ComplianceReminderParams {
+    return {
+      personName: "Jane Doe",
+      status: "REJECTED",
+      expiresAt: null,
+      appUrl: APP_URL,
+      brandColor: "#00356b",
+      ...over,
+    };
+  }
+
+  it("renders rather than throwing, which is what the nightly run depends on", async () => {
+    await expect(
+      renderEmail("compliance-reminder", complianceReminderContext(rejectedParams())),
+    ).resolves.toBeDefined();
+  });
+
+  it("says the certificate was not accepted, and asks for a new one", async () => {
+    const out = await renderEmail(
+      "compliance-reminder",
+      complianceReminderContext(rejectedParams()),
+    );
+    expect(out.html).toContain("was not accepted");
+    // Actionable, unlike the two waiting states: the member can fix this.
+    expect(out.html).toContain("Please upload or renew your certificate");
+    expect(out.html).toContain(`${APP_URL}/my-info`);
+    expect(out.html).not.toContain("No action is needed");
+  });
+
+  it("does not repeat the rejection reason in a recurring nag", async () => {
+    // The reason was sent once, at rejection time, by compliance-cert-rejected.
+    // Quoting a weeks-old reason beside "upload or renew" reads as a second
+    // rejection of a file the member may already have replaced.
+    const out = await renderEmail(
+      "compliance-reminder",
+      complianceReminderContext(rejectedParams()),
+    );
+    expect(out.html).not.toContain("Workday transcript");
+    expect(out.html).not.toContain("issued to someone else");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// compliance-cert-rejected
+// ---------------------------------------------------------------------------
+
+describe("compliance-cert-rejected via renderEmail", () => {
+  const MY_INFO = "https://hub.example.org/my-info";
+
+  it("names the problem and the one next step", async () => {
+    const out = await renderEmail(
+      "compliance-cert-rejected",
+      complianceCertRejectedContext({
+        volunteerName: "Jane Doe",
+        explanation:
+          "The file you uploaded is not a HIPAA training certificate. This is the Workday transcript.",
+        myInfoLink: MY_INFO,
+      }),
+    );
+    expect(out.subject).toBe("[HAVEN] Your HIPAA certificate was not accepted");
+    expect(out.html).toContain("Hi Jane Doe,");
+    expect(out.html).toContain("is not a HIPAA training certificate");
+    expect(out.html).toContain("This is the Workday transcript.");
+    expect(out.html).toContain(MY_INFO);
+  });
+
+  it("tells the member their clearance is on hold, so the email is not ignorable", async () => {
+    const out = await renderEmail(
+      "compliance-cert-rejected",
+      complianceCertRejectedContext({
+        volunteerName: "Jane Doe",
+        explanation: "The certificate you uploaded could not be accepted.",
+        myInfoLink: MY_INFO,
+      }),
+    );
+    expect(out.html).toContain("on hold");
+  });
+
+  it("HTML-escapes the name and the manager's explanation", async () => {
+    // The explanation carries a free-text note typed by a manager, so it is the
+    // one field on this template with untrusted input in it.
+    const out = await renderEmail(
+      "compliance-cert-rejected",
+      complianceCertRejectedContext({
+        volunteerName: '<script>alert("x")</script>',
+        explanation: '<img src=x onerror="alert(1)">',
+        myInfoLink: MY_INFO,
+      }),
+    );
+    expect(out.html).not.toContain("<script>");
+    expect(out.html).not.toContain("<img src=x");
   });
 });

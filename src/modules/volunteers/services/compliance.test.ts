@@ -32,7 +32,10 @@ import {
   masterCompliance,
   verifyCertificate,
   setCompletionDateAsManager,
+  rejectCertificate,
+  undoCertificateRejection,
   CertificateNotFoundError,
+  CertificateRejectionError,
   ComplianceForbiddenError,
 } from "./compliance";
 import { setPersonStatusField } from "@/platform/people";
@@ -1203,5 +1206,310 @@ describe("masterCompliance sort", () => {
     // the default -- which is what puts people needing action on page 1 -- did
     // not move.
     expect(result.rows.map((r) => r.person.name)).toEqual(["Bob", "Carol", "Dave", "Erin", "Alice"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// rejectCertificate / undoCertificateRejection
+//
+// Rejecting exists because members upload the wrong thing -- the Workday
+// transcript, a screenshot, somebody else's PDF -- and the only previous options
+// were to leave it in the verification queue forever or delete it, which tells
+// the member nothing and loses the record that anyone looked.
+// ---------------------------------------------------------------------------
+
+describe("rejectCertificate", () => {
+  it("records who refused it, why, and the note the member will read", async () => {
+    const actor = await createPerson("Manager", "mgr001");
+    await grantPermission(actor.id, "volunteers.manage_compliance");
+    const owner = await createPerson("Volunteer", "vol001");
+    const cert = await createCert(owner.id, noon(2025, 6, 1));
+
+    await rejectCertificate(actor.id, cert.id, {
+      reason: "NOT_A_CERTIFICATE",
+      note: "This is the Workday transcript.",
+    });
+
+    const updated = await prisma.hipaaCertificate.findUniqueOrThrow({ where: { id: cert.id } });
+    expect(updated.rejectedAt).not.toBeNull();
+    expect(updated.rejectedById).toBe(actor.id);
+    expect(updated.rejectionReason).toBe("NOT_A_CERTIFICATE");
+    expect(updated.rejectionNote).toBe("This is the Workday transcript.");
+  });
+
+  it("stores an empty note as null rather than an empty string", async () => {
+    // rejectionExplanation appends the note to the preset sentence, so a blank
+    // string would render as a trailing space in the member's email.
+    const actor = await createPerson("Manager", "mgr001");
+    await grantPermission(actor.id, "volunteers.manage_compliance");
+    const owner = await createPerson("Volunteer", "vol001");
+    const cert = await createCert(owner.id, noon(2025, 6, 1));
+
+    await rejectCertificate(actor.id, cert.id, { reason: "UNREADABLE", note: "   " });
+
+    const updated = await prisma.hipaaCertificate.findUniqueOrThrow({ where: { id: cert.id } });
+    expect(updated.rejectionNote).toBeNull();
+  });
+
+  it("leaves the verify stamp in place when refusing an already-verified cert", async () => {
+    // The stamp is the record of who accepted it, and it is the first thing
+    // anyone will want when working out how a wrong certificate got through.
+    // complianceStatus reads rejectedAt ahead of it, so keeping it costs nothing.
+    const verifier = await createPerson("First Manager", "mgr001");
+    await grantPermission(verifier.id, "volunteers.manage_compliance");
+    const actor = await createPerson("Second Manager", "mgr002");
+    await grantPermission(actor.id, "volunteers.manage_compliance");
+    const owner = await createPerson("Volunteer", "vol001");
+    const cert = await createCert(owner.id, noon(2025, 6, 1), undefined, noon(2025, 6, 2));
+
+    await rejectCertificate(actor.id, cert.id, { reason: "WRONG_PERSON" });
+
+    const updated = await prisma.hipaaCertificate.findUniqueOrThrow({ where: { id: cert.id } });
+    expect(updated.verifiedAt).not.toBeNull();
+    expect(updated.rejectedAt).not.toBeNull();
+  });
+
+  it("audits compliance.reject, flagging whether a working clearance was revoked", async () => {
+    const actor = await createPerson("Manager", "mgr001");
+    await grantPermission(actor.id, "volunteers.manage_compliance");
+    const owner = await createPerson("Volunteer", "vol001");
+    const cert = await createCert(owner.id, noon(2025, 6, 1), undefined, noon(2025, 6, 2));
+
+    await rejectCertificate(actor.id, cert.id, { reason: "WRONG_PERSON" });
+
+    const entry = await prisma.auditLog.findFirst({
+      where: { action: "compliance.reject", entityId: cert.id },
+    });
+    expect(entry).not.toBeNull();
+    expect(entry?.actorPersonId).toBe(actor.id);
+    const after = entry?.after as Record<string, unknown>;
+    expect(after.ownerPersonId).toBe(owner.id);
+    expect(after.rejectionReason).toBe("WRONG_PERSON");
+    // The distinction that matters when reading this back: did this take
+    // somebody's clearance away, or merely clear a bad file out of the queue?
+    expect(after.revokedVerifiedCertificate).toBe(true);
+  });
+
+  it("tells the member, because otherwise they re-upload the same wrong file", async () => {
+    const actor = await createPerson("Manager", "mgr001");
+    await grantPermission(actor.id, "volunteers.manage_compliance");
+    const owner = await prisma.person.update({
+      where: { id: (await createPerson("Volunteer", "vol001")).id },
+      data: { contactEmail: "vol001@x.edu" },
+    });
+    const cert = await createCert(owner.id, noon(2025, 6, 1));
+
+    await rejectCertificate(actor.id, cert.id, { reason: "NOT_A_CERTIFICATE" });
+
+    const logs = await prisma.emailLog.findMany({
+      where: { template: "compliance-cert-rejected" },
+    });
+    expect(logs).toHaveLength(1);
+    expect(logs[0].personId).toBe(owner.id);
+  });
+
+  it("refuses a department director who may only READ compliance", async () => {
+    // Same split as verifying: view_compliance reaches the document, attesting
+    // and refusing it are manage_compliance actions.
+    const actor = await createPerson("Director", "dir001");
+    await grantPermission(actor.id, "volunteers.view_compliance");
+    const owner = await createPerson("Volunteer", "vol001");
+    const cert = await createCert(owner.id, noon(2025, 6, 1));
+
+    await expect(
+      rejectCertificate(actor.id, cert.id, { reason: "NOT_A_CERTIFICATE" }),
+    ).rejects.toBeInstanceOf(ComplianceForbiddenError);
+
+    const untouched = await prisma.hipaaCertificate.findUniqueOrThrow({ where: { id: cert.id } });
+    expect(untouched.rejectedAt).toBeNull();
+  });
+
+  it("blocks a manager from rejecting their own certificate", async () => {
+    // Separation of duties, mirroring verify: otherwise a manager could withdraw
+    // the certificate recording their own lapsed training.
+    const actor = await createPerson("Self Manager", "self01");
+    await grantPermission(actor.id, "volunteers.manage_compliance");
+    const cert = await createCert(actor.id, noon(2025, 6, 1));
+
+    await expect(
+      rejectCertificate(actor.id, cert.id, { reason: "OTHER" }),
+    ).rejects.toBeInstanceOf(ComplianceForbiddenError);
+  });
+
+  it("refuses a second rejection rather than silently re-stamping", async () => {
+    // Re-rejecting would email the member twice and overwrite the original
+    // reason and timestamp with the second manager's.
+    const actor = await createPerson("Manager", "mgr001");
+    await grantPermission(actor.id, "volunteers.manage_compliance");
+    const owner = await createPerson("Volunteer", "vol001");
+    const cert = await createCert(owner.id, noon(2025, 6, 1));
+
+    await rejectCertificate(actor.id, cert.id, { reason: "UNREADABLE", note: "first" });
+    await expect(
+      rejectCertificate(actor.id, cert.id, { reason: "OTHER", note: "second" }),
+    ).rejects.toBeInstanceOf(CertificateRejectionError);
+
+    const updated = await prisma.hipaaCertificate.findUniqueOrThrow({ where: { id: cert.id } });
+    expect(updated.rejectionReason).toBe("UNREADABLE");
+    expect(updated.rejectionNote).toBe("first");
+  });
+
+  it("refuses a reason that is not in the vocabulary", async () => {
+    // A server action is a public endpoint, and the reason is rendered into an
+    // email to the member, so the service validates rather than trusting the
+    // select element.
+    const actor = await createPerson("Manager", "mgr001");
+    await grantPermission(actor.id, "volunteers.manage_compliance");
+    const owner = await createPerson("Volunteer", "vol001");
+    const cert = await createCert(owner.id, noon(2025, 6, 1));
+
+    await expect(
+      // @ts-expect-error -- deliberately outside RejectionReason
+      rejectCertificate(actor.id, cert.id, { reason: "BECAUSE_I_SAID_SO" }),
+    ).rejects.toBeInstanceOf(CertificateRejectionError);
+
+    const untouched = await prisma.hipaaCertificate.findUniqueOrThrow({ where: { id: cert.id } });
+    expect(untouched.rejectedAt).toBeNull();
+  });
+
+  it("refuses an over-long note", async () => {
+    const actor = await createPerson("Manager", "mgr001");
+    await grantPermission(actor.id, "volunteers.manage_compliance");
+    const owner = await createPerson("Volunteer", "vol001");
+    const cert = await createCert(owner.id, noon(2025, 6, 1));
+
+    await expect(
+      rejectCertificate(actor.id, cert.id, { reason: "OTHER", note: "x".repeat(501) }),
+    ).rejects.toBeInstanceOf(CertificateRejectionError);
+  });
+
+  it("throws CertificateNotFoundError before the permission check", async () => {
+    // Same ordering as verifyCertificate, so probing an id cannot distinguish
+    // "does not exist" from "not allowed".
+    const actor = await createPerson("Nobody", "nob001");
+
+    await expect(
+      rejectCertificate(actor.id, "nonexistent-id", { reason: "OTHER" }),
+    ).rejects.toBeInstanceOf(CertificateNotFoundError);
+  });
+});
+
+describe("undoCertificateRejection", () => {
+  it("clears every rejection column, restoring the certificate's prior status", async () => {
+    // Nothing else has to be restored: complianceStatus derives the rest from
+    // completionDate and verifiedAt, which rejecting never touched.
+    const actor = await createPerson("Manager", "mgr001");
+    await grantPermission(actor.id, "volunteers.manage_compliance");
+    const owner = await createPerson("Volunteer", "vol001");
+    const cert = await createCert(owner.id, noon(2025, 6, 1), undefined, noon(2025, 6, 2));
+
+    await rejectCertificate(actor.id, cert.id, { reason: "WRONG_PERSON", note: "misread" });
+    await undoCertificateRejection(actor.id, cert.id);
+
+    const updated = await prisma.hipaaCertificate.findUniqueOrThrow({ where: { id: cert.id } });
+    expect(updated.rejectedAt).toBeNull();
+    expect(updated.rejectedById).toBeNull();
+    expect(updated.rejectionReason).toBeNull();
+    expect(updated.rejectionNote).toBeNull();
+    expect(updated.verifiedAt).not.toBeNull();
+  });
+
+  it("audits compliance.unreject", async () => {
+    const actor = await createPerson("Manager", "mgr001");
+    await grantPermission(actor.id, "volunteers.manage_compliance");
+    const owner = await createPerson("Volunteer", "vol001");
+    const cert = await createCert(owner.id, noon(2025, 6, 1));
+
+    await rejectCertificate(actor.id, cert.id, { reason: "OTHER" });
+    await undoCertificateRejection(actor.id, cert.id);
+
+    const entry = await prisma.auditLog.findFirst({
+      where: { action: "compliance.unreject", entityId: cert.id },
+    });
+    expect(entry).not.toBeNull();
+    expect(entry?.actorPersonId).toBe(actor.id);
+  });
+
+  it("tells the member they are cleared again when the restored cert is verified", async () => {
+    // The last thing they heard was that it had been refused, so silence would
+    // leave a cleared member believing they are blocked.
+    const actor = await createPerson("Manager", "mgr001");
+    await grantPermission(actor.id, "volunteers.manage_compliance");
+    const owner = await prisma.person.update({
+      where: { id: (await createPerson("Volunteer", "vol001")).id },
+      data: { contactEmail: "vol001@x.edu" },
+    });
+    const cert = await createCert(owner.id, noon(2025, 6, 1), undefined, noon(2025, 6, 2));
+
+    await rejectCertificate(actor.id, cert.id, { reason: "WRONG_PERSON" });
+    await undoCertificateRejection(actor.id, cert.id);
+
+    const logs = await prisma.emailLog.findMany({
+      where: { template: "compliance-cert-verified", personId: owner.id },
+    });
+    expect(logs).toHaveLength(1);
+  });
+
+  it("stays quiet when the restored cert is still awaiting verification", async () => {
+    // It has gone back into the queue, not back to cleared. The verify path will
+    // send its own email the moment a manager acts, and announcing a restoration
+    // that changed nothing for the member is noise.
+    const actor = await createPerson("Manager", "mgr001");
+    await grantPermission(actor.id, "volunteers.manage_compliance");
+    const owner = await prisma.person.update({
+      where: { id: (await createPerson("Volunteer", "vol001")).id },
+      data: { contactEmail: "vol001@x.edu" },
+    });
+    const cert = await createCert(owner.id, noon(2025, 6, 1));
+
+    await rejectCertificate(actor.id, cert.id, { reason: "UNREADABLE" });
+    await undoCertificateRejection(actor.id, cert.id);
+
+    const logs = await prisma.emailLog.findMany({
+      where: { template: "compliance-cert-verified", personId: owner.id },
+    });
+    expect(logs).toHaveLength(0);
+  });
+
+  it("refuses a certificate that was never rejected", async () => {
+    const actor = await createPerson("Manager", "mgr001");
+    await grantPermission(actor.id, "volunteers.manage_compliance");
+    const owner = await createPerson("Volunteer", "vol001");
+    const cert = await createCert(owner.id, noon(2025, 6, 1));
+
+    await expect(undoCertificateRejection(actor.id, cert.id)).rejects.toBeInstanceOf(
+      CertificateRejectionError,
+    );
+  });
+
+  it("blocks a manager from restoring their own rejected certificate", async () => {
+    // Restoring your own certificate restores your own clearance, which is the
+    // self-attestation every other write on this table already refuses.
+    const other = await createPerson("Other Manager", "mgr002");
+    await grantPermission(other.id, "volunteers.manage_compliance");
+    const actor = await createPerson("Self Manager", "self01");
+    await grantPermission(actor.id, "volunteers.manage_compliance");
+    const cert = await createCert(actor.id, noon(2025, 6, 1));
+
+    await rejectCertificate(other.id, cert.id, { reason: "WRONG_PERSON" });
+
+    await expect(undoCertificateRejection(actor.id, cert.id)).rejects.toBeInstanceOf(
+      ComplianceForbiddenError,
+    );
+  });
+
+  it("refuses a director who may only read compliance", async () => {
+    const manager = await createPerson("Manager", "mgr001");
+    await grantPermission(manager.id, "volunteers.manage_compliance");
+    const director = await createPerson("Director", "dir001");
+    await grantPermission(director.id, "volunteers.view_compliance");
+    const owner = await createPerson("Volunteer", "vol001");
+    const cert = await createCert(owner.id, noon(2025, 6, 1));
+
+    await rejectCertificate(manager.id, cert.id, { reason: "OTHER" });
+
+    await expect(undoCertificateRejection(director.id, cert.id)).rejects.toBeInstanceOf(
+      ComplianceForbiddenError,
+    );
   });
 });

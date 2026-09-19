@@ -81,6 +81,17 @@ describe("buildActionCards", () => {
     expect(unknown?.sub).toBe("HIPAA in review");
   });
 
+  it("leads the feed when a certificate was rejected, above a plain missing one", () => {
+    // A rejected cert is the missing requirement plus a member who thinks they
+    // have dealt with it, so it has to outrank the ordinary gaps.
+    const rejected = buildActionCards({ ...base, compliance: "REJECTED" }).find((c) => c.key === "my-info");
+    expect(rejected?.priority).toBe(92);
+    expect(rejected?.sub).toBe("HIPAA certificate not accepted");
+
+    const missing = buildActionCards({ ...base, compliance: "NO_CERTIFICATE" }).find((c) => c.key === "my-info");
+    expect(rejected!.priority).toBeGreaterThan(missing!.priority);
+  });
+
   it("builds the training card with priority 80 and count-aware sub", () => {
     const one = buildActionCards({ ...base, trainingIncomplete: 1, trainingHref: "/training" }).find((c) => c.key === "training");
     expect(one?.priority).toBe(80);
@@ -123,7 +134,7 @@ describe("buildActionCards", () => {
     });
 
     it("drops every compliance nudge when suppressed, keeping the card", () => {
-      for (const compliance of ["NO_CERTIFICATE", "EXPIRED", "EXPIRING_SOON", "PENDING_VERIFICATION", "UNKNOWN_DATE"] as const) {
+      for (const compliance of ["NO_CERTIFICATE", "EXPIRED", "EXPIRING_SOON", "PENDING_VERIFICATION", "UNKNOWN_DATE", "REJECTED"] as const) {
         const cards = buildActionCards({ ...base, compliance, suppressComplianceNudge: true });
         const myInfo = cards.find((c) => c.key === "my-info")!;
         expect(myInfo.sub).toBe("View & update");

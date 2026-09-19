@@ -45,6 +45,10 @@ const COMPLIANCE_STAFF: Record<ComplianceStatus, StatusLabel> = {
   EXPIRED: { label: "Expired", tone: "critical" },
   PENDING_VERIFICATION: { label: "Needs verification", tone: "warning" },
   UNKNOWN_DATE: { label: "Date unknown", tone: "default" },
+  // Critical, not warning: unlike the two states above, nothing is in a queue.
+  // The clinic has refused this file and is waiting on the member, so a manager
+  // scanning the roster needs it to read like the gap it is.
+  REJECTED: { label: "Rejected", tone: "critical" },
   NO_CERTIFICATE: { label: "No certificate", tone: "default" },
 };
 
@@ -61,6 +65,12 @@ const COMPLIANCE_MEMBER: Record<ComplianceStatus, StatusLabel> = {
   // action the page it points at explicitly denies.
   UNKNOWN_DATE: { label: "Completion date pending", tone: "default" },
   PENDING_VERIFICATION: { label: "Awaiting verification", tone: "warning" },
+  // "Not accepted", not "Rejected". The member reads this about their own
+  // upload, and the staff word passes judgement on the person where the member
+  // word describes what happened to the file -- which is the accurate one, and
+  // the one that reads as a correctable mistake. Same tone as the staff label:
+  // this genuinely blocks clearance, so it must not look optional.
+  REJECTED: { label: "Not accepted", tone: "critical" },
   NO_CERTIFICATE: { label: "Not uploaded", tone: "default" },
 };
 
@@ -75,6 +85,7 @@ export const ALL_COMPLIANCE_STATUSES: ComplianceStatus[] = [
   "COMPLIANT",
   "EXPIRING_SOON",
   "EXPIRED",
+  "REJECTED",
   "PENDING_VERIFICATION",
   "UNKNOWN_DATE",
   "NO_CERTIFICATE",

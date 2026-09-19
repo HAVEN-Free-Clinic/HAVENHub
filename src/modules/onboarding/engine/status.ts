@@ -22,7 +22,13 @@ export function deriveProfileTaskState(p: { contactEmail: string | null; phone: 
 /** A HIPAA cert that is valid today (compliant or merely expiring soon) clears the task.
  *  A cert that is on file but waiting on a compliance manager reads as in progress: the
  *  member has done their part and re-uploading would not help. IN_PROGRESS still fails
- *  isSatisfied, so the gate is unchanged; only what the member is told changes. */
+ *  isSatisfied, so the gate is unchanged; only what the member is told changes.
+ *
+ *  REJECTED deliberately falls through to INCOMPLETE rather than joining the
+ *  in-progress pair. Nothing is pending on the clinic's side -- a manager has
+ *  refused the file and the ball is back with the member -- so the checklist must
+ *  read as an outstanding action they can take, which is exactly what the
+ *  "Action needed" member label for INCOMPLETE says. */
 export function deriveHipaaTaskState(status: ComplianceStatus): OnboardingTaskState {
   if (status === "COMPLIANT" || status === "EXPIRING_SOON") return "COMPLETE";
   if (status === "PENDING_VERIFICATION" || status === "UNKNOWN_DATE") return "IN_PROGRESS";

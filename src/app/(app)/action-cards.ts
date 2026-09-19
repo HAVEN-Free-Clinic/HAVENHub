@@ -53,6 +53,13 @@ function myInfoCard(input: ActionCardInput): ActionCard {
   // than four. profileIncomplete is NOT suppressed: confirming your own contact
   // details is asked of anyone with a Hub account.
   if (!input.suppressComplianceNudge) {
+    // Above the plain gaps below it. A rejected certificate is the same missing
+    // requirement PLUS a member who believes they have already handled it, so it
+    // is the one HIPAA state where the feed is the only thing likely to correct
+    // them before they turn up to a shift uncleared.
+    if (input.compliance === "REJECTED") {
+      return { ...base, priority: 92, sub: "HIPAA certificate not accepted" };
+    }
     if (input.compliance === "EXPIRED" || input.compliance === "NO_CERTIFICATE") {
       return { ...base, priority: 90, sub: "Upload HIPAA certificate" };
     }

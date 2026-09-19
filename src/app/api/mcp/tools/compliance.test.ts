@@ -30,8 +30,18 @@ function status(opts: { hasActiveTerm?: boolean; cleared?: boolean; tasks?: Task
   };
 }
 
-function cert(completionDate: string | null) {
-  return { completionDate: completionDate ? new Date(completionDate) : null };
+function cert(completionDate: string | null, rejectedAt: string | null = null) {
+  return {
+    completionDate: completionDate ? new Date(completionDate) : null,
+    // Mirrors the real row. listMyCertificates returns whole HipaaCertificate
+    // records and describeOutstandingTask reads rejectedAt off them, so a mock
+    // that omits it is not the thing it stands in for -- and because the
+    // production check is `rejectedAt !== null` (fail closed, so a query that
+    // forgets the column over-blocks rather than clearing somebody it should
+    // not), an undefined here reads as "rejected" and quietly changes the
+    // branch under test.
+    rejectedAt: rejectedAt ? new Date(rejectedAt) : null,
+  };
 }
 
 beforeEach(() => {
@@ -121,6 +131,28 @@ describe("my_clearance_status", () => {
     // assertion is the one that actually distinguishes the two -- the DOB/date
     // guard test elsewhere in this suite covers the zoning bug shape directly.
     expect(text).toContain("expired on Aug 3, 2026");
+  });
+
+  it("does not tell a member their refused certificate expired", async () => {
+    // A rejected cert is INCOMPLETE too, and it carries a parsed completionDate,
+    // so without the guard Fin answers "it expired on <date>" about a file the
+    // clinic threw out -- sending the member off to renew training when what
+    // they actually need is to upload the right document.
+    mocked(getOnboardingStatus).mockResolvedValue(
+      status({
+        cleared: false,
+        tasks: [{ key: "hipaa", label: "HIPAA certificate", description: "Upload a current certificate.", state: "INCOMPLETE", blocking: true }],
+      })
+    );
+    mocked(listMyCertificates).mockResolvedValue([
+      cert("2025-08-03T12:00:00Z", "2026-09-01T12:00:00Z"),
+    ]);
+
+    const text = await myClearanceStatusTool.run({ personId: "p1" }, {});
+
+    expect(text).not.toContain("expired on");
+    // The generic task copy still reaches them, so the answer is not empty.
+    expect(text).toContain("Upload a current certificate.");
   });
 
   it("does not invent an expiry date when there is no certificate on file at all", async () => {

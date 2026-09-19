@@ -15,6 +15,7 @@ const ALL_STATUSES: ComplianceStatus[] = [
   "EXPIRED",
   "UNKNOWN_DATE",
   "PENDING_VERIFICATION",
+  "REJECTED",
   "NO_CERTIFICATE",
 ];
 
@@ -42,6 +43,17 @@ describe("complianceStatusLabel", () => {
     expect(complianceStatusLabel("PENDING_VERIFICATION", "member").label).toBe("Awaiting verification");
     expect(complianceStatusLabel("COMPLIANT", "staff").label).toBe("Compliant");
     expect(complianceStatusLabel("COMPLIANT", "member").label).toBe("Valid");
+  });
+
+  it("tells a member their file was not accepted, not that they were rejected", () => {
+    // The staff word passes judgement on the person; the member word describes
+    // what happened to the file. The member is about to be asked to upload
+    // again, so their label has to read as a correctable mistake.
+    expect(complianceStatusLabel("REJECTED", "staff").label).toBe("Rejected");
+    expect(complianceStatusLabel("REJECTED", "member").label).toBe("Not accepted");
+    // Both critical: this blocks clearance for either reader.
+    expect(complianceStatusLabel("REJECTED", "staff").tone).toBe("critical");
+    expect(complianceStatusLabel("REJECTED", "member").tone).toBe("critical");
   });
 
   it("agrees on tone across audiences for the states that gate clearance", () => {

@@ -337,6 +337,7 @@ model Person {
   applicationsDecided            Application[]                @relation("applicationDecidedBy")
   courseProgress                 CourseProgress[]
   scoProgress                    ScoProgress[]
+  sectionProgress                SectionProgress[]
   addedToEhs                     Boolean                      @default(false)
   ehsCompletions                 EhsCompletion[]              @relation("ehsCompletionPerson")
   ehsCompletionsMarked           EhsCompletion[]              @relation("ehsCompletionMarkedBy")
@@ -467,6 +468,7 @@ model Term {
   onboardingSteps       TermOnboardingStep[]
   courseProgress        CourseProgress[]
   scoProgress           ScoProgress[]
+  sectionProgress       SectionProgress[]
   createdAt             DateTime                  @default(now())
   updatedAt             DateTime                  @updatedAt
   walletPasses          WalletPass[]
@@ -3518,6 +3520,13 @@ model Course {
   /// SCORM (default): an uploaded eXeLearning package. VIDEO: hub-hosted video
   /// sections, each followed by a quiz, played with no seeking ahead.
   kind             CourseKind         @default(SCORM)
+  /// VIDEO courses only: true when the course can be completed, i.e. it has at
+  /// least one section and every section has a video, a known length, and at
+  /// least one keyed question. The VIDEO counterpart of "has a SCORM package":
+  /// assignment treats a not-ready course as a draft assigned to no one, for the
+  /// same reason a package-less one is. Recomputed by every edit that could
+  /// change it (services/video-courses.ts), never set by hand.
+  videoReady       Boolean            @default(false)
   /// Set on the one course that makes up a training cycle's morning session.
   /// Such a course is never department-assigned and never part of the learning
   /// gate: it is shown only to volunteers whose morning part is OWED, from the
@@ -3554,6 +3563,9 @@ model Course {
   departments      CourseDepartment[]
   progress         CourseProgress[]
   scoProgress      ScoProgress[]
+  videos           CourseVideo[]
+  sections         CourseSection[]
+  sectionProgress  SectionProgress[]
 }
 
 enum CourseKind {
@@ -3651,6 +3663,130 @@ model ScoProgress {
   @@unique([personId, courseId, scoId, termId])
   @@index([courseId])
   @@index([termId])
+}
+
+/// One uploaded video file of a VIDEO course. A single Zoom recording usually
+/// holds several sections (the morning's Part 1, then the HIPAA part), so a
+/// section points at a video and a time range inside it rather than owning a
+/// file of its own. That is what saves an admin from editing the recording.
+model CourseVideo {
+  id               String          @id @default(cuid())
+  courseId         String
+  /// Storage key under learning-video/<courseId>/. Private: the browser plays it
+  /// through a short-lived presigned GET (or the local-disk range route in dev),
+  /// never a public URL.
+  storageKey       String
+  fileName         String
+  contentType      String
+  /// BigInt because a Zoom recording is routinely past Int's 2 GiB.
+  sizeBytes        BigInt?
+  /// Read from the file in the admin's browser before upload. A section with no
+  /// endSeconds ends here, so a video without a duration can only back sections
+  /// that give an explicit end.
+  durationSeconds  Float?
+  /// Optional WebVTT captions (Zoom's transcript .vtt), served same-origin so a
+  /// <track> can load them without CORS.
+  captionsKey      String?
+  captionsFileName String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  course           Course          @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  sections         CourseSection[]
+
+  @@index([courseId])
+}
+
+/// One step of a VIDEO course: watch a stretch of a video, then pass a quiz.
+/// Sections unlock in position order: the next opens once this one's quiz is
+/// passed.
+model CourseSection {
+  id           String            @id @default(cuid())
+  courseId     String
+  position     Int               @default(0)
+  title        String
+  /// SetNull: deleting a video leaves the section in place (not ready) rather
+  /// than taking its questions with it.
+  videoId      String?
+  /// Where the section starts and ends inside the video, in seconds. A null end
+  /// means the end of the video.
+  startSeconds Float             @default(0)
+  endSeconds   Float?
+  passPercent  Int               @default(80)
+  /// Failed attempts allowed before the makeup locks (the training roster's
+  /// Reset clears it). Only a training makeup course locks; an ordinary VIDEO
+  /// course allows unlimited retakes.
+  maxAttempts  Int               @default(3)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  course       Course            @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  video        CourseVideo?      @relation(fields: [videoId], references: [id], onDelete: SetNull)
+  questions    CourseQuestion[]
+  progress     SectionProgress[]
+
+  @@index([courseId, position])
+  @@index([videoId])
+}
+
+/// A single-choice question on a section's quiz. correctValue null means the
+/// question is not graded (see gradeQuiz); a section needs at least one graded
+/// question to be passable.
+model CourseQuestion {
+  id           String        @id @default(cuid())
+  sectionId    String
+  position     Int           @default(0)
+  prompt       String
+  /// [{ value, label }], in display order.
+  options      Json
+  correctValue String?
+  section      CourseSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+
+  @@index([sectionId, position])
+}
+
+/// One learner's progress through one section, in one term. termId has the same
+/// meaning and NOT NULL reasoning as CourseProgress.termId; for a training
+/// makeup course it is always the cycle's term.
+model SectionProgress {
+  id              String               @id @default(cuid())
+  personId        String
+  courseId        String
+  sectionId       String
+  termId          String
+  /// The furthest point reached, in seconds from the section's start. Only the
+  /// server advances it, and never faster than real time (engine/watch.ts):
+  /// this, not the player's seek lock, is what makes "watch the whole thing"
+  /// hold against a hand-made request.
+  watchedSeconds  Float                @default(0)
+  lastHeartbeatAt DateTime?
+  /// Set once watchedSeconds reaches the section's end. Opens the quiz.
+  watchedAt       DateTime?
+  passedAt        DateTime?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  person          Person               @relation(fields: [personId], references: [id], onDelete: Cascade)
+  course          Course               @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  section         CourseSection        @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  term            Term                 @relation(fields: [termId], references: [id], onDelete: Restrict)
+  attempts        SectionQuizAttempt[]
+
+  @@unique([personId, sectionId, termId])
+  @@index([courseId])
+  @@index([termId])
+}
+
+/// One graded quiz attempt on a section. Never deleted by a lock reset: the
+/// reset moves the window (Training.lockResetAt) instead, like the retired quiz.
+model SectionQuizAttempt {
+  id         String          @id @default(cuid())
+  progressId String
+  answers    Json
+  score      Int
+  total      Int
+  passed     Boolean
+  takenAt    DateTime        @default(now())
+  progress   SectionProgress @relation(fields: [progressId], references: [id], onDelete: Cascade)
+
+  @@index([progressId, takenAt])
 }
 
 enum EhsCompletionSource {

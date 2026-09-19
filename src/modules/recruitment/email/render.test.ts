@@ -80,6 +80,8 @@ it("exposes exactly the cycle-scoped keys", () => {
     "recruitment.assessment_hold",
     "recruitment.draft_reminder",
     "recruitment.interview_invite",
+    "recruitment.makeup_reminder",
+    "recruitment.makeup_training",
     "recruitment.onboarding",
     "recruitment.onboarding_confirmation",
     "recruitment.rejection",

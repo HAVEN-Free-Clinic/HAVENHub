@@ -202,8 +202,11 @@ export type MyTraining = {
   /** A renewal this cycle. Decides which mock clinic message they read: a new
    *  member makes it up, a returning one only needs it marked off. */
   returning: boolean;
-  /** The cycle's online makeup course, when one is set up and active. */
+  /** The cycle's online makeup course, once it is ready AND released. Null
+   *  before that, which is what the "not available yet" copy reads. */
   makeupCourseId: string | null;
+  /** The day the makeup is due, when a lead set one. */
+  makeupDueAt: Date | null;
   /** 3 failed makeup quiz attempts; a director resets it from the roster. */
   locked: boolean;
   /** Training day is over (today in the display zone is past the in-person
@@ -253,7 +256,12 @@ export async function getMyTrainingForTerm(personId: string, term: { id: string;
       if (cycle && state !== "COMPLETE") {
         const [person, makeup, facts] = await Promise.all([
           prisma.person.findUnique({ where: { id: personId }, select: { contactEmail: true } }),
-          prisma.course.findFirst({ where: { makeupForCycleId: cycle.id, isActive: true }, select: { id: true } }),
+          cycle.makeupReleasedAt
+            ? prisma.course.findFirst({
+                where: { makeupForCycleId: cycle.id, isActive: true, videoReady: true },
+                select: { id: true },
+              })
+            : Promise.resolve(null),
           loadTrainingDayFacts(prisma, { personId, termId: term.id, track }),
         ]);
         // Both keys, as every excuse reader must (see resolveApplicantExcuseKeys).
@@ -277,6 +285,7 @@ export async function getMyTrainingForTerm(personId: string, term: { id: string;
         excused,
         returning,
         makeupCourseId,
+        makeupDueAt: cycle?.makeupDueAt ?? null,
         locked: row?.locked ?? false,
         sessionHeld: sessionHeld(cycle?.inPersonTrainingDate ?? null, now, zone),
       };

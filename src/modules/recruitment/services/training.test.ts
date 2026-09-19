@@ -180,7 +180,7 @@ it("getMyTraining returns the cycle and state, and nothing a quiz would render f
   // none of it reaches the member.
   expect(Object.keys(my!).sort()).toEqual([
     "completedAt", "completedVia", "cycle", "excused", "inPersonTrainingDate", "locked", "makeupCourseId",
-    "mockClinic", "morning", "returning", "sessionHeld", "state", "term", "track", "trackLabel",
+    "makeupDueAt", "mockClinic", "morning", "returning", "sessionHeld", "state", "term", "track", "trackLabel",
   ]);
   // Viewing computes the standing that nothing had yet.
   expect(my!.morning).toBe("OWED");

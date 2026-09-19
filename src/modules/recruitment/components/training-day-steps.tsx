@@ -37,9 +37,15 @@ export function TrainingDaySteps({
 }) {
   const date = my.inPersonTrainingDate ? formatDateOnly(my.inPersonTrainingDate, zone) : null;
   const onDate = date ? ` on ${date}` : "";
+  const owesSomething = my.morning === "OWED" || my.mockClinic === "OWED";
 
   return (
     <div className="space-y-3">
+      {my.makeupDueAt && owesSomething && (
+        <p className="text-sm font-semibold text-foreground">
+          Due by {formatDateOnly(my.makeupDueAt, zone)}.
+        </p>
+      )}
       <PartLine label="Morning session" part={my.morning} />
       {my.morning === "OWED" &&
         (!my.sessionHeld ? (

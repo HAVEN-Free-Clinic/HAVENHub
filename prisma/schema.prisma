@@ -2595,6 +2595,15 @@ model RecruitmentCycle {
   quizMaxAttempts      Int         @default(3)
   trainingLocation     String?
   inPersonTrainingDate DateTime?
+  /// When the online makeup training was released: the course becomes visible
+  /// to the people who owe it and the release emails go out. Null means not
+  /// released, which is what keeps a half-built course (and its email) away
+  /// from members. Set once, by a recruitment lead.
+  makeupReleasedAt     DateTime?
+  /// The calendar day the makeup is due (noon-UTC anchored, like
+  /// inPersonTrainingDate). Shown in the emails and on the member's training
+  /// page. Null means no date is quoted, not that nothing is owed.
+  makeupDueAt          DateTime?
   routeTopPercent      Int         @default(20)
   routeBottomPercent   Int         @default(30)
   /// How many distinct committee scorers each application should be read by.
@@ -3226,6 +3235,15 @@ model Training {
   mockClinicMarkedById        String?
   mockClinicMarkedAt          DateTime?
   mockClinicNote              String?
+  /// The makeup release email, sent once when the cycle is released (or at
+  /// promotion for someone who onboarded after it). The stamp is the claim: it
+  /// is what stops a second release run mailing the same person twice.
+  makeupEmailedAt             DateTime?
+  /// The follow-up stream that chases whatever is still owed. No cap (ops
+  /// asked for it to keep going until they finish); it stops on its own when
+  /// neither part is OWED.
+  makeupNudgeLastSentAt       DateTime?
+  makeupNudgeCount            Int                @default(0)
   createdAt                   DateTime           @default(now())
   updatedAt                   DateTime           @updatedAt
 

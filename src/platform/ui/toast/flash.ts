@@ -582,6 +582,20 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
   },
   {
     params: ["saved"],
+    matchValues: { saved: "makeupReleased" },
+    pathnames: [TRAINING_ROSTER_PATHNAME],
+    tone: "success",
+    message: () => "Makeup training released. The emails are queued.",
+  },
+  {
+    params: ["saved"],
+    matchValues: { saved: "makeupDue" },
+    pathnames: [TRAINING_ROSTER_PATHNAME],
+    tone: "success",
+    message: () => "Due date saved.",
+  },
+  {
+    params: ["saved"],
     matchValues: { saved: "mockClinicMarked" },
     pathnames: [TRAINING_ROSTER_PATHNAME],
     tone: "success",

@@ -21,6 +21,7 @@ import { runClearanceReminders } from "@/platform/email/reminders";
 import { runAttendanceNudges } from "@/platform/email/attendance-nudges";
 import { relinkUnlinkedAttendance } from "@/modules/recruitment/services/attendance-events";
 import { recomputeCurrentTrainingStanding } from "@/platform/training/standing";
+import { runMakeupReminders } from "@/modules/recruitment/services/makeup-release";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -52,6 +53,15 @@ export async function GET(req: Request): Promise<Response> {
   // Separately guarded: this stream is newer and narrower than clearance
   // reminders, and a failure in it must not cost the compliance-critical run
   // above its heartbeat.
+  // Chasing the online makeup training, for released cycles only. Guarded
+  // separately for the same reason as the nudges below.
+  let makeup = { sent: 0, skipped: 0 };
+  try {
+    makeup = await runMakeupReminders();
+  } catch (error) {
+    log.error("[cron/reminders] makeup reminders failed", { error: String(error) });
+  }
+
   let attendance = { linked: 0, sent: 0, resolved: 0, skipped: 0, failed: 0 };
   try {
     const linked = await relinkUnlinkedAttendance();
@@ -71,8 +81,10 @@ export async function GET(req: Request): Promise<Response> {
     trainingStandingPeople: standing.people,
     trainingStandingNowComplete: standing.nowComplete,
     trainingStandingNowPending: standing.nowPending,
+    makeupRemindersSent: makeup.sent,
+    makeupRemindersSkipped: makeup.skipped,
   });
   await recordCronHeartbeat("reminders");
   await flushLogs();
-  return Response.json({ ok: true, ...r, attendance });
+  return Response.json({ ok: true, ...r, attendance, makeup });
 }

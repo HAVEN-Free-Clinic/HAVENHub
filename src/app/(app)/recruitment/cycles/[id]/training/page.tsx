@@ -22,9 +22,16 @@ import {
   startCheckInAction,
   markMockClinicDoneAction,
   undoMockClinicMarkOffAction,
+  releaseMakeupAction,
+  setMakeupDueDateAction,
 } from "./actions";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
+import { getMakeupReleaseState, type MakeupReleaseState } from "@/modules/recruitment/services/makeup-release";
+import { formatForDateInput } from "@/platform/dates";
+import { Input } from "@/platform/ui/input";
+import { FormRow, RowField } from "@/platform/ui/form";
+import { TextLink } from "@/platform/ui/text-link";
 import { ExcuseAbsenceButton } from "@/modules/recruitment/components/excuse-absence-button";
 import { MarkMockClinicButton } from "@/modules/recruitment/components/mark-mock-clinic-button";
 import {
@@ -90,6 +97,9 @@ export default async function TrainingRosterPage({ params }: { params: Promise<{
   // Also clinic-wide only: the director confirms a mock clinic make-up, and IT,
   // who holds clinic-wide attendance authority, marks it off.
   const canMarkMockClinic = attendanceAuthority.all;
+  // Releasing is a lead's call, like releasing decisions: it emails everyone who
+  // owes a part, including the reprimand for an unexcused absence.
+  const makeup = canExcuse ? await getMakeupReleaseState(id) : null;
 
   let rows;
   try {
@@ -153,6 +163,7 @@ export default async function TrainingRosterPage({ params }: { params: Promise<{
           ) : undefined
         }
       />
+      {makeup && <MakeupReleaseCard cycleId={id} state={makeup} zone={zone} />}
       <TrainingDaySummary rows={rows} />
       <ExcusedSection rows={rows} zone={zone} />
       <Table>
@@ -335,6 +346,81 @@ export default async function TrainingRosterPage({ params }: { params: Promise<{
         </tbody>
       </Table>
     </PageBody>
+  );
+}
+
+/**
+ * Releasing the online makeup training, and what it will do when pressed.
+ *
+ * Deliberately shows the counts BEFORE the button: releasing sends an email
+ * that tells people their absence was unacceptable, and the one thing a lead
+ * needs before pressing it is how many people that is.
+ */
+function MakeupReleaseCard({ cycleId, state, zone }: { cycleId: string; state: MakeupReleaseState; zone: string }) {
+  const ready = state.course?.ready ?? false;
+  return (
+    <Card>
+      <SectionHeader level="card" className="mb-3">Online makeup training</SectionHeader>
+      <div className="space-y-3">
+        {!state.course ? (
+          <Alert tone="info">
+            No makeup course is linked to this cycle yet. Create a video course in Learning, upload
+            the recording, write its quiz questions, then link it to this cycle.
+          </Alert>
+        ) : !ready ? (
+          <Alert tone="warning">
+            <TextLink href={`/learning/manage/${state.course.id}`}>{state.course.title}</TextLink> is
+            not ready yet: every section needs a video and the course must be active. Releasing is
+            blocked until it is, so nobody is emailed a link to an empty course.
+          </Alert>
+        ) : (
+          <p className="text-sm text-foreground-soft">
+            Course:{" "}
+            <TextLink href={`/learning/manage/${state.course.id}`}>{state.course.title}</TextLink>
+          </p>
+        )}
+
+        <form action={setMakeupDueDateAction.bind(null, cycleId)}>
+          <FormRow>
+            <RowField label="Due date">
+              <Input
+                name="makeupDueAt"
+                type="date"
+                defaultValue={state.dueAt ? formatForDateInput(state.dueAt, zone) : ""}
+              />
+            </RowField>
+            <SubmitButton size="sm" variant="outline" pendingLabel="Saving…">Save due date</SubmitButton>
+          </FormRow>
+        </form>
+
+        <dl className="flex flex-wrap gap-x-8 gap-y-2 text-sm">
+          <Count label="Owe the course" value={state.owesMorning} />
+          <Count label="Owe mock clinic" value={state.owesMockClinic} />
+          <Count label="Accepted, no contract yet" value={state.notOnboarded} />
+          <Count label="Emailed" value={state.emailed} />
+        </dl>
+
+        {state.releasedAt ? (
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="text-sm text-foreground-soft">
+              Released {formatDateOnly(state.releasedAt, zone)}. Anyone who still owes a part is
+              chased by email every three days until they finish.
+            </p>
+            <form action={releaseMakeupAction.bind(null, cycleId)}>
+              <SubmitButton size="sm" variant="outline" pendingLabel="Sending…">
+                Email anyone not yet told
+              </SubmitButton>
+            </form>
+          </div>
+        ) : (
+          <form action={releaseMakeupAction.bind(null, cycleId)}>
+            <SubmitButton disabled={!ready} pendingLabel="Releasing…">
+              Release makeup training
+            </SubmitButton>
+          </form>
+        )}
+      </div>
+    </Card>
   );
 }
 

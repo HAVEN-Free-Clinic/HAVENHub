@@ -483,6 +483,98 @@ export const recruitmentDescriptors: TemplateDescriptor[] = [
 <p>Thank you,<br>HAVEN Free Clinic</p>`,
   },
   {
+    key: "recruitment.makeup_training",
+    name: "Recruitment: online makeup training released",
+    category: "transactional",
+    group: "recruitment",
+    // Sent when a recruitment lead releases the online makeup training, to
+    // everyone who owes a part of training day. One body, three audiences,
+    // split by the conditionals below rather than by three templates: the
+    // sentences differ, the instructions do not, and ops edit this in one
+    // place.
+    //
+    //  - unexcused: they missed the session with no excuse on file. The clinic
+    //    asked for this paragraph to say plainly that it is not acceptable.
+    //  - needsContract: they have no hub account yet, because the onboarding
+    //    contract is what creates it (promotion.ts). A course link would 404
+    //    for them, so they are told the order.
+    //  - owesMockClinic: mock clinic is a director conversation, not something
+    //    they can finish online. Kept in the same email so nobody finishes the
+    //    course believing they are done.
+    variables: [
+      { name: "firstName", label: "First name", sampleValue: "Sam" },
+      { name: "cycleTitle", label: "Cycle title", sampleValue: "Volunteer Fall 2026" },
+      { name: "courseUrl", label: "Link to the online makeup course", sampleValue: "https://hub.example.org/training" },
+      { name: "contractUrl", label: "Link to the onboarding contract; empty unless one is outstanding", sampleValue: "" },
+      { name: "dueDate", label: "Due date, preformatted; empty when none is set", sampleValue: "Friday, October 3, 2026" },
+      { name: "trainingDate", label: "The in-person training date, preformatted", sampleValue: "Saturday, September 19, 2026" },
+      { name: "unexcused", label: "True when no excuse was recorded for their absence", sampleValue: "true" },
+      { name: "owesMorning", label: "True when they still owe the morning session", sampleValue: "true" },
+      { name: "owesMockClinic", label: "True when they still owe mock clinic", sampleValue: "true" },
+      { name: "needsContract", label: "True when their onboarding contract is still outstanding", sampleValue: "" },
+    ],
+    defaultSubject: "Action needed: make up your HAVEN {{ cycleTitle }} training",
+    defaultBody: `<p>Hi {{ firstName }},</p>
+
+{{#if owesMorning}}{{#if unexcused}}<p><strong>You did not attend training on {{ trainingDate }}, and we had no word from you.</strong> That is not acceptable. Training is required of every volunteer before they can be scheduled, and missing it without telling anyone leaves the clinic short on the day and your place on the schedule in doubt.</p>{{else}}<p>You were excused from training on {{ trainingDate }}, so this is what you need to do to catch up.</p>{{/if}}
+
+<p><strong>Complete the online makeup course.</strong> It is the recorded training in two sections, each followed by a short quiz. You must watch each video all the way through, you cannot skip ahead, and your place is saved if you stop partway.</p>
+
+<p><a href="{{ courseUrl }}">Start the online makeup course</a></p>{{/if}}
+
+{{#if needsContract}}<p><strong>First, submit your onboarding contract.</strong> It is what creates your HAVEN Hub account, and the course lives behind it, so nothing above will open until that is done.</p>
+
+<p><a href="{{ contractUrl }}">Open your onboarding contract</a></p>{{/if}}
+
+{{#if owesMockClinic}}<p><strong>You also owe mock clinic.</strong> Contact your department director to arrange making it up. Once you have, they will ask IT to mark it off for you.</p>{{/if}}
+
+{{#if dueDate}}<p>Please finish by <strong>{{ dueDate }}</strong>. Until you do, you cannot be scheduled for clinic shifts.</p>{{else}}<p>Until this is done, you cannot be scheduled for clinic shifts.</p>{{/if}}
+
+<p>If something here is wrong, or you cannot complete it, reply to this email and tell us.</p>
+
+<p>HAVEN Free Clinic</p>`,
+  },
+  {
+    key: "recruitment.makeup_reminder",
+    name: "Recruitment: makeup training still outstanding",
+    category: "transactional",
+    group: "recruitment",
+    // The follow-up, sent every few days by the reminders cron to anyone who
+    // still owes a part, and stopping on its own when they finish. Same
+    // conditionals as the release email, minus the reprimand: the first email
+    // said that once, and repeating it every three days trains people to
+    // ignore the address rather than to act.
+    variables: [
+      { name: "firstName", label: "First name", sampleValue: "Sam" },
+      { name: "cycleTitle", label: "Cycle title", sampleValue: "Volunteer Fall 2026" },
+      { name: "courseUrl", label: "Link to the online makeup course", sampleValue: "https://hub.example.org/training" },
+      { name: "contractUrl", label: "Link to the onboarding contract; empty unless one is outstanding", sampleValue: "" },
+      { name: "dueDate", label: "Due date, preformatted; empty when none is set", sampleValue: "Friday, October 3, 2026" },
+      { name: "owesMorning", label: "True when they still owe the morning session", sampleValue: "true" },
+      { name: "owesMockClinic", label: "True when they still owe mock clinic", sampleValue: "true" },
+      { name: "needsContract", label: "True when their onboarding contract is still outstanding", sampleValue: "" },
+      { name: "overdue", label: "True once the due date has passed", sampleValue: "" },
+    ],
+    defaultSubject: "Still outstanding: your HAVEN {{ cycleTitle }} training",
+    defaultBody: `<p>Hi {{ firstName }},</p>
+
+{{#if overdue}}<p><strong>Your training was due on {{ dueDate }} and is still not finished.</strong> You cannot be scheduled for clinic shifts until it is.</p>{{else}}<p>This is a reminder that your {{ cycleTitle }} training is not finished yet. You cannot be scheduled for clinic shifts until it is{{#if dueDate}}, and it is due by <strong>{{ dueDate }}</strong>{{/if}}.</p>{{/if}}
+
+{{#if needsContract}}<p><strong>Submit your onboarding contract first.</strong> It creates your HAVEN Hub account, and the rest is behind it.</p>
+
+<p><a href="{{ contractUrl }}">Open your onboarding contract</a></p>{{/if}}
+
+{{#if owesMorning}}<p><strong>The online makeup course.</strong> Two recorded sections, each with a short quiz. Your progress is saved, so you can pick up where you left off.</p>
+
+<p><a href="{{ courseUrl }}">Continue the online makeup course</a></p>{{/if}}
+
+{{#if owesMockClinic}}<p><strong>Mock clinic.</strong> Contact your department director to arrange making it up. They will ask IT to mark it off once you have.</p>{{/if}}
+
+<p>If you are stuck, reply to this email and tell us what is in the way.</p>
+
+<p>HAVEN Free Clinic</p>`,
+  },
+  {
     key: "recruitment.waitlist",
     name: "Recruitment: waitlisted",
     category: "transactional",

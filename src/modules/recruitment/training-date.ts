@@ -17,3 +17,12 @@ export function formatTrainingLocation(loc: string | null): string {
   const trimmed = loc?.trim();
   return trimmed ? ` ${trimmed}` : "";
 }
+
+/** A deadline, with the year: "Friday, October 3, 2026". The year is dropped
+ *  from formatTrainingDate because a session is days away when it is named;
+ *  a due date is quoted in chasing emails that can outlive the term. */
+export function formatDueDate(at: Date, zone: string): string {
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "long", month: "long", day: "numeric", year: "numeric", timeZone: zone,
+  }).format(at);
+}

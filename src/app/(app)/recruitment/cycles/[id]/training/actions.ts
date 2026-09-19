@@ -11,6 +11,7 @@ import {
   undoMockClinicMarkOff,
   TrainingStateError,
 } from "@/modules/recruitment/services/training";
+import { releaseMakeupTraining, setMakeupDueDate } from "@/modules/recruitment/services/makeup-release";
 import {
   AttendanceEventError,
   ensureTrainingEventForCycle,
@@ -282,4 +283,42 @@ export async function undoMockClinicMarkOffAction(cycleId: string, personId: str
     throw err;
   }
   redirect(bounce(cycleId, { saved: "mockClinicUndone" }));
+}
+
+/** Release the online makeup training: the course becomes visible to the people
+ *  who owe it, and the emails go out. */
+export async function releaseMakeupAction(cycleId: string) {
+  const person = await requirePersonSession();
+  try {
+    // Static value, not a count: the flash registry cannot express a dynamic
+    // summary (see the training-absence-excuse note on dead ?msg= params), and
+    // the card itself shows how many were emailed once the page re-renders.
+    await releaseMakeupTraining(cycleId, person.personId);
+    redirect(bounce(cycleId, { saved: "makeupReleased" }));
+  } catch (err) {
+    if (err instanceof RecruitmentAuthError || err instanceof TrainingStateError) {
+      redirect(bounce(cycleId, { error: (err as Error).message }));
+    }
+    throw err;
+  }
+}
+
+/** Set (or clear) the day the makeup is due. */
+export async function setMakeupDueDateAction(cycleId: string, formData: FormData) {
+  const person = await requirePersonSession();
+  const raw = String(formData.get("makeupDueAt") ?? "").trim();
+  // Noon UTC, so the calendar day is timezone-stable (matches inPersonTrainingDate).
+  const dueAt = raw ? new Date(`${raw}T12:00:00Z`) : null;
+  if (raw && Number.isNaN(dueAt!.getTime())) {
+    redirect(bounce(cycleId, { error: "Give the makeup a valid due date." }));
+  }
+  try {
+    await setMakeupDueDate(cycleId, dueAt, person.personId);
+  } catch (err) {
+    if (err instanceof RecruitmentAuthError || err instanceof TrainingStateError) {
+      redirect(bounce(cycleId, { error: (err as Error).message }));
+    }
+    throw err;
+  }
+  redirect(bounce(cycleId, { saved: "makeupDue" }));
 }

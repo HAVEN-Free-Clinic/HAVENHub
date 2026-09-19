@@ -42,6 +42,12 @@ export function VideoCoursePlayer({ course }: Props) {
           and try the quiz again.
         </Alert>
       )}
+      {course.preview && (
+        <Alert tone="info">
+          Preview: you manage courses, so every section and quiz is open and you can skip through the
+          videos. Nothing here is recorded, and taking a quiz does not count for anyone.
+        </Alert>
+      )}
       {course.complete && (
         <Alert tone="success">
           You have finished this course. It counts as your training for the term; you can rewatch it any time.
@@ -56,6 +62,7 @@ export function VideoCoursePlayer({ course }: Props) {
             section={section}
             locked={course.locked}
             reviewOnly={course.complete}
+            preview={course.preview}
             open={openId === section.id}
             onOpen={() => setOpenId(section.id)}
           />
@@ -71,6 +78,7 @@ function SectionCard({
   section,
   locked,
   reviewOnly,
+  preview,
   open,
   onOpen,
 }: {
@@ -79,6 +87,8 @@ function SectionCard({
   section: LearnerVideoSection;
   locked: boolean;
   reviewOnly: boolean;
+  /** Manager looking at the course: the quiz is open without watching. */
+  preview: boolean;
   open: boolean;
   onOpen: () => void;
 }) {
@@ -128,6 +138,7 @@ function SectionCard({
               courseId={courseId}
               section={section}
               watched={watched}
+              preview={preview}
               onWatched={() => setWatched(true)}
             />
             {watched && !passed && !locked && !reviewOnly && (
@@ -147,11 +158,15 @@ function SectionVideo({
   courseId,
   section,
   watched,
+  preview,
   onWatched,
 }: {
   courseId: string;
   section: LearnerVideoSection;
   watched: boolean;
+  /** Manager preview: seeking and speed are unlocked, since the point is to
+   *  reach the quiz, and the server records nothing either way. */
+  preview: boolean;
   onWatched: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -248,7 +263,7 @@ function SectionVideo({
   // Seeking forward past what has been credited snaps back. Rewinding is fine.
   const onSeeking = () => {
     const el = videoRef.current;
-    if (!el || doneRef.current) return;
+    if (!el || doneRef.current || preview) return;
     const limit = section.startSeconds + Math.max(creditedRef.current, 0) + 1;
     if (el.currentTime > limit) {
       el.currentTime = limit;
@@ -258,7 +273,7 @@ function SectionVideo({
 
   const onRateChange = () => {
     const el = videoRef.current;
-    if (el && el.playbackRate !== 1) el.playbackRate = 1;
+    if (el && !preview && el.playbackRate !== 1) el.playbackRate = 1;
   };
 
   return (
@@ -283,7 +298,7 @@ function SectionVideo({
         )}
       </video>
       <p role="status" aria-live="polite" className="mt-2 text-xs text-muted-foreground">
-        {watched ? "Watched in full." : "You cannot skip ahead, and your place is saved as you go."}
+        {watched ? "Watched in full." : ""}
       </p>
       {error && (
         <Alert tone="info" className="mt-2">

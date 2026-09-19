@@ -1,5 +1,8 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+
+vi.mock("posthog-js", () => ({ default: { capture: vi.fn() } }));
+
 import { OnboardForm } from "./onboard-form";
 import { DIRECTOR_LAYOUT } from "@/modules/recruitment/contract/defaults/director";
 import { VOLUNTEER_LAYOUT } from "@/modules/recruitment/contract/defaults/volunteer";

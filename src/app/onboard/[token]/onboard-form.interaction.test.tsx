@@ -15,6 +15,9 @@ import { createRoot, type Root } from "react-dom/client";
 const submitOnboarding = vi.fn();
 vi.mock("./actions", () => ({ submitOnboarding: (...a: unknown[]) => submitOnboarding(...a) }));
 
+const capture = vi.fn();
+vi.mock("posthog-js", () => ({ default: { capture: (...a: unknown[]) => capture(...a) } }));
+
 const { OnboardForm } = await import("./onboard-form");
 const { DIRECTOR_LAYOUT } = await import("@/modules/recruitment/contract/defaults/director");
 
@@ -52,6 +55,7 @@ afterEach(() => {
     mounted = null;
   }
   submitOnboarding.mockReset();
+  capture.mockReset();
   vi.useRealTimers();
 });
 
@@ -136,6 +140,49 @@ describe("a rejected onboarding submit", () => {
     });
     const c = mount();
     await submit(c);
+    expect(summary(c)).toBeNull();
+  });
+});
+
+describe("a submit the browser refuses over a hidden required control", () => {
+  // A required control inside a `hidden` wrapper (how DetailsReview hides a
+  // summarized detail) fails constraint validation, but the browser aborts the
+  // submit with no message anywhere and never runs onSubmit. #910 stopped
+  // rendering `required` inside `hidden`; this net makes any recurrence visible
+  // and measurable rather than a silent dead click on the button.
+  async function fireInvalid(control: Element) {
+    await act(async () => {
+      control.dispatchEvent(new Event("invalid", { cancelable: true }));
+      await Promise.resolve();
+    });
+    await flushFrame();
+  }
+
+  it("records the refusal and re-opens the summary when the control is hidden", async () => {
+    const c = mount();
+    const hidden = c.querySelector<HTMLElement>("[hidden] input, [hidden] select");
+    expect(hidden).not.toBeNull();
+    await fireInvalid(hidden!);
+    expect(capture).toHaveBeenCalledWith(
+      "onboarding_submit_blocked",
+      expect.objectContaining({ hidden: true }),
+    );
+    expect(summary(c)!.textContent).toContain("not shown on the form");
+    expect(summary(c)!.closest('[tabindex="-1"]')).toBe(document.activeElement);
+  });
+
+  it("records a refusal on a visible field but leaves its native prompt alone", async () => {
+    const c = mount();
+    const visible = [...c.querySelectorAll("input, select, textarea")].find(
+      (el) => !el.closest("[hidden]"),
+    );
+    expect(visible).toBeDefined();
+    await fireInvalid(visible!);
+    expect(capture).toHaveBeenCalledWith(
+      "onboarding_submit_blocked",
+      expect.objectContaining({ hidden: false }),
+    );
+    // No summary: the browser focuses and explains a visible field itself.
     expect(summary(c)).toBeNull();
   });
 });

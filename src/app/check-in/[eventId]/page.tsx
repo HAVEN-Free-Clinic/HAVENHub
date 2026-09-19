@@ -78,7 +78,8 @@ export default async function EventCheckInPage({
       {!authority.all && (
         <Alert tone="info">
           You can check in members of the departments you manage. Anyone else, including accepted
-          applicants who have not onboarded, needs clinic-wide attendance permission.
+          applicants who have not onboarded and anyone on the waitlist, needs clinic-wide
+          attendance permission.
         </Alert>
       )}
 

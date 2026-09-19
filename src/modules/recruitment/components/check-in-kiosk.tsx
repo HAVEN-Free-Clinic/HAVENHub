@@ -105,10 +105,24 @@ export function CheckInKiosk({
   const liveEmails = useMemo(() => new Set(snapshot?.emails ?? []), [snapshot]);
 
   const results = useMemo(() => matchCandidates(candidates, query), [candidates, query]);
-  // Split for the two piles below. Done after matching so the cap on results is
+  // Split for the three piles below. Done after matching so the cap on results is
   // applied to the search as a whole rather than to each pile separately.
   const expectedResults = useMemo(() => results.filter((c) => c.expected), [results]);
-  const otherResults = useMemo(() => results.filter((c) => !c.expected), [results]);
+  const waitlistedResults = useMemo(
+    () => results.filter((c) => !c.expected && c.kind === "waitlisted"),
+    [results],
+  );
+  const otherResults = useMemo(
+    () => results.filter((c) => !c.expected && c.kind !== "waitlisted"),
+    [results],
+  );
+  // Headings appear only once there is something to tell apart. With one pile
+  // the labels are noise over a plain list of names.
+  const pilesShown =
+    (expectedResults.length > 0 ? 1 : 0) +
+    (waitlistedResults.length > 0 ? 1 : 0) +
+    (otherResults.length > 0 ? 1 : 0);
+  const showHeadings = pilesShown > 1;
 
   function focusSearch() {
     // Back to the search box so the next person can be typed without reaching
@@ -134,6 +148,7 @@ export function CheckInKiosk({
         alreadyCheckedIn: result.alreadyCheckedIn,
         needs: outstandingShortLabels(result.blockerKeys),
         notOnAcceptedList: result.notOnAcceptedList,
+        waitlisted: result.waitlisted,
         contactEmail: result.contactEmail,
         nudgeQueued: result.nudgeQueued,
       });
@@ -145,13 +160,7 @@ export function CheckInKiosk({
   }
 
   function submitCandidate(c: CheckInCandidate) {
-    submit(
-      c.kind === "person"
-        ? { kind: "person", personId: c.id }
-        : { kind: "applicant", acceptanceId: c.id },
-      c.name,
-      c.id,
-    );
+    submit(candidateTarget(c), c.name, c.id);
   }
 
   /**
@@ -231,16 +240,33 @@ export function CheckInKiosk({
           </EmptyState>
         )}
 
-        {/* Two piles, not one list. Everyone here can be checked in -- a
+        {/* Three piles, not one list. Everyone here can be checked in -- a
             director who turns up to a volunteer training is in the room and
             recording that is the point -- but only one group is who the session
             is FOR, and an operator working a queue should not have to tell them
-            apart by reading department codes. A heading appears only when both
-            piles have somebody in them, so the ordinary case stays a plain list. */}
+            apart by reading department codes. The waitlist is its own pile
+            rather than part of either: they are not the cohort, and they are not
+            a stranger who wandered in, and the difference changes what an
+            operator says to the person in front of them. Headings appear only
+            once more than one pile has somebody in it, so the ordinary case
+            stays a plain list. */}
         {expectedResults.length > 0 && (
           <CandidateList
-            heading={otherResults.length > 0 ? expectedHeading : null}
+            heading={showHeadings ? expectedHeading : null}
             rows={expectedResults}
+            pending={pending}
+            isDone={isDone}
+            onCheckIn={submitCandidate}
+          />
+        )}
+        {/* Between the two, not after them. Somebody the clinic is still deciding
+            about is far likelier to be the person at the front of the queue than
+            a director who wandered in, and at a door the order of the piles is
+            the order the operator's eye travels. */}
+        {waitlistedResults.length > 0 && (
+          <CandidateList
+            heading={showHeadings ? "On the waitlist" : null}
+            rows={waitlistedResults}
             pending={pending}
             isDone={isDone}
             onCheckIn={submitCandidate}
@@ -248,7 +274,7 @@ export function CheckInKiosk({
         )}
         {otherResults.length > 0 && (
           <CandidateList
-            heading={expectedResults.length > 0 ? "Also in the hub" : null}
+            heading={showHeadings ? "Also in the hub" : null}
             rows={otherResults}
             pending={pending}
             isDone={isDone}
@@ -354,6 +380,12 @@ function CandidateList({
                     whole story for them. */}
                 {c.kind === "applicant" ? (
                   <Badge tone="warning">Accepted, not onboarded</Badge>
+                ) : c.kind === "waitlisted" ? (
+                  // Not "not onboarded", which they cannot fix, and not "not on
+                  // the roster", which is true of half this screen. The one
+                  // thing the operator may need to know before they say
+                  // something encouraging is that no decision has been made.
+                  <Badge tone="warning">Waitlisted</Badge>
                 ) : (
                   c.offRoster && <Badge tone="warning">Not on the roster</Badge>
                 )}
@@ -373,14 +405,31 @@ function CandidateList({
   );
 }
 
+/**
+ * The check-in gesture each candidate shape commits.
+ *
+ * A function rather than a ternary at the call site: the three shapes are keyed
+ * on three different ids (person, acceptance, application), and `id` alone
+ * cannot say which -- so the mapping from kind to target is the one place that
+ * knows, and it should be the only one.
+ */
+function candidateTarget(c: CheckInCandidate): CheckInTarget {
+  if (c.kind === "person") return { kind: "person", personId: c.id };
+  if (c.kind === "waitlisted") return { kind: "waitlisted", applicationId: c.id };
+  return { kind: "applicant", acceptanceId: c.id };
+}
+
 /** What the panel renders. Assembled on the client from the server's outcome. */
 type DoorResult = {
   name: string;
   alreadyCheckedIn: boolean;
-  /** Short labels for what is outstanding. Empty means fully cleared. */
+  /** Short labels for what is outstanding. Empty means fully cleared -- unless
+   *  `waitlisted`, where it means there is nothing for them to do yet. */
   needs: string[];
   /** They owe an application, not just the contract the `needs` chip names. */
   notOnAcceptedList: boolean;
+  /** On the cycle's waitlist: an empty `needs` that is not a clearance. */
+  waitlisted: boolean;
   contactEmail: string | null;
   nudgeQueued: boolean;
 };
@@ -407,12 +456,16 @@ function ResultPanel({ result }: { result: DoorResult | null }) {
       </div>
     );
   }
-  const cleared = result.needs.length === 0;
+  // A waitlisted attendee has an empty `needs` list and is not cleared: the
+  // clinic owes them a decision. Treated as its own arm so the panel neither
+  // congratulates them on finishing onboarding they have not been offered nor
+  // paints a warning border over a person who has done nothing wrong.
+  const cleared = result.needs.length === 0 && !result.waitlisted;
   return (
     <div
       aria-live="polite"
       className={`space-y-3 rounded-xl border px-5 py-4 ${
-        cleared ? "border-border bg-surface" : "border-warning bg-surface"
+        cleared || result.waitlisted ? "border-border bg-surface" : "border-warning bg-surface"
       }`}
     >
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
@@ -426,7 +479,11 @@ function ResultPanel({ result }: { result: DoorResult | null }) {
         </span>
       </div>
 
-      {cleared ? (
+      {result.waitlisted ? (
+        <p className="text-sm text-foreground-soft">
+          On the waitlist. Their attendance is recorded; nothing for them to do until a decision.
+        </p>
+      ) : cleared ? (
         <p className="text-sm text-success-foreground">Nothing outstanding. Fully cleared.</p>
       ) : (
         <div className="flex flex-wrap items-center gap-2">

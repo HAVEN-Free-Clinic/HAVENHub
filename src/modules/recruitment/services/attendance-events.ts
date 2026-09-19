@@ -40,7 +40,7 @@ import { recordAudit } from "@/platform/audit";
 import { log, errorAttrs } from "@/platform/logging";
 import { RecruitmentAuthError, reviewScope } from "./review";
 import { completeTraining } from "./training";
-import { resolveAttendanceBlockers, isAcceptedApplicantEmail, ACCEPTED_APPLICANT_BLOCKERS, WALK_UP_BLOCKERS, NO_BLOCKERS, type AttendanceBlockers } from "@/platform/compliance/attendance-blockers";
+import { resolveAttendanceBlockers, resolveApplicantStanding, blockersForStanding, NO_BLOCKERS, type ApplicantStanding, type AttendanceBlockers } from "@/platform/compliance/attendance-blockers";
 import type { OutstandingItemKey } from "@/platform/compliance/outstanding-items";
 import { sendAttendanceNudge } from "@/platform/email/attendance-nudges";
 import { PERSON_NAME_ORDER, comparePersonName } from "@/platform/person-name";
@@ -449,15 +449,24 @@ export async function getEventDetail(eventId: string): Promise<EventDetail | nul
 
 export type CheckInCandidate = {
   /**
-   * Which of the two shapes this row is.
+   * Which of the three shapes this row is.
    *
    * `person` has a Person row and checks in by id. `applicant` does NOT: they
    * were accepted into the event's cycle but have not submitted the onboarding
    * contract that promotion turns into a Person, so the only handle on them is
    * the email they applied with.
+   *
+   * `waitlisted` is the same shape with a weaker claim: the cycle has neither
+   * accepted nor turned them down. They own no Acceptance -- only ACCEPT mints
+   * one -- so nothing in the roster half or the accepted half can find them, and
+   * before this existed the door's only way to record one was to hand-type a
+   * name and address for somebody the hub could already name, and then answer a
+   * prompt asserting they were not on the accepted list. Which was true, and not
+   * what the operator was being asked.
    */
-  kind: "person" | "applicant";
-  /** Person id, or acceptance id for an `applicant`. Unique within the list. */
+  kind: "person" | "applicant" | "waitlisted";
+  /** Person id, acceptance id for an `applicant`, or application id for a
+   *  `waitlisted`. Unique within the list. */
   id: string;
   name: string;
   /** Surname order, the same as everywhere else. An `applicant` has no Person
@@ -467,11 +476,13 @@ export type CheckInCandidate = {
   email: string | null;
   /** From Person.netId, or Applicant.netId. Lowercased; the exact-match key. */
   netId: string | null;
-  /** Department codes of ACTIVE memberships this term; the accepted department for an applicant. */
+  /** Department codes of ACTIVE memberships this term; the accepted department
+   *  for an `applicant`, and the waitlisting department(s) for a `waitlisted`. */
   departmentCodes: string[];
   /** True when nobody holds an ACTIVE membership in the event's term for this row. */
   offRoster: boolean;
-  /** On this cycle's accepted list. Always true for an `applicant`. */
+  /** On this cycle's accepted list. Always true for an `applicant`, never for a
+   *  `waitlisted` -- being on neither list is what makes them that shape. */
   accepted: boolean;
   /**
    * One of the people this session is being run for, rather than somebody who
@@ -485,6 +496,11 @@ export type CheckInCandidate = {
    *
    * Always true when the event has no cycle: with no track there is no cohort to
    * be outside of, and the door shows a single pile.
+   *
+   * Never true for a `waitlisted` row, which the door piles separately again:
+   * they are neither the cohort the session is being run for nor somebody who
+   * merely wandered in, and an operator reading a queue needs to see which of
+   * the two a name in front of them is.
    */
   expected: boolean;
   /** Already checked in to this event. */
@@ -501,18 +517,21 @@ export type CheckInCandidate = {
  * help, and a member of another department are all people who legitimately turn
  * up. A department-scoped viewer still only sees their own departments' members.
  *
- * TWO sources, because a Person is not created until promotion.
+ * THREE sources, because a Person is not created until promotion.
  *
- * The roster half is Person rows. The other half is the event cycle's
- * ACCEPTANCES whose contract has not promoted yet -- people the clinic has
- * decided are volunteers, who own a seat at this training, and who do not exist
- * as a Person to search for. Before they were added here the only way to record
- * them was to hand-type a name and address into the walk-up form, at a door,
- * from memory, for a person the hub could already name.
+ * The roster half is Person rows. The second is the event cycle's ACCEPTANCES
+ * whose contract has not promoted yet -- people the clinic has decided are
+ * volunteers, who own a seat at this training, and who do not exist as a Person
+ * to search for. The third is the cycle's WAITLIST, who own no Acceptance at all
+ * and so are invisible to both. Before each was added here the only way to
+ * record them was to hand-type a name and address into the walk-up form, at a
+ * door, from memory, for a person the hub could already name.
  *
- * They are deduped against the Person half on lowercased email, which is what
+ * Each is deduped against the ones before it on lowercased email, which is what
  * keeps a returning member (Person from a past term, plus a fresh acceptance for
- * this one) from appearing twice under two different check-in gestures.
+ * this one) from appearing twice under two different check-in gestures, and what
+ * resolves the director-track applicant waitlisted by one department and
+ * accepted by another to the single row that reflects the stronger outcome.
  *
  * Returned whole and filtered in the browser: a kiosk is used by someone typing
  * fast at a door, and a round trip per keystroke is the wrong trade against a
@@ -554,7 +573,7 @@ export async function listCheckInCandidates(
     kindsByPerson.set(m.personId, kinds);
   }
 
-  const [people, acceptances, attendance] = await Promise.all([
+  const [people, acceptances, waitlisted, attendance] = await Promise.all([
     prisma.person.findMany({
       where: authority.all
         ? // Current people only. An offboarded alum who turns up to help at an info
@@ -613,6 +632,35 @@ export async function listCheckInCandidates(
                   },
                 },
               },
+            },
+          },
+        })
+      : Promise.resolve([]),
+    // The cycle's waitlist, on the same clinic-wide condition as the accepted
+    // half and for the same reason: a row with no Person is an assertion no
+    // department scope can be checked against.
+    //
+    // The predicate is services/review.ts listWaitlisted's, so the people this
+    // door offers are exactly the people the Waitlist page lists -- a volunteer
+    // waitlisted on the application, a director on an individual department's
+    // interview. Anyone holding an Acceptance is excluded here rather than
+    // deduped later: accepted beats waitlisted (rosterDecision's precedence), and
+    // the accepted half above already answers for them under a stronger claim.
+    event.cycleId && authority.all
+      ? prisma.application.findMany({
+          where: {
+            cycleId: event.cycleId,
+            status: "SUBMITTED",
+            acceptances: { none: {} },
+            OR: [{ decision: "WAITLIST" }, { interviews: { some: { decision: "WAITLIST" } } }],
+          },
+          select: {
+            id: true,
+            decision: true,
+            routedDepartmentCode: true,
+            interviews: { where: { decision: "WAITLIST" }, select: { departmentCode: true } },
+            applicant: {
+              select: { firstName: true, lastName: true, email: true, emailLower: true, netId: true },
             },
           },
         })
@@ -705,7 +753,51 @@ export async function listCheckInCandidates(
   }
   const applicantRows = [...byEmail.values()];
 
-  return [...personRows, ...applicantRows].sort(comparePersonName);
+  // The waitlist half, deduped against BOTH halves above on the same lowercased
+  // email. Against the roster because a returning member can be waitlisted for
+  // next term while already holding a Person, and against the accepted list
+  // because a director-track applicant can be waitlisted by one department and
+  // accepted by another -- and in each case the stronger row is the one that
+  // should carry the tap, since it credits training immediately.
+  //
+  // No dedupe WITHIN this half, unlike the accepted one: Applicant is unique on
+  // (cycleId, emailLower) and Application on (cycleId, applicantId), so one
+  // address is at most one application per cycle. A director-track applicant
+  // waitlisted by two departments is two INTERVIEWS on that one application,
+  // which the departments below already fold together.
+  const spokenFor = new Set([...personEmails, ...byEmail.keys()]);
+  const waitlistedRows: CheckInCandidate[] = waitlisted
+    .filter((app) => !spokenFor.has(app.applicant.emailLower))
+    .map((app) => ({
+      kind: "waitlisted" as const,
+      id: app.id,
+      name: `${app.applicant.firstName} ${app.applicant.lastName}`.trim(),
+      legalFirstName: app.applicant.firstName,
+      lastName: app.applicant.lastName,
+      email: app.applicant.email,
+      netId: app.applicant.netId?.toLowerCase() ?? null,
+      // Where they are waiting: the routed department on the volunteer track,
+      // and every department whose interview waitlisted them on the director
+      // track. An application can carry both, so this is a union, not a choice.
+      departmentCodes: [
+        ...new Set(
+          [
+            ...(app.decision === "WAITLIST" ? [app.routedDepartmentCode] : []),
+            ...app.interviews.map((iv) => iv.departmentCode),
+          ].filter((code): code is string => code !== null),
+        ),
+      ],
+      offRoster: true,
+      accepted: false,
+      // Not the cohort this session is for. They are welcome in the room and
+      // recording that they came is the point -- it is the fact a director
+      // weighs when a spot opens -- but the session is being run for the people
+      // the clinic already said yes to.
+      expected: false,
+      checkedIn: checkedInEmails.has(app.applicant.emailLower),
+    }));
+
+  return [...personRows, ...applicantRows, ...waitlistedRows].sort(comparePersonName);
 }
 
 /**
@@ -801,6 +893,12 @@ export type CheckInTarget =
    * check-in would have produced -- which is what lets promotion link it later.
    */
   | { kind: "applicant"; acceptanceId: string }
+  /**
+   * Someone the event's cycle has waitlisted. Same unlinked row as an
+   * `applicant`, keyed on the APPLICATION rather than an acceptance, because
+   * being waitlisted is precisely the state of having no acceptance to key on.
+   */
+  | { kind: "waitlisted"; applicationId: string }
   | {
       kind: "walkUp";
       name: string;
@@ -854,6 +952,16 @@ export type CheckInOutcome = {
    * operator was asked about a moment ago, so it travels as its own flag.
    */
   notOnAcceptedList: boolean;
+  /**
+   * An unlinked attendee the event's cycle has WAITLISTED.
+   *
+   * Its own flag for the same reason notOnAcceptedList is: the blocker keys
+   * cannot express it. A waitlisted attendee's list is empty, which is exactly
+   * what a fully cleared member's list looks like, and a door that answers
+   * "nothing outstanding, fully cleared" for somebody still waiting on a
+   * decision has told the operator something they will repeat out loud.
+   */
+  waitlisted: boolean;
   /** Whether a nudge email was queued for this check-in. */
   nudgeQueued: boolean;
 };
@@ -900,10 +1008,10 @@ async function authorizeTarget(
   if (authority.departmentCodes.length === 0) {
     throw new RecruitmentAuthError("You can't record attendance.");
   }
-  if (target.kind === "walkUp" || target.kind === "applicant") {
-    // An applicant check-in writes an unlinked row exactly like a walk-up does,
-    // so it carries the walk-up rule: a row with no Person has no department for
-    // a scoped director's authority to be checked against.
+  if (target.kind === "walkUp" || target.kind === "applicant" || target.kind === "waitlisted") {
+    // An applicant or waitlisted check-in writes an unlinked row exactly like a
+    // walk-up does, so it carries the walk-up rule: a row with no Person has no
+    // department for a scoped director's authority to be checked against.
     throw new RecruitmentAuthError(
       "Adding someone who is not in the hub needs clinic-wide attendance permission.",
     );
@@ -948,8 +1056,8 @@ export async function recordEventCheckIn(
   let name: string;
   let email: string | null = null;
   let contactEmail: string | null = null;
-  /** Whether an unlinked attendee's address is on the cycle's accepted list. */
-  let onAcceptedList = false;
+  /** Where an unlinked attendee's address stands with the cycle. */
+  let standing: ApplicantStanding = "unknown";
 
   if (target.kind === "person") {
     const person = await prisma.person.findUnique({
@@ -961,11 +1069,12 @@ export async function recordEventCheckIn(
     name = person.name;
     contactEmail = person.contactEmail;
   } else {
-    // Both remaining arms end up as the same unlinked row; they differ only in
-    // where the name and address come from. An applicant's are read from their
-    // acceptance, so the door never asks an operator to retype what the hub
-    // already knows -- and never lets a browser assert an identity for a row
-    // that gets linked to a real person later.
+    // All three remaining arms end up as the same unlinked row; they differ only
+    // in where the name and address come from. An applicant's are read from their
+    // acceptance and a waitlisted attendee's from their application, so the door
+    // never asks an operator to retype what the hub already knows -- and never
+    // lets a browser assert an identity for a row that gets linked to a real
+    // person later.
     let requested: { name: string; email: string };
     if (target.kind === "applicant") {
       const acceptance = await prisma.acceptance.findUnique({
@@ -987,6 +1096,40 @@ export async function recordEventCheckIn(
         throw new AttendanceEventError("That person was not accepted into this event's cycle.");
       }
       const a = acceptance.application.applicant;
+      requested = { name: `${a.firstName} ${a.lastName}`.trim(), email: a.email };
+    } else if (target.kind === "waitlisted") {
+      const application = await prisma.application.findUnique({
+        where: { id: target.applicationId },
+        select: {
+          cycleId: true,
+          status: true,
+          decision: true,
+          acceptances: { select: { id: true }, take: 1 },
+          interviews: { where: { decision: "WAITLIST" }, select: { id: true }, take: 1 },
+          applicant: { select: { firstName: true, lastName: true, email: true } },
+        },
+      });
+      if (!application) throw new AttendanceEventError("That application no longer exists.");
+      if (application.cycleId !== event.cycle?.id) {
+        throw new AttendanceEventError("That applicant did not apply to this event's cycle.");
+      }
+      // Re-asserted here rather than trusted from the list, exactly like the
+      // acceptance arm's cycle check above. The id came from this door's own
+      // candidate list, but a decision can land between the page load and the
+      // tap, and somebody accepted (or rejected) in that window is no longer a
+      // waitlist check-in: the accepted one should take the gesture that credits
+      // their training, and the rejected one should not be recorded as though
+      // the clinic were still considering them.
+      const stillWaitlisted =
+        application.status === "SUBMITTED" &&
+        application.acceptances.length === 0 &&
+        (application.decision === "WAITLIST" || application.interviews.length > 0);
+      if (!stillWaitlisted) {
+        throw new AttendanceEventError(
+          "That applicant is no longer on the waitlist. Reload the door and search for them again.",
+        );
+      }
+      const a = application.applicant;
       requested = { name: `${a.firstName} ${a.lastName}`.trim(), email: a.email };
     } else {
       requested = { name: target.name, email: target.email };
@@ -1016,16 +1159,20 @@ export async function recordEventCheckIn(
       email = null;
     } else {
       // Asked once and reused: it decides the confirmation below, the blockers
-      // further down, and the flag the door reads back, and three separate
+      // further down, and the flags the door reads back, and three separate
       // lookups is three chances for them to disagree about one person.
-      onAcceptedList = await isAcceptedApplicantEmail(email, event.cycle?.id ?? null);
-      // Hand-typed, no account, and nobody the cycle accepted. That is either a
-      // typo in the address or a person who should not be at this session, and
-      // both are worth one question at the door -- where the human is standing
-      // there to answer it -- rather than a row somebody reconciles in March.
-      // An `applicant` target skips this by construction: being on the accepted
-      // list is what makes it that shape.
-      if (target.kind === "walkUp" && !target.confirmed && !onAcceptedList && event.cycle) {
+      standing = await resolveApplicantStanding(email, event.cycle?.id ?? null);
+      // Hand-typed, no account, and nobody the cycle has any record of. That is
+      // either a typo in the address or a person who should not be at this
+      // session, and both are worth one question at the door -- where the human
+      // is standing there to answer it -- rather than a row somebody reconciles
+      // in March. The `applicant` and `waitlisted` targets skip this by
+      // construction; so does a hand-typed address that turns out to belong to
+      // either, which is the point of asking about the standing rather than
+      // about the accepted list alone -- a waitlisted applicant typed in by name
+      // was being challenged as a stranger for a decision the clinic had not
+      // made yet.
+      if (target.kind === "walkUp" && !target.confirmed && standing === "unknown" && event.cycle) {
         throw new CheckInConfirmationRequired(
           `${name} is not on the accepted list for this cycle.`,
         );
@@ -1042,9 +1189,14 @@ export async function recordEventCheckIn(
    * that the stranger they just admitted needs an onboarding contract, which is
    * true and badly incomplete.
    *
-   * False for anyone with a Person: the question does not apply to them.
+   * False for anyone with a Person: the question does not apply to them. False
+   * for a waitlisted attendee too -- they have applied, and the thing they are
+   * missing is a decision from the clinic, not paperwork from them.
    */
-  const notOnAcceptedList = personId === null && event.cycle !== null && !onAcceptedList;
+  const notOnAcceptedList = personId === null && event.cycle !== null && standing === "unknown";
+
+  /** See CheckInOutcome.waitlisted: an empty blocker list that does not mean cleared. */
+  const waitlisted = personId === null && standing === "waitlisted";
 
   const findExisting = () =>
     prisma.eventAttendance.findFirst({
@@ -1062,9 +1214,7 @@ export async function recordEventCheckIn(
     // to be missing something.
     const blockers = personId
       ? ((await resolveAttendanceBlockers([personId], event.termId)).get(personId) ?? NO_BLOCKERS)
-      : onAcceptedList
-        ? ACCEPTED_APPLICANT_BLOCKERS
-        : WALK_UP_BLOCKERS;
+      : blockersForStanding(standing);
     return {
       attendanceId: existing.id,
       name,
@@ -1074,20 +1224,20 @@ export async function recordEventCheckIn(
       blockerKeys: blockers.keys,
       contactEmail,
       notOnAcceptedList,
+      waitlisted,
       nudgeQueued: false,
     };
   }
 
   // No Person means no clearance to look up, so the honest answer depends only on
-  // whether the cycle already accepted this address: someone it did owes a
-  // contract, someone it did not owes an application as well. Read off the answer
-  // already resolved above rather than asking again, so the message, the
-  // confirmation and the door's flag cannot disagree about one person.
+  // where the cycle already has this address: someone it accepted owes a
+  // contract, someone it has never heard of owes an application as well, and
+  // someone it waitlisted owes nothing at all. Read off the answer already
+  // resolved above rather than asking again, so the message, the confirmation
+  // and the door's flags cannot disagree about one person.
   const measured: AttendanceBlockers = personId
     ? ((await resolveAttendanceBlockers([personId], event.termId)).get(personId) ?? NO_BLOCKERS)
-    : onAcceptedList
-      ? ACCEPTED_APPLICANT_BLOCKERS
-      : WALK_UP_BLOCKERS;
+    : blockersForStanding(standing);
 
   // Clearance is measured BEFORE the transaction below credits this very
   // session, so at a training door it reports the training the attendee is
@@ -1144,6 +1294,7 @@ export async function recordEventCheckIn(
           blockerKeys: blockers.keys,
           contactEmail,
           notOnAcceptedList,
+          waitlisted,
           nudgeQueued: false,
         };
       }
@@ -1184,6 +1335,7 @@ export async function recordEventCheckIn(
     blockerKeys: blockers.keys,
     contactEmail,
     notOnAcceptedList,
+    waitlisted,
     nudgeQueued,
   };
 }

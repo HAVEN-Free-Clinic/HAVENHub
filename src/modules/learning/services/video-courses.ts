@@ -83,6 +83,23 @@ export async function getVideoCourseForEdit(courseId: string) {
   });
 }
 
+/**
+ * The online makeup course for a training cycle, if one is linked and finished
+ * enough to take. For the training step, which links members whose morning is
+ * owed straight into it: `/get-started/learning/<id>` while they are gated,
+ * `/learning/<id>` once they are not.
+ */
+export async function getMakeupCourseForCycle(
+  cycleId: string
+): Promise<{ id: string; title: string; ready: boolean } | null> {
+  const course = await prisma.course.findUnique({
+    where: { makeupForCycleId: cycleId },
+    select: { id: true, title: true, isActive: true, videoReady: true },
+  });
+  if (!course) return null;
+  return { id: course.id, title: course.title, ready: course.isActive && course.videoReady };
+}
+
 /** Training cycles a course can make up: the ones designated as a term's
  *  training, newest term first. */
 export async function listMakeupCycleOptions(): Promise<{ id: string; title: string; termName: string }[]> {

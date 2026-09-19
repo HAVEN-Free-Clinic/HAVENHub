@@ -153,6 +153,63 @@ async function seedAccepted(
   return { applicant, application, acceptance };
 }
 
+/**
+ * Someone the clinic has WAITLISTED: an Applicant, a submitted Application and a
+ * WAITLIST decision, and deliberately NO Acceptance -- only ACCEPT mints one,
+ * which is exactly why neither half of the old candidate list could find these
+ * people.
+ *
+ * `viaInterview` puts the decision on a department's Interview (the director
+ * track) instead of on the application itself (the volunteer track). Both shapes
+ * are waitlists and the door has to find both.
+ */
+async function seedWaitlisted(
+  cycleId: string,
+  actorId: string,
+  opts: {
+    first: string;
+    last: string;
+    email: string;
+    netId?: string;
+    deptCode?: string;
+    viaInterview?: boolean;
+  },
+) {
+  const deptCode = opts.deptCode ?? "SRHD";
+  const applicant = await prisma.applicant.create({
+    data: {
+      cycleId,
+      firstName: opts.first,
+      lastName: opts.last,
+      email: opts.email,
+      emailLower: opts.email.toLowerCase(),
+      netId: opts.netId ?? null,
+    },
+  });
+  const application = await prisma.application.create({
+    data: {
+      cycleId,
+      applicantId: applicant.id,
+      answers: {},
+      applicantType: "NEW",
+      departmentChoices: [deptCode],
+      routedDepartmentCode: opts.viaInterview ? null : deptCode,
+      decision: opts.viaInterview ? "PENDING" : "WAITLIST",
+    },
+  });
+  if (opts.viaInterview) {
+    await prisma.interview.create({
+      data: {
+        applicationId: application.id,
+        departmentCode: deptCode,
+        decision: "WAITLIST",
+        createdById: actorId,
+      },
+    });
+  }
+  return { applicant, application };
+}
+
 beforeEach(async () => {
   await resetDb();
 });
@@ -548,6 +605,295 @@ it("hides accepted applicants from a department-scoped director", async () => {
 
   const names = (await listCheckInCandidates(event.id, director.id)).map((c) => c.name);
   expect(names).not.toContain("Ada Lovelace");
+});
+
+// ---------------------------------------------------------------------------
+// Waitlisted applicants at the door
+//
+// A waitlist is the one cohort with no handle at all: no Person (promotion
+// creates that) and no Acceptance (only ACCEPT mints one). They were reachable
+// only by hand-typing a name and address for somebody the hub could already
+// name, and then confirming a prompt that said they were not on the accepted
+// list -- true, and not the question the operator was being asked.
+// ---------------------------------------------------------------------------
+
+it("the door lists the cycle's waitlist, decided on the application or on an interview", async () => {
+  const { cycle, lead, door } = await seed();
+  await seedWaitlisted(cycle.id, lead.id, {
+    first: "Wanda",
+    last: "Volunteer",
+    email: "Wanda@yale.edu",
+    netId: "WV22",
+  });
+  await seedWaitlisted(cycle.id, lead.id, {
+    first: "Dirk",
+    last: "Director",
+    email: "dirk@yale.edu",
+    deptCode: "INTP",
+    viaInterview: true,
+  });
+  const event = await trainingEvent(cycle.id, lead.id);
+
+  const rows = await listCheckInCandidates(event.id, door.id);
+  const wanda = rows.find((c) => c.name === "Wanda Volunteer");
+  const dirk = rows.find((c) => c.name === "Dirk Director");
+
+  expect(wanda?.kind).toBe("waitlisted");
+  expect(wanda?.departmentCodes).toEqual(["SRHD"]);
+  // Lowercased on the way out, like every other shape, so the door's exact-match
+  // compare needs no normalization of its own.
+  expect(wanda?.netId).toBe("wv22");
+  expect(dirk?.kind).toBe("waitlisted");
+  expect(dirk?.departmentCodes).toEqual(["INTP"]);
+
+  // On neither roll: not the cohort the session is for, and not accepted. Both
+  // are what put them in their own pile rather than among the volunteers.
+  for (const row of [wanda, dirk]) {
+    expect(row?.expected).toBe(false);
+    expect(row?.accepted).toBe(false);
+    expect(row?.offRoster).toBe(true);
+  }
+});
+
+it("lists nobody the cycle rejected or has yet to decide", async () => {
+  const { cycle, lead, door } = await seed();
+  const { application } = await seedWaitlisted(cycle.id, lead.id, {
+    first: "Rhea",
+    last: "Rejected",
+    email: "rhea@yale.edu",
+  });
+  await prisma.application.update({
+    where: { id: application.id },
+    data: { decision: "REJECT" },
+  });
+  const { application: undecided } = await seedWaitlisted(cycle.id, lead.id, {
+    first: "Penny",
+    last: "Pending",
+    email: "penny@yale.edu",
+  });
+  await prisma.application.update({
+    where: { id: undecided.id },
+    data: { decision: "PENDING" },
+  });
+  const event = await trainingEvent(cycle.id, lead.id);
+
+  const names = (await listCheckInCandidates(event.id, door.id)).map((c) => c.name);
+  expect(names).not.toContain("Rhea Rejected");
+  expect(names).not.toContain("Penny Pending");
+});
+
+it("offers the accepted row, not the waitlisted one, for a split director decision", async () => {
+  const { cycle, lead, door } = await seed();
+  // Waitlisted by one department and accepted by another: two rows, one human,
+  // and the acceptance is the outcome that decides what they owe.
+  const { application } = await seedWaitlisted(cycle.id, lead.id, {
+    first: "Split",
+    last: "Decision",
+    email: "split@yale.edu",
+    deptCode: "SRHD",
+    viaInterview: true,
+  });
+  await prisma.acceptance.create({
+    data: { applicationId: application.id, departmentCode: "INTP", approvedById: lead.id },
+  });
+  const event = await trainingEvent(cycle.id, lead.id);
+
+  const rows = (await listCheckInCandidates(event.id, door.id)).filter(
+    (c) => c.name === "Split Decision",
+  );
+  expect(rows).toHaveLength(1);
+  expect(rows[0].kind).toBe("applicant");
+  expect(rows[0].accepted).toBe(true);
+});
+
+it("drops a waitlisted applicant who already has a hub account", async () => {
+  const { term, deptA, cycle, lead, door } = await seed();
+  // A returning member waitlisted for next term: the Person row is the better
+  // gesture, because checking it in credits training immediately.
+  await seedWaitlisted(cycle.id, lead.id, {
+    first: "Rita",
+    last: "Returning",
+    email: "rita@yale.edu",
+  });
+  await seedMember(term.id, deptA.id, "Rita Returning", "rita@yale.edu");
+  const event = await trainingEvent(cycle.id, lead.id);
+
+  const rows = (await listCheckInCandidates(event.id, door.id)).filter(
+    (c) => c.name === "Rita Returning",
+  );
+  expect(rows).toHaveLength(1);
+  expect(rows[0].kind).toBe("person");
+});
+
+it("hides the waitlist from a department-scoped director", async () => {
+  const { term, deptA, cycle, lead } = await seed();
+  await seedWaitlisted(cycle.id, lead.id, { first: "Wanda", last: "W", email: "wanda@yale.edu" });
+  const director = await seedDirector(term.id, deptA.id);
+  const event = await trainingEvent(cycle.id, lead.id);
+
+  const names = (await listCheckInCandidates(event.id, director.id)).map((c) => c.name);
+  expect(names).not.toContain("Wanda W");
+});
+
+it("checks a waitlisted applicant in with nothing outstanding and no nudge", async () => {
+  const { cycle, lead, door } = await seed();
+  const { application } = await seedWaitlisted(cycle.id, lead.id, {
+    first: "Wanda",
+    last: "Volunteer",
+    email: "Wanda@yale.edu",
+  });
+  const event = await trainingEvent(cycle.id, lead.id);
+
+  const outcome = await recordEventCheckIn(
+    event.id,
+    { kind: "waitlisted", applicationId: application.id },
+    door.id,
+  );
+
+  expect(outcome.name).toBe("Wanda Volunteer");
+  expect(outcome.waitlisted).toBe(true);
+  // They applied, so they are not the stranger the door asks about.
+  expect(outcome.notOnAcceptedList).toBe(false);
+  // Nothing to chase: the onboarding contract is minted from an acceptance they
+  // do not have, so every sentence about finishing onboarding names a form they
+  // cannot open.
+  expect(outcome.blockerKeys).toEqual([]);
+  expect(await prisma.emailLog.count({ where: { template: "attendance-nudge" } })).toBe(0);
+
+  const row = await prisma.eventAttendance.findUniqueOrThrow({
+    where: { id: outcome.attendanceId },
+  });
+  expect(row.personId).toBeNull();
+  // The lowercased join key linkAttendanceByEmail needs if they are promoted.
+  expect(row.attendeeEmail).toBe("wanda@yale.edu");
+  expect(row.resolvedAt).not.toBeNull();
+});
+
+it("says waitlisted again on a second scan rather than going blank", async () => {
+  const { cycle, lead, door } = await seed();
+  const { application } = await seedWaitlisted(cycle.id, lead.id, {
+    first: "Wanda",
+    last: "Volunteer",
+    email: "wanda@yale.edu",
+  });
+  const event = await trainingEvent(cycle.id, lead.id);
+  const target = { kind: "waitlisted" as const, applicationId: application.id };
+
+  await recordEventCheckIn(event.id, target, door.id);
+  const second = await recordEventCheckIn(event.id, target, door.id);
+
+  expect(second.alreadyCheckedIn).toBe(true);
+  expect(second.waitlisted).toBe(true);
+  expect(await prisma.eventAttendance.count({ where: { eventId: event.id } })).toBe(1);
+});
+
+it("does not challenge a waitlisted applicant typed in by hand, or tell them to apply", async () => {
+  const { cycle, lead, door } = await seed();
+  await seedWaitlisted(cycle.id, lead.id, {
+    first: "Wanda",
+    last: "Volunteer",
+    email: "wanda@yale.edu",
+  });
+  const event = await trainingEvent(cycle.id, lead.id);
+
+  // Hand-typed, in the wrong case, without touching the application row.
+  const outcome = await recordEventCheckIn(
+    event.id,
+    { kind: "walkUp", name: "Wanda V", email: "WANDA@yale.edu" },
+    door.id,
+  );
+
+  expect(outcome.waitlisted).toBe(true);
+  expect(outcome.notOnAcceptedList).toBe(false);
+  expect(outcome.blockers).toEqual([]);
+});
+
+it("refuses a waitlisted target from another cycle, or one that is no longer waitlisted", async () => {
+  const { term, cycle, lead, door } = await seed();
+  const other = await prisma.recruitmentCycle.create({
+    data: {
+      track: "VOLUNTEER",
+      termId: term.id,
+      title: "Some other cycle",
+      publicSlug: "other-cycle",
+      departments: ["SRHD"],
+      createdById: lead.id,
+      status: "OPEN",
+    },
+  });
+  const elsewhere = await seedWaitlisted(other.id, lead.id, {
+    first: "Other",
+    last: "Cycle",
+    email: "other@yale.edu",
+  });
+  const moved = await seedWaitlisted(cycle.id, lead.id, {
+    first: "Moved",
+    last: "On",
+    email: "moved@yale.edu",
+  });
+  const event = await trainingEvent(cycle.id, lead.id);
+
+  await expect(
+    recordEventCheckIn(
+      event.id,
+      { kind: "waitlisted", applicationId: elsewhere.application.id },
+      door.id,
+    ),
+  ).rejects.toBeInstanceOf(AttendanceEventError);
+
+  // Decided between the page load and the tap. The gesture that credits their
+  // training is the accepted one, so this must not quietly stand in for it.
+  await prisma.acceptance.create({
+    data: { applicationId: moved.application.id, departmentCode: "SRHD", approvedById: lead.id },
+  });
+  await expect(
+    recordEventCheckIn(
+      event.id,
+      { kind: "waitlisted", applicationId: moved.application.id },
+      door.id,
+    ),
+  ).rejects.toBeInstanceOf(AttendanceEventError);
+
+  expect(await prisma.eventAttendance.count({ where: { eventId: event.id } })).toBe(0);
+});
+
+it("a scoped director may not check in a waitlisted applicant", async () => {
+  const { term, deptA, cycle, lead } = await seed();
+  const { application } = await seedWaitlisted(cycle.id, lead.id, {
+    first: "Wanda",
+    last: "Volunteer",
+    email: "wanda@yale.edu",
+  });
+  const director = await seedDirector(term.id, deptA.id);
+  const event = await trainingEvent(cycle.id, lead.id);
+
+  await expect(
+    recordEventCheckIn(event.id, { kind: "waitlisted", applicationId: application.id }, director.id),
+  ).rejects.toBeInstanceOf(RecruitmentAuthError);
+});
+
+it("credits a waitlisted attendee's training once they are promoted and onboarded", async () => {
+  const { term, deptA, cycle, lead, door } = await seed();
+  const { application } = await seedWaitlisted(cycle.id, lead.id, {
+    first: "Wanda",
+    last: "Volunteer",
+    email: "wanda@yale.edu",
+  });
+  const event = await trainingEvent(cycle.id, lead.id);
+
+  await recordEventCheckIn(
+    event.id,
+    { kind: "waitlisted", applicationId: application.id },
+    door.id,
+  );
+  // No Person yet, so nothing to credit at the door -- the row is what waits.
+  expect(await prisma.training.count()).toBe(0);
+
+  // A spot opens, they are promoted off the waitlist and onboard.
+  const person = await seedMember(term.id, deptA.id, "Wanda Volunteer", "wanda@yale.edu");
+  await linkAttendanceByEmail(person.id, "wanda@yale.edu");
+
+  expect(await resolveTrainingState(person.id, term.id, "VOLUNTEER")).toBe("COMPLETE");
 });
 
 it("checks in an accepted applicant as a linkable walk-up, and links it at promotion", async () => {

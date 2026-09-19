@@ -19,7 +19,7 @@ async function assignmentTermId(personId: string): Promise<string | null> {
   return (await getAccessTerm(personId))?.id ?? null;
 }
 
-async function activeTermId(): Promise<string | null> {
+export async function activeTermId(): Promise<string | null> {
   const term = await getActiveTerm();
   return term?.id ?? null;
 }
@@ -123,8 +123,11 @@ type ProgressClient = typeof prisma | TransactionClient;
  * active term exists (isCourseAssignedTo requires one to authorize), so this never
  * hands back a term-less key, which would stop protecting the per-term unique
  * constraint the moment it was used to write a row (see schema notes on termId).
+ *
+ * Exported for the VIDEO course path (video-progress.ts), which records an
+ * ordinary course's progress by exactly this rule.
  */
-async function resolveProgressTermId(
+export async function resolveProgressTermId(
   client: ProgressClient,
   personId: string,
   courseId: string,

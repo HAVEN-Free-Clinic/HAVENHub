@@ -14,13 +14,14 @@ import { getActiveTerm } from "@/platform/terms/active-term";
 import { getMyTraining, type MyTraining } from "@/modules/recruitment/services/training";
 import { formatDateOnly } from "@/platform/dates";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
-import { MAKEUP_RETIRED_COPY } from "@/modules/recruitment/makeup-retired";
+import { TrainingDaySteps } from "@/modules/recruitment/components/training-day-steps";
 
-/** "live session" / "quiz" for human-readable copy. The quiz is retired, but
- *  completions it granted in earlier terms still read that way. */
+/** "live session" / "online course" for human-readable copy. The quiz is
+ *  retired, but completions it granted in earlier terms still read that way. */
 function viaLabel(via: TrainingMethod | null): string {
   if (via === "ATTENDANCE") return "live session";
   if (via === "QUIZ") return "quiz";
+  if (via === "ONLINE_COURSE") return "online course";
   return "";
 }
 
@@ -75,7 +76,11 @@ function ClearanceHero({ my, zone }: { my: MyTraining; zone: string }) {
       icon={AlertTriangle}
       eyebrow="Not yet cleared"
       title={<>Complete training to be cleared for {term}</>}
-      description="Attending the in-person session clears training. If you missed it, see below."
+      description={
+        my.track === "VOLUNTEER"
+          ? "Training day has two parts, the morning session and the afternoon mock clinic. What is left for you is below."
+          : "Attending the in-person session clears training. What is left for you is below."
+      }
       trailing="Due before your first shift"
     />
   );
@@ -85,23 +90,12 @@ function ClearanceHero({ my, zone }: { my: MyTraining; zone: string }) {
 // Pending / complete detail panels
 // ---------------------------------------------------------------------------
 
-/** What a member with training still open reads. The self-serve makeup quiz
- *  that used to render here was retired; see MAKEUP_RETIRED_COPY. */
+/** What a member with training still open reads, part by part. */
 function PendingDetail({ my, zone }: { my: MyTraining; zone: string }) {
   return (
     <Card pad={false} className="mt-7 px-5 py-5">
-      <SectionHeader className="mb-1.5">Attend the in-person session</SectionHeader>
-      <p className="text-sm leading-relaxed text-foreground-soft">
-        {my.inPersonTrainingDate ? (
-          <>
-            In-person training:{" "}
-            <span className="font-semibold text-foreground">{formatDateOnly(my.inPersonTrainingDate, zone)}</span>.{" "}
-          </>
-        ) : null}
-        Your director marks you complete when you attend.
-      </p>
-      <SectionHeader className="mb-1.5 mt-5">Missed the session?</SectionHeader>
-      <p className="text-sm leading-relaxed text-foreground-soft">{MAKEUP_RETIRED_COPY}</p>
+      <SectionHeader className="mb-3">What is left</SectionHeader>
+      <TrainingDaySteps my={my} zone={zone} learningBase="/learning" />
     </Card>
   );
 }

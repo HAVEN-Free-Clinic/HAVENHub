@@ -76,10 +76,11 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
         {event.cycleTitle && <span>Cycle: {event.cycleTitle}</span>}
       </div>
 
-      {event.kind === "TRAINING" && !event.cycleTitle && (
+      {(event.kind === "TRAINING" || event.kind === "MOCK_CLINIC") && !event.cycleTitle && (
         <Alert tone="warning">
-          This training event has no recruitment cycle, so check-ins here record attendance but
-          cannot complete anyone&apos;s training. Create a new training event under the right cycle.
+          This {event.kind === "MOCK_CLINIC" ? "mock clinic" : "training event"} has no recruitment
+          cycle, so check-ins here record attendance but cannot count toward anyone&apos;s training.
+          Create a new event under the right cycle.
         </Alert>
       )}
 

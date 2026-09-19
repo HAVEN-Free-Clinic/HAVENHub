@@ -139,9 +139,9 @@ enum StrikeDecision {
 }
 
 model Person {
-  id                             String                     @id @default(cuid())
-  netId                          String?                    @unique
-  entraObjectId                  String?                    @unique
+  id                             String                       @id @default(cuid())
+  netId                          String?                      @unique
+  entraObjectId                  String?                      @unique
   /// DERIVED display name ("Jack Carney"), recomputed from the parts below on
   /// every write by platform/person-name.ts. Never hand-edited, and never the
   /// source of truth. It survives the first/last split so the ~60 surfaces that
@@ -152,7 +152,7 @@ model Person {
   /// Carries the same `@default("")` type affordance as the parts, for the
   /// mirror-image reason: a caller that supplies the parts should not have to
   /// hand-compute the display name too. The extension writes it either way.
-  name                           String                     @default("")
+  name                           String                       @default("")
   /// Name of record. Used for the Epic access request sent to YNHH IT, the
   /// signed onboarding contract, and the admin person record. Never a roster.
   ///
@@ -161,11 +161,11 @@ model Person {
   /// platform/person-name-write.ts then splits into these columns before the
   /// query runs. The default itself never reaches a row, because that extension
   /// refuses a create that supplies neither a name nor both parts.
-  legalFirstName                 String                     @default("")
+  legalFirstName                 String                       @default("")
   legalMiddleName                String?
   /// Empty for a mononym: the backfill flags rather than blocks. See above for
   /// why this carries a default.
-  lastName                       String                     @default("")
+  lastName                       String                       @default("")
   /// What the person actually goes by, when that is not their legal first name.
   /// Member-editable on /my-info. Null means "my legal first name is fine".
   preferredFirstName             String?
@@ -173,8 +173,8 @@ model Person {
   /// free-text name it could not parse with confidence, or an importer had only
   /// one undifferentiated string. Drives the review queue in /admin/people, and
   /// is cleared the moment a human confirms the parts.
-  nameNeedsReview                Boolean                    @default(false)
-  contactEmail                   String?                    @unique
+  nameNeedsReview                Boolean                      @default(false)
+  contactEmail                   String?                      @unique
   phone                          String?
   epicId                         String?
   yaleAffiliation                String?
@@ -201,161 +201,163 @@ model Person {
   /// Monotonic cache-buster for the ?v= query param on both photo routes.
   /// NEVER reset on removal: reusing a version pins browsers to a stale image
   /// (the same trap documented in platform/branding/assets.ts).
-  photoVersion                   Int                        @default(0)
+  photoVersion                   Int                          @default(0)
   photoUpdatedAt                 DateTime?
   /// Set by removing a Yalies-sourced photo, meaning "do not use my Yale photo".
   /// Cleared only by the target person's OWN upload, never by someone else's
   /// (e.g. an admin) uploading on their behalf. Removing a self-uploaded photo
   /// does NOT set it.
-  photoSuppressed                Boolean                    @default(false)
+  photoSuppressed                Boolean                      @default(false)
   /// Last Yalies attempt, success or miss. Null means never attempted.
   photoSyncedAt                  DateTime?
   /// Consecutive misses, driving the retry backoff. Reset to 0 on success.
-  photoSyncMisses                Int                        @default(0)
-  status                         PersonStatus               @default(ACTIVE)
+  photoSyncMisses                Int                          @default(0)
+  status                         PersonStatus                 @default(ACTIVE)
   /// Airtable record id this person was imported from. Retained for the
   /// read-only Airtable import scripts (see scripts/import-*.ts); the outbound
   /// mirror that also used it has been removed.
-  airtableRecordId               String?                    @unique
+  airtableRecordId               String?                      @unique
   memberships                    TermMembership[]
   roleAssignments                RoleAssignment[]
   hipaaCertificates              HipaaCertificate[]
   /// Offboard flags where this person is the subject.
-  offboardFlags                  OffboardFlag[]             @relation("offboardFlagPerson")
+  offboardFlags                  OffboardFlag[]               @relation("offboardFlagPerson")
   /// Offboard flags this person issued (as the flagger).
-  offboardFlagsIssued            OffboardFlag[]             @relation("offboardFlagFlaggedBy")
+  offboardFlagsIssued            OffboardFlag[]               @relation("offboardFlagFlaggedBy")
   /// EPIC access requests where this person is the subject.
-  epicRequests                   EpicRequest[]              @relation("epicRequestPerson")
+  epicRequests                   EpicRequest[]                @relation("epicRequestPerson")
   /// EPIC access requests this person submitted on behalf of another.
-  epicRequestsSubmitted          EpicRequest[]              @relation("epicRequestRequestedBy")
+  epicRequestsSubmitted          EpicRequest[]                @relation("epicRequestRequestedBy")
   /// YNHH tickets this person submitted.
-  ynhhTicketsSubmitted           YnhhTicket[]               @relation("ynhhTicketSubmittedBy")
+  ynhhTicketsSubmitted           YnhhTicket[]                 @relation("ynhhTicketSubmittedBy")
   /// One-off YNHH incidents that concern this person.
-  ynhhTicketsAbout               YnhhTicket[]               @relation("ynhhTicketPerson")
+  ynhhTicketsAbout               YnhhTicket[]                 @relation("ynhhTicketPerson")
   /// IT Support tickets this person submitted.
-  techRequests                   TechRequest[]              @relation("techRequestRequester")
+  techRequests                   TechRequest[]                @relation("techRequestRequester")
   /// IT Support tickets assigned to this person to work.
-  assignedTechRequests           TechRequest[]              @relation("techRequestAssignee")
+  assignedTechRequests           TechRequest[]                @relation("techRequestAssignee")
   /// Comments this person authored on IT Support tickets.
-  techRequestComments            TechRequestComment[]       @relation("techRequestCommentAuthor")
+  techRequestComments            TechRequestComment[]         @relation("techRequestCommentAuthor")
   /// Files this person uploaded to IT Support tickets or comments.
-  techRequestUploads             TechRequestAttachment[]    @relation("techRequestUploader")
+  techRequestUploads             TechRequestAttachment[]      @relation("techRequestUploader")
   /// Disciplinary actions recorded against this person.
-  disciplinaryActions            DisciplinaryAction[]       @relation("disciplinaryActionPerson")
+  disciplinaryActions            DisciplinaryAction[]         @relation("disciplinaryActionPerson")
   /// Disciplinary actions this person issued.
-  disciplinaryActionsIssued      DisciplinaryAction[]       @relation("disciplinaryActionIssuedBy")
+  disciplinaryActionsIssued      DisciplinaryAction[]         @relation("disciplinaryActionIssuedBy")
   /// Incident reports this person filed.
-  incidentReportsFiled           IncidentReport[]           @relation("incidentReportReporter")
+  incidentReportsFiled           IncidentReport[]             @relation("incidentReportReporter")
   /// Incident reports naming this person as a subject.
-  incidentSubjectLinks           IncidentReportSubject[]    @relation("incidentReportSubjectPerson")
+  incidentSubjectLinks           IncidentReportSubject[]      @relation("incidentReportSubjectPerson")
   /// Incident reports this person resolved or dismissed.
-  incidentReportsResolved        IncidentReport[]           @relation("incidentReportResolvedBy")
+  incidentReportsResolved        IncidentReport[]             @relation("incidentReportResolvedBy")
   /// Incident-report strike decisions this person made.
-  incidentSubjectStrikeDecisions IncidentReportSubject[]    @relation("incidentReportSubjectStrikeDecidedBy")
+  incidentSubjectStrikeDecisions IncidentReportSubject[]      @relation("incidentReportSubjectStrikeDecidedBy")
   /// Incident-report attachments this person uploaded.
-  incidentAttachmentsUploaded    IncidentReportAttachment[] @relation("incidentAttachmentUploadedBy")
+  incidentAttachmentsUploaded    IncidentReportAttachment[]   @relation("incidentAttachmentUploadedBy")
   /// Clarification messages this person wrote on an incident report, as either
   /// the reviewer asking or the reporter answering.
-  incidentReportMessages         IncidentReportMessage[]    @relation("incidentReportMessageAuthor")
+  incidentReportMessages         IncidentReportMessage[]      @relation("incidentReportMessageAuthor")
   /// Incident reports and strikes this person forwarded outside the clinic.
-  incidentForwardsSent           IncidentForward[]          @relation("incidentForwardForwardedBy")
+  incidentForwardsSent           IncidentForward[]            @relation("incidentForwardForwardedBy")
   /// Email log rows addressed to or triggered by this person.
-  emailLogs                      EmailLog[]                 @relation("emailLogPerson")
+  emailLogs                      EmailLog[]                   @relation("emailLogPerson")
   /// Email log rows this person triggered (may differ from the recipient).
-  emailLogsTriggered             EmailLog[]                 @relation("emailLogTriggeredBy")
-  emailTemplatesUpdated          EmailTemplate[]            @relation("emailTemplateUpdatedBy")
-  emailSenderRules               EmailSenderRule[]          @relation("emailSenderRuleUpdatedBy")
-  recruitmentCycleEmailsUpdated  RecruitmentCycleEmail[]    @relation("recruitmentCycleEmailUpdatedBy")
-  campaignsCreated               EmailCampaign[]            @relation("campaignCreatedBy")
+  emailLogsTriggered             EmailLog[]                   @relation("emailLogTriggeredBy")
+  emailTemplatesUpdated          EmailTemplate[]              @relation("emailTemplateUpdatedBy")
+  emailSenderRules               EmailSenderRule[]            @relation("emailSenderRuleUpdatedBy")
+  recruitmentCycleEmailsUpdated  RecruitmentCycleEmail[]      @relation("recruitmentCycleEmailUpdatedBy")
+  campaignsCreated               EmailCampaign[]              @relation("campaignCreatedBy")
   /// Campaigns whose sending identity this person chose. See EmailCampaign.fromEmailSetById.
-  campaignSendersChosen          EmailCampaign[]            @relation("campaignFromEmailSetBy")
-  audienceScopesCreated          AudienceScope[]            @relation("audienceScopeCreatedBy")
-  audienceScopeGrants            AudienceScopeGrant[]       @relation("audienceScopeGrantPerson")
+  campaignSendersChosen          EmailCampaign[]              @relation("campaignFromEmailSetBy")
+  audienceScopesCreated          AudienceScope[]              @relation("audienceScopeCreatedBy")
+  audienceScopeGrants            AudienceScopeGrant[]         @relation("audienceScopeGrantPerson")
   /// Addresses this person has been granted DIRECTLY. Not the whole answer to
   /// "what may they send as": a role grant reaches them with no row here at all,
   /// which is the point of the split. Ask availableSenderIdentities, never this.
-  sendingIdentityGrants          SendingIdentityGrant[]     @relation("sendingIdentityGrantPerson")
-  sendingIdentityGrantsMade      SendingIdentityGrant[]     @relation("sendingIdentityGrantedBy")
-  sendingIdentitiesCreated       SendingIdentity[]          @relation("sendingIdentityCreatedBy")
-  sendingIdentitiesRevoked       SendingIdentity[]          @relation("sendingIdentityRevokedBy")
+  sendingIdentityGrants          SendingIdentityGrant[]       @relation("sendingIdentityGrantPerson")
+  sendingIdentityGrantsMade      SendingIdentityGrant[]       @relation("sendingIdentityGrantedBy")
+  sendingIdentitiesCreated       SendingIdentity[]            @relation("sendingIdentityCreatedBy")
+  sendingIdentitiesRevoked       SendingIdentity[]            @relation("sendingIdentityRevokedBy")
   complianceReminder             MemberReminderState?
-  teamsMessages                  TeamsMessage[]             @relation("teamsMessagePerson")
+  teamsMessages                  TeamsMessage[]               @relation("teamsMessagePerson")
   spanishAssessments             SpanishAssessmentRecord[]
-  notifications                  Notification[]             @relation("personNotifications")
+  notifications                  Notification[]               @relation("personNotifications")
   shiftAssignments               ShiftAssignment[]
   /// The attending roster row this account belongs to, when this person is
   /// faculty. Null for the overwhelming majority of people: an attending gets a
   /// Person only so they can sign in; the clinical facts stay on Attending.
-  attendingProfile               Attending?                 @relation("attendingAccount")
+  attendingProfile               Attending?                   @relation("attendingAccount")
   /// Attending swap/drop requests this person decided, as Faculty Relations.
-  attendingRequestsDecided       AttendingShiftRequest[]    @relation("attendingRequestDecidedBy")
+  attendingRequestsDecided       AttendingShiftRequest[]      @relation("attendingRequestDecidedBy")
   /// Clinic attendance rows for this person.
-  clinicAttendances              ClinicAttendance[]         @relation("clinicAttendancePerson")
+  clinicAttendances              ClinicAttendance[]           @relation("clinicAttendancePerson")
   /// Clinic attendance rows this person recorded on someone else's behalf.
-  clinicAttendancesRecorded      ClinicAttendance[]         @relation("clinicAttendanceRecordedBy")
-  schedulePublications           SchedulePublication[]      @relation("schedulePublishedBy")
-  recruitmentCyclesCreated       RecruitmentCycle[]         @relation("RecruitmentCycleCreatedBy")
+  clinicAttendancesRecorded      ClinicAttendance[]           @relation("clinicAttendanceRecordedBy")
+  schedulePublications           SchedulePublication[]        @relation("schedulePublishedBy")
+  recruitmentCyclesCreated       RecruitmentCycle[]           @relation("RecruitmentCycleCreatedBy")
   /// Invite links this person issued to admit an applicant past a closed deadline.
-  recruitmentInvitesCreated      RecruitmentInvite[]        @relation("recruitmentInviteCreatedBy")
-  recruitmentAcceptances         Acceptance[]               @relation("recruitmentAcceptanceApprover")
+  recruitmentInvitesCreated      RecruitmentInvite[]          @relation("recruitmentInviteCreatedBy")
+  recruitmentAcceptances         Acceptance[]                 @relation("recruitmentAcceptanceApprover")
   /// Dual-role offers this person made (VADM/INTP alongside their department).
-  dualRoleInterests              DualRoleInterest[]         @relation("dualRoleInterestPerson")
+  dualRoleInterests              DualRoleInterest[]           @relation("dualRoleInterestPerson")
   /// Dual-role offers this person accepted or declined as a receiving director.
-  dualRoleDecisions              DualRoleInterest[]         @relation("dualRoleInterestDecider")
-  dualAppointmentsRequested      DualAppointment[]          @relation("dualAppointmentRequestedBy")
-  dualAppointmentsDecided        DualAppointment[]          @relation("dualAppointmentDecidedBy")
-  applicantSubmissions           Applicant[]                @relation("ApplicantPerson")
-  contractsPromoted              OnboardingContract[]       @relation("contractPromotedBy")
-  contractsPromotedTo            OnboardingContract[]       @relation("contractPromotedPerson")
-  interviewsCreated              Interview[]                @relation("interviewCreatedBy")
-  interviewsDecided              Interview[]                @relation("interviewDecidedBy")
-  interviewPanels                InterviewPanelist[]        @relation("interviewPanelistPerson")
-  interviewEvaluations           Evaluation[]               @relation("interviewEvaluator")
-  committeeScores                CommitteeScore[]           @relation("committeeScoreScorer")
+  dualRoleDecisions              DualRoleInterest[]           @relation("dualRoleInterestDecider")
+  dualAppointmentsRequested      DualAppointment[]            @relation("dualAppointmentRequestedBy")
+  dualAppointmentsDecided        DualAppointment[]            @relation("dualAppointmentDecidedBy")
+  applicantSubmissions           Applicant[]                  @relation("ApplicantPerson")
+  contractsPromoted              OnboardingContract[]         @relation("contractPromotedBy")
+  contractsPromotedTo            OnboardingContract[]         @relation("contractPromotedPerson")
+  interviewsCreated              Interview[]                  @relation("interviewCreatedBy")
+  interviewsDecided              Interview[]                  @relation("interviewDecidedBy")
+  interviewPanels                InterviewPanelist[]          @relation("interviewPanelistPerson")
+  interviewEvaluations           Evaluation[]                 @relation("interviewEvaluator")
+  committeeScores                CommitteeScore[]             @relation("committeeScoreScorer")
   /// Cycles this person was picked to help score.
-  cycleScorerSeats               CycleScorer[]              @relation("cycleScorerPerson")
+  cycleScorerSeats               CycleScorer[]                @relation("cycleScorerPerson")
   /// The applications divided out to this person to read.
-  scoreAssignments               ScoreAssignment[]          @relation("scoreAssignmentScorer")
-  trainings                      Training[]                 @relation("trainingPerson")
-  trainingAttendanceMarked       Training[]                 @relation("trainingAttendanceRecorder")
+  scoreAssignments               ScoreAssignment[]            @relation("scoreAssignmentScorer")
+  trainings                      Training[]                   @relation("trainingPerson")
+  trainingAttendanceMarked       Training[]                   @relation("trainingAttendanceRecorder")
+  trainingMockClinicMarked       Training[]                   @relation("trainingMockClinicMarker")
   /// Training sessions this person was excused from, one per recruitment cycle.
-  trainingExcuses                TrainingAbsenceExcuse[]    @relation("trainingExcusePerson")
+  trainingExcuses                TrainingAbsenceExcuse[]      @relation("trainingExcusePerson")
   /// Training absence excuses this person recorded for someone else.
-  trainingExcusesRecorded        TrainingAbsenceExcuse[]    @relation("trainingExcuseRecorder")
-  subcommitteeAssignments        Application[]              @relation("applicationSubcommitteeAssigner")
-  boardAttendance                BoardMeetingAttendance[]   @relation("boardAttendancePerson")
+  trainingExcusesRecorded        TrainingAbsenceExcuse[]      @relation("trainingExcuseRecorder")
+  subcommitteeAssignments        Application[]                @relation("applicationSubcommitteeAssigner")
+  boardAttendance                BoardMeetingAttendance[]     @relation("boardAttendancePerson")
   /// Event attendance rows for this person (training, info sessions, other).
-  eventAttendances               EventAttendance[]          @relation("eventAttendancePerson")
+  eventAttendances               EventAttendance[]            @relation("eventAttendancePerson")
   /// Event attendance rows this person recorded on someone else's behalf.
-  eventAttendancesRecorded       EventAttendance[]          @relation("eventAttendanceRecordedBy")
+  eventAttendancesRecorded       EventAttendance[]            @relation("eventAttendanceRecordedBy")
   /// Attendance events this person created.
-  attendanceEventsCreated        AttendanceEvent[]          @relation("attendanceEventCreatedBy")
-  boardAttendanceRecorded        BoardMeetingAttendance[]   @relation("boardAttendanceRecorder")
-  applicationsRouted             Application[]              @relation("applicationRoutedBy")
-  applicationsReturned           Application[]              @relation("applicationReturnedBy")
-  applicationsDecided            Application[]              @relation("applicationDecidedBy")
+  attendanceEventsCreated        AttendanceEvent[]            @relation("attendanceEventCreatedBy")
+  boardAttendanceRecorded        BoardMeetingAttendance[]     @relation("boardAttendanceRecorder")
+  applicationsRouted             Application[]                @relation("applicationRoutedBy")
+  applicationsReturned           Application[]                @relation("applicationReturnedBy")
+  applicationsDecided            Application[]                @relation("applicationDecidedBy")
   courseProgress                 CourseProgress[]
   scoProgress                    ScoProgress[]
-  addedToEhs                     Boolean                    @default(false)
-  ehsCompletions                 EhsCompletion[]            @relation("ehsCompletionPerson")
-  ehsCompletionsMarked           EhsCompletion[]            @relation("ehsCompletionMarkedBy")
+  sectionProgress                SectionProgress[]
+  addedToEhs                     Boolean                      @default(false)
+  ehsCompletions                 EhsCompletion[]              @relation("ehsCompletionPerson")
+  ehsCompletionsMarked           EhsCompletion[]              @relation("ehsCompletionMarkedBy")
   /// Shift requests this person raised.
-  shiftRequests                  ShiftRequest[]             @relation("shiftRequestRequester")
+  shiftRequests                  ShiftRequest[]               @relation("shiftRequestRequester")
   /// Shift requests targeting this person as the swap partner.
-  shiftRequestsTargeted          ShiftRequest[]             @relation("shiftRequestTarget")
+  shiftRequestsTargeted          ShiftRequest[]               @relation("shiftRequestTarget")
   /// Shift requests this person decided (approved or denied).
-  shiftRequestsDecided           ShiftRequest[]             @relation("shiftRequestDecidedBy")
+  shiftRequestsDecided           ShiftRequest[]               @relation("shiftRequestDecidedBy")
   /// Availability change requests this person applied or dismissed.
   availabilityChangesDecided     AvailabilityChangeDecision[] @relation("availabilityChangeDecidedBy")
   /// Triage chats this person created.
-  triageChatsCreated             TriageChat[]               @relation("triageChatCreatedBy")
+  triageChatsCreated             TriageChat[]                 @relation("triageChatCreatedBy")
   /// Triage chat memberships recorded for this person.
-  triageChatMemberships          TriageChatMember[]         @relation("triageChatMemberPerson")
+  triageChatMemberships          TriageChatMember[]           @relation("triageChatMemberPerson")
   /// Languages claimed and/or assessed. Replaced the four spanish* columns:
   /// Spanish is now the row with language = "es", with no special casing.
-  languages                      PersonLanguage[]           @relation("personLanguages")
+  languages                      PersonLanguage[]             @relation("personLanguages")
   /// Self-reported RN licensure. No verification workflow.
-  licensedRN                     Boolean                    @default(false)
+  licensedRN                     Boolean                      @default(false)
   /// Marks someone the clinic would not take back, for the recruitment team's
   /// attention if they apply again.
   ///
@@ -368,7 +370,7 @@ model Person {
   ///
   /// Set only with incidents.manage. `doNotRehireNote` is the reviewer-facing
   /// reason; the setter and timestamp are kept so the flag is attributable.
-  doNotRehire                    Boolean                    @default(false)
+  doNotRehire                    Boolean                      @default(false)
   doNotRehireNote                String?
   /// Bare id (no FK), mirroring the other verifier/setter columns.
   doNotRehireSetById             String?
@@ -376,7 +378,7 @@ model Person {
   /// Exempts this person from the content blocker gate. Set by an admin for
   /// people on a managed device or network they cannot change themselves, who
   /// are correctly detected as blocked and genuinely cannot comply.
-  blockerGateExempt              Boolean                    @default(false)
+  blockerGateExempt              Boolean                      @default(false)
   /// Most recent successful sign-in. Last value only, never a history: enough
   /// to spot a dormant account without keeping a movement log of a volunteer.
   lastLoginAt                    DateTime?
@@ -386,9 +388,9 @@ model Person {
   /// IP address. Absent outside Vercel, so null in local development.
   lastLoginCity                  String?
   lastLoginCountry               String?
-  createdAt                      DateTime                   @default(now())
-  updatedAt                      DateTime                   @updatedAt
-  historicalApplicantLinks       HistoricalApplicant[]      @relation("historicalApplicantPerson")
+  createdAt                      DateTime                     @default(now())
+  updatedAt                      DateTime                     @updatedAt
+  historicalApplicantLinks       HistoricalApplicant[]        @relation("historicalApplicantPerson")
   calendarFeedToken              CalendarFeedToken?
   serviceCredential              ServiceCredential?
   walletPasses                   WalletPass[]
@@ -406,42 +408,42 @@ model Person {
 /// File bytes live on disk under UPLOAD_DIR/<storedName>; this row is the
 /// source of truth for ownership and metadata. Cascade-deleted with the person.
 model HipaaCertificate {
-  id             String                @id @default(cuid())
-  personId       String
+  id              String                      @id @default(cuid())
+  personId        String
   /// Original filename as supplied by the uploader (display only; never used in file I/O).
-  fileName       String
+  fileName        String
   /// Server-generated filename stored under UPLOAD_DIR (e.g. "<cuid>.pdf"). Used for disk I/O.
-  storedName     String
-  size           Int
-  mimeType       String
-  source         CertificateSource     @default(UPLOAD)
-  completionDate DateTime?
-  extraction     CertificateExtraction @default(NONE)
-  verifiedById   String?
-  verifiedAt     DateTime?
+  storedName      String
+  size            Int
+  mimeType        String
+  source          CertificateSource           @default(UPLOAD)
+  completionDate  DateTime?
+  extraction      CertificateExtraction       @default(NONE)
+  verifiedById    String?
+  verifiedAt      DateTime?
   /// Set when a compliance manager refused this file (wrong document, wrong
   /// person, unreadable). A rejected certificate never counts toward clearance --
   /// complianceStatus checks this BEFORE the verified stamp, so rejecting an
   /// already-verified certificate revokes what it was providing. The verify stamp
   /// is deliberately left in place as the record of who accepted it first.
-  rejectedAt     DateTime?
-  rejectedById   String?
+  rejectedAt      DateTime?
+  rejectedById    String?
   rejectionReason CertificateRejectionReason?
   /// Optional free-text note from the manager, shown to the member verbatim.
-  rejectionNote  String?
-  uploadedAt     DateTime              @default(now())
-  person         Person                @relation(fields: [personId], references: [id], onDelete: Cascade)
+  rejectionNote   String?
+  uploadedAt      DateTime                    @default(now())
+  person          Person                      @relation(fields: [personId], references: [id], onDelete: Cascade)
 
   @@index([personId, uploadedAt])
 }
 
 model Term {
-  id                    String                  @id @default(cuid())
-  code                  String                  @unique // "SU26", "FA26"
+  id                    String                    @id @default(cuid())
+  code                  String                    @unique // "SU26", "FA26"
   name                  String // "Summer 2026"
   startDate             DateTime
   endDate               DateTime
-  status                TermStatus              @default(PLANNING)
+  status                TermStatus                @default(PLANNING)
   clinicDates           DateTime[]
   memberships           TermMembership[]
   roleAssignments       RoleAssignment[]
@@ -466,8 +468,9 @@ model Term {
   onboardingSteps       TermOnboardingStep[]
   courseProgress        CourseProgress[]
   scoProgress           ScoProgress[]
-  createdAt             DateTime                @default(now())
-  updatedAt             DateTime                @updatedAt
+  sectionProgress       SectionProgress[]
+  createdAt             DateTime                  @default(now())
+  updatedAt             DateTime                  @updatedAt
   walletPasses          WalletPass[]
 }
 
@@ -497,27 +500,34 @@ model TermOnboardingStep {
 }
 
 model Department {
-  id                         String                       @id @default(cuid())
-  code                       String                       @unique // "ITCM", "EXEC", "SRR", ...
-  name                       String
-  isActive                   Boolean                      @default(true)
-  memberships                TermMembership[]
-  roleAssignments            RoleAssignment[]
+  id                             String                       @id @default(cuid())
+  code                           String                       @unique // "ITCM", "EXEC", "SRR", ...
+  name                           String
+  isActive                       Boolean                      @default(true)
+  /// A clinical department (the care teams, clinical advisors, ICDD, SRHD).
+  /// Changes what a VOLUNTEER owes on training day (see
+  /// platform/training/standing.ts): a new clinical volunteer is excused from
+  /// the morning session and owes mock clinic instead, and a returning one
+  /// owes neither. A volunteer who also holds a non-clinical membership that
+  /// term follows the non-clinical rules.
+  isClinical                     Boolean                      @default(false)
+  memberships                    TermMembership[]
+  roleAssignments                RoleAssignment[]
   /// Delegations where this department is the MANAGER (it manages the listed departments).
-  managesDelegations         DepartmentDelegation[]       @relation("delegationManager")
+  managesDelegations             DepartmentDelegation[]       @relation("delegationManager")
   /// Delegations where this department is MANAGED BY another department.
-  managedByDelegations       DepartmentDelegation[]       @relation("delegationManaged")
-  shiftAssignments           ShiftAssignment[]
-  incomingShifts             IncomingShiftAssignment[]
-  shiftRequests              ShiftRequest[]
-  availabilityDecisions      AvailabilityChangeDecision[]
-  scheduleDays               ScheduleDay[]
-  schedulePublications       SchedulePublication[]
-  courseDepartments          CourseDepartment[]
-  triageChatPresets          TriageChatPresetDepartment[]
-  ehsTrainingDepartments     EhsTrainingDepartment[]
+  managedByDelegations           DepartmentDelegation[]       @relation("delegationManaged")
+  shiftAssignments               ShiftAssignment[]
+  incomingShifts                 IncomingShiftAssignment[]
+  shiftRequests                  ShiftRequest[]
+  availabilityDecisions          AvailabilityChangeDecision[]
+  scheduleDays                   ScheduleDay[]
+  schedulePublications           SchedulePublication[]
+  courseDepartments              CourseDepartment[]
+  triageChatPresets              TriageChatPresetDepartment[]
+  ehsTrainingDepartments         EhsTrainingDepartment[]
   /// Schedule columns whose attending covers this department (see ClinicSlot.departmentId).
-  attendingSlots             ClinicSlot[]
+  attendingSlots                 ClinicSlot[]
   /// Hours one shift in this department is worth, for the volunteer service
   /// record. Shift length is NOT uniform clinic-wide (confirmed with ops
   /// 2026-08-12), which is why this is per-department rather than one setting.
@@ -525,11 +535,11 @@ model Department {
   /// Null means "not configured" and must render as "not recorded", never as
   /// zero hours: a fabricated total on a document a member hands to a residency
   /// application is worse than an honest omission.
-  hoursPerShift              Decimal?                     @db.Decimal(4, 2)
+  hoursPerShift                  Decimal?                     @db.Decimal(4, 2)
   /// Capacity panel config: imported then admin-maintained.
-  idealHeadcount             Int?
+  idealHeadcount                 Int?
   /// Capacity panel config: imported then admin-maintained.
-  patientCapacityPerProvider Int?
+  patientCapacityPerProvider     Int?
   /// The most volunteers this department will staff on ONE clinic date.
   ///
   /// Deliberately not idealHeadcount, which is a target the capacity panel
@@ -538,15 +548,15 @@ model Department {
   /// only the generator respects is one a single manual click walks through.
   ///
   /// Null means uncapped, which is every department that has not asked for one.
-  maxVolunteersPerShift      Int?
+  maxVolunteersPerShift          Int?
   /// Epic account requirement for this department's directors and volunteers.
   /// Drives OnboardingContract.epicNeeded, which promotion.ts uses to raise the
   /// EpicRequest. Defaults are deliberately NONE so a newly created department
   /// never silently provisions Epic accounts.
-  requiresEpicDirector       EpicRequirement              @default(NONE)
-  requiresEpicVolunteer      EpicRequirement              @default(NONE)
+  requiresEpicDirector           EpicRequirement              @default(NONE)
+  requiresEpicVolunteer          EpicRequirement              @default(NONE)
   /// Shown as help text when the requirement is SOME, explaining who qualifies.
-  epicGuidance               String?
+  epicGuidance                   String?
   /// The lowest INTP Spanish proficiency score (a whole 1-5) this department will
   /// staff as an interpreter. The bar is a whole number even though an
   /// assessment may be a half step: a 3.5 speaker clears a bar of 3, not 4.
@@ -562,7 +572,7 @@ model Department {
   /// themselves mid-cleanup (see the language review cross-check), and a clinic
   /// that cannot staff a shift because a score is stale is a worse failure than a
   /// director seeing an accurate warning and using their judgment.
-  minInterpreterScore        Int?
+  minInterpreterScore            Int?
   /// Skip committee scoring for applicants whose FIRST choice is this department,
   /// routing them straight to its directors at submit.
   ///
@@ -572,7 +582,7 @@ model Department {
   /// admin-maintained: a new clinical department must be coverable without a deploy.
   ///
   /// Defaults to false so creating a department never silently bypasses scoring.
-  autoRouteApplicants        Boolean                      @default(false)
+  autoRouteApplicants            Boolean                      @default(false)
   /// Applicants to this department are assessed on their languages by the
   /// interpreting department BEFORE an accept decision, rather than after
   /// promotion like everyone else. True for PATS and INTP.
@@ -582,13 +592,13 @@ model Department {
   /// kind of per-department behaviour switch (autoRouteApplicants,
   /// minInterpreterScore). Defaults false so no existing department is dragged
   /// into the lane by the migration.
-  assessLanguageBeforeAcceptance Boolean @default(false)
+  assessLanguageBeforeAcceptance Boolean                      @default(false)
   /// Within that lane, assess this department's applicants on Spanish even when
   /// they did not claim it. True for PATS, where speaking Spanish with patients
   /// is the job. False for INTP: an interpreting applicant may work in another
   /// language, so they are assessed only on the languages they ticked.
   /// Meaningless without assessLanguageBeforeAcceptance.
-  assessSpanishRegardlessOfClaim Boolean @default(false)
+  assessSpanishRegardlessOfClaim Boolean                      @default(false)
   /// Whether members may raise a DROP request against this department's shifts.
   /// False makes the department swap-only: the drop form disappears from
   /// /schedule and createRequest refuses a drop, so a member who cannot find a
@@ -602,9 +612,9 @@ model Department {
   ///
   /// Defaults to TRUE -- the permissive, pre-existing behaviour -- so creating a
   /// department never silently blocks its members from dropping.
-  allowShiftDrop             Boolean                      @default(true)
-  createdAt                  DateTime                     @default(now())
-  updatedAt                  DateTime                     @updatedAt
+  allowShiftDrop                 Boolean                      @default(true)
+  createdAt                      DateTime                     @default(now())
+  updatedAt                      DateTime                     @updatedAt
 }
 
 /// Admin-managed subcommittees applicants rank at application time and the
@@ -853,6 +863,28 @@ enum TrainingStatus {
 enum TrainingMethod {
   ATTENDANCE
   QUIZ
+  ONLINE_COURSE
+}
+
+/// Where one part of a volunteer's training day stands. A Training row is
+/// COMPLETE exactly when neither part is OWED; platform/training/standing.ts is
+/// the only writer that decides it.
+enum TrainingPartStatus {
+  /// Still to do. The only value that blocks.
+  OWED
+  /// Not asked of this person: a clinical department's rule, or a cycle with
+  /// no mock clinic at all.
+  NOT_REQUIRED
+  /// Checked in at the session.
+  ATTENDED
+  /// The morning, made up through the online makeup course.
+  ONLINE_COURSE
+  /// The morning, made up through the retired makeup quiz. Historical only.
+  QUIZ
+  /// Mock clinic, marked done by IT after the member's director confirmed a
+  /// make-up (or waived it). Never an attendance row: the sheet keeps saying
+  /// who was physically in the room.
+  MARKED_OFF
 }
 
 /// Flags a person for offboarding at the end of a given term. At most one flag
@@ -1940,17 +1972,17 @@ model TriageChatMember {
 /// ONE source of truth. There is no Spanish special case anywhere: Spanish is
 /// simply the row with language = "es".
 model PersonLanguage {
-  id           String    @id @default(cuid())
+  id           String                  @id @default(cuid())
   personId     String
   /// Lowercase code from LANGUAGE_CODES (src/platform/languages.ts), not free
   /// text, so the same language cannot appear as "Spanish", "spanish", and
   /// "Espanol" on three different people.
   language     String
   /// Claimed by the person at intake. A claim, never a qualification.
-  selfReported Boolean   @default(false)
+  selfReported Boolean                 @default(false)
   /// The assessment OUTCOME. Meaningless until verifiedAt is set; read the two
   /// together, never this alone.
-  verified     Boolean   @default(false)
+  verified     Boolean                 @default(false)
   /// Non-null once a human has assessed, yes OR no. This is what removes the
   /// person from the review queue, so a "no" settles the question rather than
   /// leaving them queued forever.
@@ -1963,10 +1995,10 @@ model PersonLanguage {
   /// clinic-wide; below that is conversational only.
   /// Null for non-Spanish languages or when no score has been recorded.
   score        Float?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  createdAt    DateTime                @default(now())
+  updatedAt    DateTime                @updatedAt
   /// Cascade: the claim belongs to the person.
-  person       Person    @relation("personLanguages", fields: [personId], references: [id], onDelete: Cascade)
+  person       Person                  @relation("personLanguages", fields: [personId], references: [id], onDelete: Cascade)
   /// Set while a reviewer has this claim parked on the Review later tab.
   reviewLater  LanguageReviewDeferral?
 
@@ -2563,6 +2595,15 @@ model RecruitmentCycle {
   quizMaxAttempts      Int         @default(3)
   trainingLocation     String?
   inPersonTrainingDate DateTime?
+  /// When the online makeup training was released: the course becomes visible
+  /// to the people who owe it and the release emails go out. Null means not
+  /// released, which is what keeps a half-built course (and its email) away
+  /// from members. Set once, by a recruitment lead.
+  makeupReleasedAt     DateTime?
+  /// The calendar day the makeup is due (noon-UTC anchored, like
+  /// inPersonTrainingDate). Shown in the emails and on the member's training
+  /// page. Null means no date is quoted, not that nothing is owed.
+  makeupDueAt          DateTime?
   routeTopPercent      Int         @default(20)
   routeBottomPercent   Int         @default(30)
   /// How many distinct committee scorers each application should be read by.
@@ -2588,6 +2629,8 @@ model RecruitmentCycle {
   events         AttendanceEvent[]
   absenceExcuses TrainingAbsenceExcuse[]
   scorers        CycleScorer[]
+  /// The online course that makes up this cycle's morning session, if any.
+  makeupCourse   Course?                   @relation("courseMakeupForCycle")
 
   @@index([status, track])
 }
@@ -2683,22 +2726,22 @@ model FormField {
 }
 
 model Applicant {
-  id                String   @id @default(cuid())
-  cycleId           String
-  applicantPersonId String?
-  firstName         String
-  lastName          String
+  id                 String   @id @default(cuid())
+  cycleId            String
+  applicantPersonId  String?
+  firstName          String
+  lastName           String
   /// What the applicant goes by, when it is not their first name. Carried to the
   /// onboarding contract and then to Person at promotion, so a decision email
   /// and a first roster both address them correctly. Null means "my first name
   /// is fine", which is the common case.
   preferredFirstName String?
-  email             String
+  email              String
   /// Must equal lower(email); set by the submission service. Backs the (cycleId, emailLower) dedup unique.
-  emailLower        String
-  netId             String?
-  phone             String?
-  createdAt         DateTime @default(now())
+  emailLower         String
+  netId              String?
+  phone              String?
+  createdAt          DateTime @default(now())
 
   cycle           RecruitmentCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
   /// Set for signed-in renewals; null for anonymous new applicants. Links the
@@ -2712,17 +2755,17 @@ model Applicant {
 }
 
 model Application {
-  id                         String            @id @default(cuid())
-  cycleId                    String
-  applicantId                String
-  answers                    Json
-  applicantType              ApplicantType     @default(NEW)
-  departmentChoices          String[]
-  renewalDepartment          String?
+  id                             String            @id @default(cuid())
+  cycleId                        String
+  applicantId                    String
+  answers                        Json
+  applicantType                  ApplicantType     @default(NEW)
+  departmentChoices              String[]
+  renewalDepartment              String?
   // For a TRANSFER applicant: a snapshot of the department codes they were an
   // active member of at submit time (where they are coming from). Empty for
   // NEW and RENEWAL.
-  transferFromDepartments    String[]          @default([])
+  transferFromDepartments        String[]          @default([])
   // ordered subcommittee IDs the applicant ranked (1st -> Nth); hoisted from the
   // SUBCOMMITTEE_RANK field answer at submit, like departmentChoices.
   /// @default([]) matches the DB, which has carried DEFAULT ARRAY[]::TEXT[]
@@ -2731,25 +2774,25 @@ model Application {
   /// new migration for months. Declared rather than dropped, matching
   /// transferFromDepartments above and the convention for scalar lists here: a
   /// writer that omits the field gets [] rather than NULL.
-  subcommitteeRanking        String[]          @default([])
+  subcommitteeRanking            String[]          @default([])
   /// Language CODES the applicant said they speak, hoisted at submit from the
   /// standard languages question (see LANGUAGES_FIELD_KEY). Hoisted rather than
   /// left in `answers` so promotion can turn them into PersonLanguage claims
   /// without re-parsing a JSON blob whose field key a cycle could have changed.
-  languagesClaimed           String[]
+  languagesClaimed               String[]
   /// Department CODES the applicant offered to serve in ALONGSIDE the one they
   /// are accepted into (see platform/dual-roles). Hoisted at submit from the
   /// dual-option checkboxes for exactly the reason languagesClaimed above is:
   /// promotion turns these into DualRoleInterest rows, and it should read a
   /// typed column rather than re-parse an answers blob whose field could have
   /// been deleted and re-added under a derived key.
-  dualRoleDepartments        String[]          @default([])
-  assignedSubcommitteeId     String?
-  assignedSubcommitteeById   String?
-  assignedSubcommitteeAt     DateTime?
-  routedDepartmentCode       String?
-  routedById                 String?
-  routedAt                   DateTime?
+  dualRoleDepartments            String[]          @default([])
+  assignedSubcommitteeId         String?
+  assignedSubcommitteeById       String?
+  assignedSubcommitteeAt         DateTime?
+  routedDepartmentCode           String?
+  routedById                     String?
+  routedAt                       DateTime?
   // Second-choice discretion. A department that decides an applicant is not a fit
   // for THEM, rather than not a fit for the clinic, returns the application to the
   // recruitment lead instead of rejecting it. The three fields below are set
@@ -2760,10 +2803,10 @@ model Application {
   // out of their own review queue), so the department that declined is recorded
   // here instead. Only the MOST RECENT return is kept; the full decline history
   // lives in the audit log under recruitment.return_to_routing.
-  returnedToRoutingAt        DateTime?
-  returnedFromDepartmentCode String?
-  returnedById               String?
-  returnedReason             String?
+  returnedToRoutingAt            DateTime?
+  returnedFromDepartmentCode     String?
+  returnedById                   String?
+  returnedReason                 String?
   /// Dual-role fallback (see nextDualFallback in platform/dual-roles). A
   /// rejection on an application whose applicant ticked a dual box passes it to
   /// that department instead of ending it. These are the dual department CODES
@@ -2779,15 +2822,15 @@ model Application {
   dualFallbackFromDepartmentCode String?
   // The routed department's decision on a VOLUNTEER application (no interview).
   // Director-track decisions live on Interview.decision instead.
-  decision                   InterviewDecision @default(PENDING)
-  decidedById                String?
-  decidedAt                  DateTime?
-  decisionNotes              String?
-  status                     ApplicationStatus @default(SUBMITTED)
+  decision                       InterviewDecision @default(PENDING)
+  decidedById                    String?
+  decidedAt                      DateTime?
+  decisionNotes                  String?
+  status                         ApplicationStatus @default(SUBMITTED)
   /// Set when the applicant removed themselves through the portal. Null on every
   /// other row. Withdrawal is a declaration only: it never deletes acceptances,
   /// interviews, or onboarding contracts, which have their own guarded teardown.
-  withdrawnAt                DateTime?
+  withdrawnAt                    DateTime?
   /// Stamped when the not-selected email went out for this application. The
   /// rejection counterpart of Acceptance.emailedAt, and the same kind of claim:
   /// sendRejections only ever writes it from null, so a repeated Send or two
@@ -2797,7 +2840,7 @@ model Application {
   /// told this person they were not selected, and reopening their application
   /// does not un-tell them -- so a reopen-then-reject-again leaves them with the
   /// one rejection email they already have rather than sending a second.
-  rejectionEmailedAt         DateTime?
+  rejectionEmailedAt             DateTime?
   /// Stamped when the "your language evaluation is still to come" email went out
   /// for this application (see services/assessment-holds.ts). The same kind of
   /// claim as rejectionEmailedAt above: only ever written from null, so a
@@ -2808,7 +2851,7 @@ model Application {
   /// records that we told this person their evaluation was still coming, which
   /// stays true afterwards; clearing it on a decision would let a second hold
   /// email go out to someone who has already had one.
-  assessmentHoldEmailedAt    DateTime?
+  assessmentHoldEmailedAt        DateTime?
   /// Stamped when the "you are on our waitlist" email went out for this
   /// application (see services/waitlist-emails.ts). The same kind of claim as
   /// rejectionEmailedAt above: only ever written from null, so a repeated Send
@@ -2818,7 +2861,7 @@ model Application {
   /// applicant who is then rejected still gets the rejection (that send keys on
   /// rejectionEmailedAt, not on this), and one who is reopened and waitlisted
   /// again already knows where they stand.
-  waitlistEmailedAt          DateTime?
+  waitlistEmailedAt              DateTime?
   /// Draft-reminder stream state (see services/draft-reminders.ts). Meaningful
   /// only while status is DRAFT, but never cleared on submit: the counters are
   /// the record of how many nudges an application took, which is the only way to
@@ -2830,19 +2873,19 @@ model Application {
   /// exactly the one who would never get it. `draftReminderCount` caps the
   /// routine stream, `draftFinalReminderCount` caps the closing-window one, and
   /// they are checked independently.
-  draftReminderCount         Int               @default(0)
-  draftFinalReminderCount    Int               @default(0)
+  draftReminderCount             Int               @default(0)
+  draftFinalReminderCount        Int               @default(0)
   /// Shared by both streams, so the interval spacing is global: whichever stream
   /// sent last, the next send still has to wait out its own interval. Without
   /// one shared stamp, crossing into the closing window could put two emails in
   /// the same applicant's inbox on the same day.
-  draftReminderLastSentAt    DateTime?
-  submittedAt                DateTime?
-  createdAt                  DateTime          @default(now())
-  updatedAt                  DateTime          @updatedAt
+  draftReminderLastSentAt        DateTime?
+  submittedAt                    DateTime?
+  createdAt                      DateTime          @default(now())
+  updatedAt                      DateTime          @updatedAt
 
-  cycle                  RecruitmentCycle   @relation(fields: [cycleId], references: [id], onDelete: Cascade)
-  applicant              Applicant          @relation(fields: [applicantId], references: [id], onDelete: Cascade)
+  cycle                  RecruitmentCycle                @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  applicant              Applicant                       @relation(fields: [applicantId], references: [id], onDelete: Cascade)
   acceptances            Acceptance[]
   dualRoleInterests      DualRoleInterest[]
   dualAppointments       DualAppointment[]
@@ -2851,11 +2894,11 @@ model Application {
   languageReviewLater    LanguageReviewDeferral[]
   committeeScores        CommitteeScore[]
   scoreAssignments       ScoreAssignment[]
-  assignedSubcommittee   Subcommittee?      @relation("applicationAssignedSubcommittee", fields: [assignedSubcommitteeId], references: [id], onDelete: SetNull)
-  assignedSubcommitteeBy Person?            @relation("applicationSubcommitteeAssigner", fields: [assignedSubcommitteeById], references: [id], onDelete: SetNull)
-  routedBy               Person?            @relation("applicationRoutedBy", fields: [routedById], references: [id], onDelete: SetNull)
-  returnedBy             Person?            @relation("applicationReturnedBy", fields: [returnedById], references: [id], onDelete: SetNull)
-  decidedBy              Person?            @relation("applicationDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+  assignedSubcommittee   Subcommittee?                   @relation("applicationAssignedSubcommittee", fields: [assignedSubcommitteeId], references: [id], onDelete: SetNull)
+  assignedSubcommitteeBy Person?                         @relation("applicationSubcommitteeAssigner", fields: [assignedSubcommitteeById], references: [id], onDelete: SetNull)
+  routedBy               Person?                         @relation("applicationRoutedBy", fields: [routedById], references: [id], onDelete: SetNull)
+  returnedBy             Person?                         @relation("applicationReturnedBy", fields: [returnedById], references: [id], onDelete: SetNull)
+  decidedBy              Person?                         @relation("applicationDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
 
   @@unique([cycleId, applicantId])
   @@index([cycleId, submittedAt])
@@ -2875,9 +2918,9 @@ model Acceptance {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  application Application         @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-  approvedBy  Person              @relation("recruitmentAcceptanceApprover", fields: [approvedById], references: [id], onDelete: Restrict)
-  contract    OnboardingContract?
+  application    Application               @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  approvedBy     Person                    @relation("recruitmentAcceptanceApprover", fields: [approvedById], references: [id], onDelete: Restrict)
+  contract       OnboardingContract?
   /// Draft shifts placed before roster build, for an applicant with no Person yet.
   incomingShifts IncomingShiftAssignment[]
 
@@ -3048,84 +3091,84 @@ model ScoreAssignment {
 }
 
 model OnboardingContract {
-  id                       String         @id @default(cuid())
-  acceptanceId             String         @unique
-  token                    String         @unique
-  status                   ContractStatus @default(PENDING)
-  firstName                String
-  lastName                 String
+  id                        String         @id @default(cuid())
+  acceptanceId              String         @unique
+  token                     String         @unique
+  status                    ContractStatus @default(PENDING)
+  firstName                 String
+  lastName                  String
   /// Seeded from the Applicant and editable on the contract form, like the legal
   /// name beside it. Becomes Person.preferredFirstName at promotion.
-  preferredFirstName       String?
+  preferredFirstName        String?
   /// Name of record, like firstName and lastName. Optional, since most people
   /// have none. Becomes Person.legalMiddleName at promotion.
-  legalMiddleName          String?
-  email                    String
-  netId                    String?
-  phone                    String?
-  dateOfBirth              DateTime?
-  dietaryRestrictions      String?
-  yaleAffiliation          String?
-  pronouns                 String?
-  staffTitle               String?
-  epicIdExpiration         DateTime?
-  gradYear                 String?
+  legalMiddleName           String?
+  email                     String
+  netId                     String?
+  phone                     String?
+  dateOfBirth               DateTime?
+  dietaryRestrictions       String?
+  yaleAffiliation           String?
+  pronouns                  String?
+  staffTitle                String?
+  epicIdExpiration          DateTime?
+  gradYear                  String?
   /// "1".."7" or "8+" (SHIFTS_WANTED_OPTIONS): how many shifts the volunteer
   /// would like this term. A preference the schedule builder shows directors,
   /// never capacity math.
-  shiftsWanted             String?
+  shiftsWanted              String?
   /// Whether the volunteer asked to change the availability they gave on their
   /// application. Null when the contract never asked (no availabilityChange
   /// block in its layout).
-  availabilityChangeNeeded Boolean?
+  availabilityChangeNeeded  Boolean?
   /// Which dates change and why, in the volunteer's words. A REQUEST for the
   /// department's directors; nothing applies it to TermMembership.
   availabilityChangeRequest String?
-  agreementSignature       String?
-  professionalismSignature String?
-  trainingSignature        String?
-  initials                 String?
-  epicNeeded               Boolean        @default(false)
-  hasEpic                  Boolean        @default(false)
-  existingEpicId           String?
-  epicAccessType           String?
-  worksWithYnhh            Boolean        @default(false)
-  spanishSelfReported      Boolean        @default(false)
-  licensedRN               Boolean        @default(false)
-  hipaaStoredName          String?
-  hipaaFileName            String?
-  hipaaMimeType            String?
-  hipaaSize                Int?
-  hipaaCompletedAt         DateTime?
+  agreementSignature        String?
+  professionalismSignature  String?
+  trainingSignature         String?
+  initials                  String?
+  epicNeeded                Boolean        @default(false)
+  hasEpic                   Boolean        @default(false)
+  existingEpicId            String?
+  epicAccessType            String?
+  worksWithYnhh             Boolean        @default(false)
+  spanishSelfReported       Boolean        @default(false)
+  licensedRN                Boolean        @default(false)
+  hipaaStoredName           String?
+  hipaaFileName             String?
+  hipaaMimeType             String?
+  hipaaSize                 Int?
+  hipaaCompletedAt          DateTime?
   /// The applicant's profile photo, already normalized to a square WebP, at
   /// onboarding/<contractId>/<photoStoredName>. Copied onto Person as their own
   /// upload at promotion.
-  photoStoredName          String?
-  sentAt                   DateTime?
+  photoStoredName           String?
+  sentAt                    DateTime?
   /// When the onboarding link stops being usable. Set (and refreshed) on every
   /// send/resend. Null on contracts created before this field existed: those are
   /// grandfathered (no expiry) until the next resend stamps one.
-  expiresAt                DateTime?
-  submittedAt              DateTime?
-  promotedAt               DateTime?
-  promotedById             String?
-  promotedPersonId         String?
-  createdAt                DateTime       @default(now())
-  updatedAt                DateTime       @updatedAt
-  templateSnapshot         Json?
-  customAnswers            Json?
-  signatures               Json?
+  expiresAt                 DateTime?
+  submittedAt               DateTime?
+  promotedAt                DateTime?
+  promotedById              String?
+  promotedPersonId          String?
+  createdAt                 DateTime       @default(now())
+  updatedAt                 DateTime       @updatedAt
+  templateSnapshot          Json?
+  customAnswers             Json?
+  signatures                Json?
   /// The visibility context (department/track/epicRequirement/storedEpicId) frozen
   /// at submit, so the signed-contract review renders exactly the blocks the
   /// applicant was shown -- not a re-derivation against live department Epic
   /// requirements or a Person.epicId written after submission. Null on rows
   /// submitted before this column existed (getContractForReview falls back to a
   /// live derivation for those).
-  reviewContext            Json?
+  reviewContext             Json?
 
-  acceptance     Acceptance @relation(fields: [acceptanceId], references: [id], onDelete: Cascade)
-  promotedBy     Person?    @relation("contractPromotedBy", fields: [promotedById], references: [id], onDelete: SetNull)
-  promotedPerson Person?    @relation("contractPromotedPerson", fields: [promotedPersonId], references: [id], onDelete: SetNull)
+  acceptance            Acceptance                   @relation(fields: [acceptanceId], references: [id], onDelete: Cascade)
+  promotedBy            Person?                      @relation("contractPromotedBy", fields: [promotedById], references: [id], onDelete: SetNull)
+  promotedPerson        Person?                      @relation("contractPromotedPerson", fields: [promotedPersonId], references: [id], onDelete: SetNull)
   /// One per department that has acted on this contract's availability request.
   availabilityDecisions AvailabilityChangeDecision[]
 
@@ -3166,28 +3209,49 @@ model AvailabilityChangeDecision {
 }
 
 model Training {
-  id                          String          @id @default(cuid())
+  id                          String             @id @default(cuid())
   personId                    String
   termId                      String
   cycleId                     String
-  track                       Track           @default(VOLUNTEER)
-  status                      TrainingStatus  @default(PENDING)
+  track                       Track              @default(VOLUNTEER)
+  status                      TrainingStatus     @default(PENDING)
   completedVia                TrainingMethod?
   completedAt                 DateTime?
   attendanceRecordedById      String?
   attendanceRecordedAt        DateTime?
-  locked                      Boolean         @default(false)
+  locked                      Boolean            @default(false)
   lockResetAt                 DateTime?
   additionalShiftAvailability String?
   minShiftsWanted             String?
   feedback                    String?
-  createdAt                   DateTime        @default(now())
-  updatedAt                   DateTime        @updatedAt
+  /// The morning session. See TrainingPartStatus; `status` is the rollup of
+  /// this and mockClinicStatus, recomputed together by standing.ts.
+  morningStatus               TrainingPartStatus @default(OWED)
+  /// The afternoon mock clinic. Defaults to NOT_REQUIRED so rows written
+  /// before mock clinic was tracked keep the clearance they already had.
+  mockClinicStatus            TrainingPartStatus @default(NOT_REQUIRED)
+  /// Who marked mock clinic off, when, and the note they left (e.g. "made up
+  /// with PNLC director 10/1"). Set only with mockClinicStatus MARKED_OFF.
+  mockClinicMarkedById        String?
+  mockClinicMarkedAt          DateTime?
+  mockClinicNote              String?
+  /// The makeup release email, sent once when the cycle is released (or at
+  /// promotion for someone who onboarded after it). The stamp is the claim: it
+  /// is what stops a second release run mailing the same person twice.
+  makeupEmailedAt             DateTime?
+  /// The follow-up stream that chases whatever is still owed. No cap (ops
+  /// asked for it to keep going until they finish); it stops on its own when
+  /// neither part is OWED.
+  makeupNudgeLastSentAt       DateTime?
+  makeupNudgeCount            Int                @default(0)
+  createdAt                   DateTime           @default(now())
+  updatedAt                   DateTime           @updatedAt
 
   person               Person           @relation("trainingPerson", fields: [personId], references: [id], onDelete: Cascade)
   term                 Term             @relation(fields: [termId], references: [id], onDelete: Cascade)
   cycle                RecruitmentCycle @relation(fields: [cycleId], references: [id], onDelete: Restrict)
   attendanceRecordedBy Person?          @relation("trainingAttendanceRecorder", fields: [attendanceRecordedById], references: [id], onDelete: SetNull)
+  mockClinicMarkedBy   Person?          @relation("trainingMockClinicMarker", fields: [mockClinicMarkedById], references: [id], onDelete: SetNull)
   attempts             QuizAttempt[]
 
   @@unique([personId, termId, track])
@@ -3279,6 +3343,10 @@ model QuizAttempt {
 enum AttendanceEventKind {
   TRAINING
   INFO_SESSION
+  /// The training day's afternoon mock clinic. Checking in records the
+  /// mockClinicStatus part of the cycle's Training row (see standing.ts); it
+  /// never completes the morning.
+  MOCK_CLINIC
   OTHER
 }
 
@@ -3463,39 +3531,64 @@ enum CourseProgressStatus {
 }
 
 model Course {
-  id              String             @id @default(cuid())
-  title           String
-  description     String?
-  isActive        Boolean            @default(true)
+  id               String             @id @default(cuid())
+  title            String
+  description      String?
+  isActive         Boolean            @default(true)
+  /// SCORM (default): an uploaded eXeLearning package. VIDEO: hub-hosted video
+  /// sections, each followed by a quiz, played with no seeking ahead.
+  kind             CourseKind         @default(SCORM)
+  /// VIDEO courses only: true when the course can be completed, i.e. it has at
+  /// least one section and every section has a video, a known length, and at
+  /// least one keyed question. The VIDEO counterpart of "has a SCORM package":
+  /// assignment treats a not-ready course as a draft assigned to no one, for the
+  /// same reason a package-less one is. Recomputed by every edit that could
+  /// change it (services/video-courses.ts), never set by hand.
+  videoReady       Boolean            @default(false)
+  /// Set on the one course that makes up a training cycle's morning session.
+  /// Such a course is never department-assigned and never part of the learning
+  /// gate: it is shown only to volunteers whose morning part is OWED, from the
+  /// training step, and finishing it credits the morning (ONLINE_COURSE). Its
+  /// progress is recorded against the CYCLE's term, not the active one.
+  makeupForCycleId String?            @unique
+  makeupForCycle   RecruitmentCycle?  @relation("courseMakeupForCycle", fields: [makeupForCycleId], references: [id], onDelete: SetNull)
   /// When true, the course is assigned to every department (org-wide).
-  assignToAll     Boolean            @default(false)
+  assignToAll      Boolean            @default(false)
   /// Who the course targets, composed with department / assignToAll scoping.
-  audience        CourseAudience     @default(EVERYONE)
+  audience         CourseAudience     @default(EVERYONE)
   /// ONCE (default): a completion clears the learning gate forever, matching
   /// today's behavior. PER_TERM: a completion only counts for the term it
   /// happened in, so the course must be retaken each term. Flipping a live
   /// course to PER_TERM takes effect from the next term; current-term
   /// clearances stand.
-  recurrence      CourseRecurrence   @default(ONCE)
+  recurrence       CourseRecurrence   @default(ONCE)
   /// Ordering in the catalog / management list.
-  position        Int                @default(0)
+  position         Int                @default(0)
   /// Launch file from imsmanifest.xml (e.g. "index.html"). Null = no package uploaded yet (draft).
-  scormEntryHref  String?
+  scormEntryHref   String?
   /// SCORM version string, e.g. "1.2".
-  scormVersion    String?
+  scormVersion     String?
   /// When the current package was ingested.
-  scormUploadedAt DateTime?
+  scormUploadedAt  DateTime?
   /// Ordered SCO list from imsmanifest.xml: [{ id, title, href }]. Null = legacy single-SCO package.
-  scormScos       Json?
+  scormScos        Json?
   /// Per-upload storage key: files live under scorm/<courseId>/<scormBlobKey>/ so a
   /// re-ingest stages the new package without overwriting the live one before the DB
   /// commit. Null = legacy package stored at the flat scorm/<courseId>/ prefix.
-  scormBlobKey    String?
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
-  departments     CourseDepartment[]
-  progress        CourseProgress[]
-  scoProgress     ScoProgress[]
+  scormBlobKey     String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  departments      CourseDepartment[]
+  progress         CourseProgress[]
+  scoProgress      ScoProgress[]
+  videos           CourseVideo[]
+  sections         CourseSection[]
+  sectionProgress  SectionProgress[]
+}
+
+enum CourseKind {
+  SCORM
+  VIDEO
 }
 
 enum CourseAudience {
@@ -3588,6 +3681,130 @@ model ScoProgress {
   @@unique([personId, courseId, scoId, termId])
   @@index([courseId])
   @@index([termId])
+}
+
+/// One uploaded video file of a VIDEO course. A single Zoom recording usually
+/// holds several sections (the morning's Part 1, then the HIPAA part), so a
+/// section points at a video and a time range inside it rather than owning a
+/// file of its own. That is what saves an admin from editing the recording.
+model CourseVideo {
+  id               String          @id @default(cuid())
+  courseId         String
+  /// Storage key under learning-video/<courseId>/. Private: the browser plays it
+  /// through a short-lived presigned GET (or the local-disk range route in dev),
+  /// never a public URL.
+  storageKey       String
+  fileName         String
+  contentType      String
+  /// BigInt because a Zoom recording is routinely past Int's 2 GiB.
+  sizeBytes        BigInt?
+  /// Read from the file in the admin's browser before upload. A section with no
+  /// endSeconds ends here, so a video without a duration can only back sections
+  /// that give an explicit end.
+  durationSeconds  Float?
+  /// Optional WebVTT captions (Zoom's transcript .vtt), served same-origin so a
+  /// <track> can load them without CORS.
+  captionsKey      String?
+  captionsFileName String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  course           Course          @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  sections         CourseSection[]
+
+  @@index([courseId])
+}
+
+/// One step of a VIDEO course: watch a stretch of a video, then pass a quiz.
+/// Sections unlock in position order: the next opens once this one's quiz is
+/// passed.
+model CourseSection {
+  id           String            @id @default(cuid())
+  courseId     String
+  position     Int               @default(0)
+  title        String
+  /// SetNull: deleting a video leaves the section in place (not ready) rather
+  /// than taking its questions with it.
+  videoId      String?
+  /// Where the section starts and ends inside the video, in seconds. A null end
+  /// means the end of the video.
+  startSeconds Float             @default(0)
+  endSeconds   Float?
+  passPercent  Int               @default(80)
+  /// Failed attempts allowed before the makeup locks (the training roster's
+  /// Reset clears it). Only a training makeup course locks; an ordinary VIDEO
+  /// course allows unlimited retakes.
+  maxAttempts  Int               @default(3)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  course       Course            @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  video        CourseVideo?      @relation(fields: [videoId], references: [id], onDelete: SetNull)
+  questions    CourseQuestion[]
+  progress     SectionProgress[]
+
+  @@index([courseId, position])
+  @@index([videoId])
+}
+
+/// A single-choice question on a section's quiz. correctValue null means the
+/// question is not graded (see gradeQuiz); a section needs at least one graded
+/// question to be passable.
+model CourseQuestion {
+  id           String        @id @default(cuid())
+  sectionId    String
+  position     Int           @default(0)
+  prompt       String
+  /// [{ value, label }], in display order.
+  options      Json
+  correctValue String?
+  section      CourseSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+
+  @@index([sectionId, position])
+}
+
+/// One learner's progress through one section, in one term. termId has the same
+/// meaning and NOT NULL reasoning as CourseProgress.termId; for a training
+/// makeup course it is always the cycle's term.
+model SectionProgress {
+  id              String               @id @default(cuid())
+  personId        String
+  courseId        String
+  sectionId       String
+  termId          String
+  /// The furthest point reached, in seconds from the section's start. Only the
+  /// server advances it, and never faster than real time (engine/watch.ts):
+  /// this, not the player's seek lock, is what makes "watch the whole thing"
+  /// hold against a hand-made request.
+  watchedSeconds  Float                @default(0)
+  lastHeartbeatAt DateTime?
+  /// Set once watchedSeconds reaches the section's end. Opens the quiz.
+  watchedAt       DateTime?
+  passedAt        DateTime?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  person          Person               @relation(fields: [personId], references: [id], onDelete: Cascade)
+  course          Course               @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  section         CourseSection        @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  term            Term                 @relation(fields: [termId], references: [id], onDelete: Restrict)
+  attempts        SectionQuizAttempt[]
+
+  @@unique([personId, sectionId, termId])
+  @@index([courseId])
+  @@index([termId])
+}
+
+/// One graded quiz attempt on a section. Never deleted by a lock reset: the
+/// reset moves the window (Training.lockResetAt) instead, like the retired quiz.
+model SectionQuizAttempt {
+  id         String          @id @default(cuid())
+  progressId String
+  answers    Json
+  score      Int
+  total      Int
+  passed     Boolean
+  takenAt    DateTime        @default(now())
+  progress   SectionProgress @relation(fields: [progressId], references: [id], onDelete: Cascade)
+
+  @@index([progressId, takenAt])
 }
 
 enum EhsCompletionSource {

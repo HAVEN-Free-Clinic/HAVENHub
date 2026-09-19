@@ -581,6 +581,34 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
     message: () => "Training reset.",
   },
   {
+    params: ["saved"],
+    matchValues: { saved: "makeupReleased" },
+    pathnames: [TRAINING_ROSTER_PATHNAME],
+    tone: "success",
+    message: () => "Makeup training released. The emails are queued.",
+  },
+  {
+    params: ["saved"],
+    matchValues: { saved: "makeupDue" },
+    pathnames: [TRAINING_ROSTER_PATHNAME],
+    tone: "success",
+    message: () => "Due date saved.",
+  },
+  {
+    params: ["saved"],
+    matchValues: { saved: "mockClinicMarked" },
+    pathnames: [TRAINING_ROSTER_PATHNAME],
+    tone: "success",
+    message: () => "Mock clinic marked done.",
+  },
+  {
+    params: ["saved"],
+    matchValues: { saved: "mockClinicUndone" },
+    pathnames: [TRAINING_ROSTER_PATHNAME],
+    tone: "success",
+    message: () => "Mock clinic mark-off removed.",
+  },
+  {
     // admin/email/templates/[key]/page.tsx (resetAction). NOT a new group: it
     // shares `saved|saved=reset` with the training entry directly above, which is
     // exactly right -- the two are scoped to disjoint pathnames, so resolveScoped
@@ -633,6 +661,43 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
     pathnames: [COURSE_MANAGE_PATHNAME],
     tone: "success",
     message: () => "Assignment saved.",
+  },
+  // The video-course editor adds four more forms to the same page, for the same
+  // reason each is named: nothing on screen moves when one of them saves.
+  {
+    params: ["saved"],
+    matchValues: { saved: "section" },
+    pathnames: [COURSE_MANAGE_PATHNAME],
+    tone: "success",
+    message: () => "Section saved.",
+  },
+  {
+    params: ["saved"],
+    matchValues: { saved: "question" },
+    pathnames: [COURSE_MANAGE_PATHNAME],
+    tone: "success",
+    message: () => "Question saved.",
+  },
+  {
+    params: ["saved"],
+    matchValues: { saved: "video" },
+    pathnames: [COURSE_MANAGE_PATHNAME],
+    tone: "success",
+    message: () => "Video removed.",
+  },
+  {
+    params: ["saved"],
+    matchValues: { saved: "captions" },
+    pathnames: [COURSE_MANAGE_PATHNAME],
+    tone: "success",
+    message: () => "Captions removed.",
+  },
+  {
+    params: ["saved"],
+    matchValues: { saved: "makeup" },
+    pathnames: [COURSE_MANAGE_PATHNAME],
+    tone: "success",
+    message: () => "Makeup link saved.",
   },
 
   // outreach/scopes/[id]/page.tsx (grantAction, revokeAction). Both land back on

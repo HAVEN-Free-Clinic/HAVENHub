@@ -17,6 +17,7 @@ type DepartmentFormProps = {
     | "code"
     | "name"
     | "isActive"
+    | "isClinical"
     | "idealHeadcount"
     | "patientCapacityPerProvider"
     | "maxVolunteersPerShift"
@@ -200,6 +201,19 @@ export function DepartmentForm({ action, mode, department }: DepartmentFormProps
             On by default. Turn it off for teams where an empty seat means an unstaffed patient: members then
             see only the swap form on their schedule, and a drop has to be arranged with the department&rsquo;s
             directors out of band. Swaps are unaffected either way.
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <Checkbox
+            name="isClinical"
+            defaultChecked={department?.isClinical ?? false}
+            label="Clinical department"
+          />
+          <p className="text-xs text-muted-foreground">
+            Changes what training day asks of this department&rsquo;s volunteers. New members are
+            excused from the morning session and owe mock clinic; returning members owe neither. A
+            volunteer who is also in a non-clinical department follows the non-clinical rules.
           </p>
         </div>
 

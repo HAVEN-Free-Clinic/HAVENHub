@@ -32,6 +32,7 @@ it("lists every cycle-scoped email with no overrides initially", async () => {
   const list = await listCycleEmails(cycle.id);
   expect(list.map((e) => e.key).sort()).toEqual([
     "recruitment.acceptance", "recruitment.application_received", "recruitment.assessment_hold", "recruitment.draft_reminder", "recruitment.interview_invite",
+    "recruitment.makeup_reminder", "recruitment.makeup_training",
     "recruitment.onboarding", "recruitment.onboarding_confirmation", "recruitment.rejection", "recruitment.roster_welcome",
     "recruitment.waitlist",
   ]);

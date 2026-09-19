@@ -10,6 +10,7 @@ function department(id: string, name: string, code: string): Department {
     name,
     code,
     isActive: true,
+    isClinical: false,
     idealHeadcount: null,
     patientCapacityPerProvider: null,
     maxVolunteersPerShift: null,

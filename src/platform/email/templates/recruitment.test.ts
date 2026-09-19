@@ -21,6 +21,8 @@ const KEYS = [
   "recruitment.dual_appointment_decided",
   "recruitment.assessment_hold",
   "recruitment.waitlist",
+  "recruitment.makeup_training",
+  "recruitment.makeup_reminder",
 ];
 
 describe("recruitment email descriptors", () => {

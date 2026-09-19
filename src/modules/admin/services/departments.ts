@@ -8,6 +8,8 @@ import type { Department, EpicRequirement, Prisma } from "@prisma/client";
 import { prisma, isUniqueConstraintError } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { getActiveTerm } from "@/platform/terms/active-term";
+import { log, errorAttrs } from "@/platform/logging";
+import { recomputeTrainingStandingForDepartment } from "@/platform/training/standing";
 
 const CODE_RE = /^[A-Z0-9]{2,12}$/;
 
@@ -85,6 +87,8 @@ export async function createDepartment(
     code: string;
     name: string;
     isActive?: boolean;
+    /** Absent → false, matching the column default. */
+    isClinical?: boolean;
     idealHeadcount?: number | null;
     patientCapacityPerProvider?: number | null;
     /** Absent → null, meaning uncapped. The ceiling on volunteers staffed on one
@@ -143,7 +147,7 @@ export async function createDepartment(
   try {
     dept = await prisma.department.create({
       data: {
-        code, name, isActive: input.isActive ?? true, idealHeadcount, patientCapacityPerProvider,
+        code, name, isActive: input.isActive ?? true, isClinical: input.isClinical ?? false, idealHeadcount, patientCapacityPerProvider,
         maxVolunteersPerShift,
         requiresEpicDirector, requiresEpicVolunteer,
         autoRouteApplicants: input.autoRouteApplicants ?? false,
@@ -172,6 +176,7 @@ export async function createDepartment(
       code: dept.code,
       name: dept.name,
       isActive: dept.isActive,
+      isClinical: dept.isClinical,
       idealHeadcount: dept.idealHeadcount,
       patientCapacityPerProvider: dept.patientCapacityPerProvider,
       maxVolunteersPerShift: dept.maxVolunteersPerShift,
@@ -190,6 +195,10 @@ export async function updateDepartment(
   input: {
     name: string;
     isActive: boolean;
+    /** Optional so an update that does not touch it preserves it: renaming a
+     *  department must not silently change what its volunteers owe on training
+     *  day. */
+    isClinical?: boolean;
     idealHeadcount: number | null;
     patientCapacityPerProvider: number | null;
     /** Explicit null clears the cap; undefined leaves it untouched, so an edit
@@ -238,6 +247,7 @@ export async function updateDepartment(
   const requiresEpicVolunteer = input.requiresEpicVolunteer ?? before.requiresEpicVolunteer;
   const autoRouteApplicants = input.autoRouteApplicants ?? before.autoRouteApplicants;
   const allowShiftDrop = input.allowShiftDrop ?? before.allowShiftDrop;
+  const isClinical = input.isClinical ?? before.isClinical;
   // Explicit null clears; undefined preserves. A negative value is rejected
   // rather than stored: a service record must never claim negative hours.
   if (input.hoursPerShift !== undefined && input.hoursPerShift !== null && input.hoursPerShift < 0) {
@@ -255,7 +265,7 @@ export async function updateDepartment(
 
   const dept = await prisma.department.update({
     where: { id },
-    data: { name, isActive: input.isActive, idealHeadcount, patientCapacityPerProvider, maxVolunteersPerShift, requiresEpicDirector, requiresEpicVolunteer, autoRouteApplicants, allowShiftDrop, hoursPerShift, minInterpreterScore, assessLanguageBeforeAcceptance, assessSpanishRegardlessOfClaim },
+    data: { name, isActive: input.isActive, isClinical, idealHeadcount, patientCapacityPerProvider, maxVolunteersPerShift, requiresEpicDirector, requiresEpicVolunteer, autoRouteApplicants, allowShiftDrop, hoursPerShift, minInterpreterScore, assessLanguageBeforeAcceptance, assessSpanishRegardlessOfClaim },
   });
 
   await recordAudit({
@@ -266,6 +276,7 @@ export async function updateDepartment(
     before: {
       name: before.name,
       isActive: before.isActive,
+      isClinical: before.isClinical,
       idealHeadcount: before.idealHeadcount,
       patientCapacityPerProvider: before.patientCapacityPerProvider,
       maxVolunteersPerShift: before.maxVolunteersPerShift,
@@ -280,6 +291,7 @@ export async function updateDepartment(
     after: {
       name: dept.name,
       isActive: dept.isActive,
+      isClinical: dept.isClinical,
       idealHeadcount: dept.idealHeadcount,
       patientCapacityPerProvider: dept.patientCapacityPerProvider,
       maxVolunteersPerShift: dept.maxVolunteersPerShift,
@@ -292,6 +304,15 @@ export async function updateDepartment(
       assessSpanishRegardlessOfClaim: dept.assessSpanishRegardlessOfClaim,
     },
   });
+  // What its volunteers owe on training day follows the flag. After the
+  // write, best-effort: the reminders sweep recomputes anyone this misses.
+  if (before.isClinical !== dept.isClinical) {
+    try {
+      await recomputeTrainingStandingForDepartment(id);
+    } catch (err) {
+      log.error("[departments] training standing recompute failed", errorAttrs(err, { departmentId: id }));
+    }
+  }
   return dept;
 }
 

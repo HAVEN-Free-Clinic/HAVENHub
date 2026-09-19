@@ -1,4 +1,4 @@
-import type { ApplicantType, RecruitmentCycle, Prisma, TrainingMethod, Track } from "@prisma/client";
+import type { ApplicantType, RecruitmentCycle, Prisma, TrainingMethod, TrainingPartStatus, Track } from "@prisma/client";
 import { comparePersonName } from "@/platform/person-name";
 import { effectiveComplianceStatus, overallClearance } from "@/platform/compliance/rules";
 import type { ComplianceStatus, TrainingState, OverallClearance } from "@/platform/compliance/rules";
@@ -10,8 +10,10 @@ import { RecruitmentAuthError, reviewScope } from "./review";
 import { serviceGapsForCycle } from "./service-gap";
 import { rosterLanguageStatus } from "./applicant-language";
 import { EMPTY_LANGUAGE_STATUS, isAwaitingLanguageAssessment } from "../engine/applicant-language";
-import type { GradedQuestion } from "@/platform/quiz/grading";
-import { countGradedQuestions } from "@/platform/quiz/graded";
+import { loadTrainingDayFacts, recomputeTrainingStanding } from "@/platform/training/standing";
+import { formatForDateInput, isoDateKey } from "@/platform/dates";
+import { getDisplayTimeZone } from "@/platform/dates/resolve";
+import { resolveAttendanceAuthority } from "./attendance-events";
 
 export class TrainingStateError extends Error {
   constructor(message: string) { super(message); this.name = "TrainingStateError"; }
@@ -31,11 +33,6 @@ export async function setTrainingCycle(cycleId: string, value: boolean, actorId:
   }
   const cycle = await prisma.recruitmentCycle.findUnique({ where: { id: cycleId } });
   if (!cycle) throw new TrainingStateError("Cycle not found.");
-  if (value && countGradedQuestions(await quizQuestions(cycleId)) === 0) {
-    throw new TrainingStateError(
-      "This cycle's quiz has no answer keys, so nobody could pass it. Add questions with a correct answer on the cycle's Quiz tab first."
-    );
-  }
   await prisma.$transaction(async (tx) => {
     if (value) {
       await tx.recruitmentCycle.updateMany({ where: { termId: cycle.termId, track: cycle.track, isTermTraining: true, NOT: { id: cycleId } }, data: { isTermTraining: false } });
@@ -50,8 +47,9 @@ export async function setTrainingCycle(cycleId: string, value: boolean, actorId:
 export async function updateQuizSettings(
   cycleId: string,
   input: {
-    quizPassPercent: number;
-    quizMaxAttempts: number;
+    /** Undefined leaves the stored value; the quiz these govern is retired. */
+    quizPassPercent?: number;
+    quizMaxAttempts?: number;
     inPersonTrainingDate: Date | null;
     trainingLocation: string | null;
   },
@@ -60,10 +58,10 @@ export async function updateQuizSettings(
   if (!(await can(actorId, "recruitment.manage_cycles"))) {
     throw new RecruitmentAuthError("Only recruitment leads can change quiz settings.");
   }
-  if (!Number.isInteger(input.quizPassPercent) || input.quizPassPercent < 0 || input.quizPassPercent > 100) {
+  if (input.quizPassPercent !== undefined && (!Number.isInteger(input.quizPassPercent) || input.quizPassPercent < 0 || input.quizPassPercent > 100)) {
     throw new TrainingStateError("Pass percent must be between 0 and 100.");
   }
-  if (!Number.isInteger(input.quizMaxAttempts) || input.quizMaxAttempts < 1) {
+  if (input.quizMaxAttempts !== undefined && (!Number.isInteger(input.quizMaxAttempts) || input.quizMaxAttempts < 1)) {
     throw new TrainingStateError("Max attempts must be at least 1.");
   }
   // Normalize here, not just in the UI action, so a direct/internal caller
@@ -135,8 +133,19 @@ export async function requiredTrainingTracks(personId: string, termId: string): 
     .map(([track]) => track);
 }
 
+const MORNING_FOR_METHOD: Record<TrainingMethod, TrainingPartStatus> = {
+  ATTENDANCE: "ATTENDED",
+  QUIZ: "QUIZ",
+  ONLINE_COURSE: "ONLINE_COURSE",
+};
+
 /** Upsert the person's training row to COMPLETE for the term and track, stamping the method.
- *  Shared by the attendance and quiz paths. Idempotent. */
+ *
+ *  No production path calls this any more: check-ins, the online course and IT
+ *  mark-offs all go through platform/training/standing.ts, which decides the
+ *  rollup from both parts of training day. Kept as the direct write that tests
+ *  and one-off scripts use to stage "this person is already trained", with the
+ *  morning part set to match so a later recompute agrees with it. */
 export async function completeTraining(
   db: Tx | typeof prisma,
   args: { personId: string; termId: string; cycleId: string; track: Track; via: TrainingMethod; actorId?: string }
@@ -147,12 +156,12 @@ export async function completeTraining(
     where: { personId_termId_track: { personId: args.personId, termId: args.termId, track: args.track } },
     create: {
       personId: args.personId, termId: args.termId, cycleId: args.cycleId, track: args.track,
-      status: "COMPLETE", completedVia: args.via, completedAt: now,
+      status: "COMPLETE", completedVia: args.via, completedAt: now, morningStatus: MORNING_FOR_METHOD[args.via],
       attendanceRecordedById: attendance ? (args.actorId ?? null) : null,
       attendanceRecordedAt: attendance ? now : null,
     },
     update: {
-      status: "COMPLETE", completedVia: args.via, completedAt: now, locked: false,
+      status: "COMPLETE", completedVia: args.via, completedAt: now, locked: false, morningStatus: MORNING_FOR_METHOD[args.via],
       ...(attendance ? { attendanceRecordedById: args.actorId ?? null, attendanceRecordedAt: now } : {}),
     },
   });
@@ -171,18 +180,8 @@ export async function completeTraining(
  * day of Fall 2026 training, before its window opened: it is being replaced by
  * an online makeup course in Learning. QuizAttempt rows and completedVia QUIZ
  * stay as history. Training.feedback, the note the quiz collected, is no longer
- * written; the column keeps what earlier terms stored. */
-
-/** Grading-only quiz question fetch, in form order. Returns only `key` and
- *  `correctValue`; used by setTrainingCycle's answer-key guard. */
-async function quizQuestions(cycleId: string): Promise<GradedQuestion[]> {
-  const fields = await prisma.formField.findMany({
-    where: { cycleId, type: "SINGLE_SELECT", section: { purpose: "QUIZ" } },
-    orderBy: [{ section: { order: "asc" } }, { order: "asc" }],
-    select: { key: true, correctValue: true },
-  });
-  return fields.map((f) => ({ key: f.key, correctValue: f.correctValue }));
-}
+ * written; the column keeps what earlier terms stored. Designating a training
+ * cycle no longer requires a quiz with answer keys, since nobody takes it. */
 
 export type MyTraining = {
   track: Track;
@@ -193,7 +192,36 @@ export type MyTraining = {
   completedVia: TrainingMethod | null;
   completedAt: Date | null;
   inPersonTrainingDate: Date | null;
+  /** The two parts of training day (platform/training/standing.ts). Null only
+   *  when the term has no designated training cycle. */
+  morning: TrainingPartStatus | null;
+  mockClinic: TrainingPartStatus | null;
+  /** A lead recorded their absence as excused ahead of the session. Decides
+   *  which of the two "you missed the morning" messages they read. */
+  excused: boolean;
+  /** A renewal this cycle. Decides which mock clinic message they read: a new
+   *  member makes it up, a returning one only needs it marked off. */
+  returning: boolean;
+  /** The cycle's online makeup course, once it is ready AND released. Null
+   *  before that, which is what the "not available yet" copy reads. */
+  makeupCourseId: string | null;
+  /** The day the makeup is due, when a lead set one. */
+  makeupDueAt: Date | null;
+  /** 3 failed makeup quiz attempts; a director resets it from the roster. */
+  locked: boolean;
+  /** Training day is over (today in the display zone is past the in-person
+   *  date). Before then an owed part means "come on the day", after it means
+   *  "make it up", and the stern message must never reach anyone early. */
+  sessionHeld: boolean;
 };
+
+/** Whether training day is over: today in `zone` is strictly past the
+ *  in-person date. Compared by calendar day key, never raw timestamps, so there
+ *  is no UTC-midnight rollover. No date set: nothing to wait for. */
+export function sessionHeld(inPersonTrainingDate: Date | null, now: Date, zone: string): boolean {
+  if (!inPersonTrainingDate) return true;
+  return formatForDateInput(now, zone) > isoDateKey(inPersonTrainingDate);
+}
 
 const TRACK_LABEL: Record<Track, string> = {
   VOLUNTEER: "Volunteer training",
@@ -202,22 +230,64 @@ const TRACK_LABEL: Record<Track, string> = {
 
 /** The required training(s) for one specific term, one entry per required track. */
 export async function getMyTrainingForTerm(personId: string, term: { id: string; name: string }): Promise<MyTraining[]> {
-  const tracks = await requiredTrainingTracks(personId, term.id);
+  const [tracks, zone] = await Promise.all([requiredTrainingTracks(personId, term.id), getDisplayTimeZone()]);
+  const now = new Date();
   // Fan the tracks out rather than awaiting each in series; within a track the
   // cycle and training row are independent, so fetch them together too.
   return Promise.all(
     tracks.map(async (track) => {
-      const [cycle, row] = await Promise.all([
+      const key = { personId_termId_track: { personId, termId: term.id, track } };
+      const [cycle, initial] = await Promise.all([
         getTrainingCycleForTerm(term.id, track),
-        prisma.training.findUnique({ where: { personId_termId_track: { personId, termId: term.id, track } } }),
+        prisma.training.findUnique({ where: key }),
       ]);
+      // Promoted before training-day standing existed and not yet reached by the
+      // sweep: compute it now rather than show parts nobody has worked out.
+      let row = initial;
+      if (cycle && !row) {
+        await recomputeTrainingStanding(prisma, { personId, termId: term.id, track });
+        row = await prisma.training.findUnique({ where: key });
+      }
       const state: TrainingState = row?.status === "COMPLETE" ? "COMPLETE" : "PENDING";
+
+      let excused = false;
+      let returning = false;
+      let makeupCourseId: string | null = null;
+      if (cycle && state !== "COMPLETE") {
+        const [person, makeup, facts] = await Promise.all([
+          prisma.person.findUnique({ where: { id: personId }, select: { contactEmail: true } }),
+          cycle.makeupReleasedAt
+            ? prisma.course.findFirst({
+                where: { makeupForCycleId: cycle.id, isActive: true, videoReady: true },
+                select: { id: true },
+              })
+            : Promise.resolve(null),
+          loadTrainingDayFacts(prisma, { personId, termId: term.id, track }),
+        ]);
+        // Both keys, as every excuse reader must (see resolveApplicantExcuseKeys).
+        const email = person?.contactEmail?.toLowerCase() ?? null;
+        excused =
+          (await prisma.trainingAbsenceExcuse.count({
+            where: { cycleId: cycle.id, OR: [{ personId }, ...(email ? [{ emailLower: email }] : [])] },
+          })) > 0;
+        returning = facts?.facts.returning ?? false;
+        makeupCourseId = makeup?.id ?? null;
+      }
+
       return {
         track, trackLabel: TRACK_LABEL[track],
         term: { id: term.id, name: term.name },
         cycle: cycle ? { id: cycle.id, title: cycle.title } : null,
         state, completedVia: row?.completedVia ?? null, completedAt: row?.completedAt ?? null,
         inPersonTrainingDate: cycle?.inPersonTrainingDate ?? null,
+        morning: row?.morningStatus ?? null,
+        mockClinic: row?.mockClinicStatus ?? null,
+        excused,
+        returning,
+        makeupCourseId,
+        makeupDueAt: cycle?.makeupDueAt ?? null,
+        locked: row?.locked ?? false,
+        sessionHeld: sessionHeld(cycle?.inPersonTrainingDate ?? null, now, zone),
       };
     }),
   );
@@ -548,6 +618,16 @@ type TrainingRosterFields = {
   /** Null when neither source knows: no application this cycle, no prior term. */
   origin: RosterOrigin | null;
   trainingState: TrainingState;
+  /**
+   * The two parts of training day (see platform/training/standing.ts). Null
+   * where nothing has been computed or recorded yet: an applicant row is only
+   * ever ATTENDED or null, since what they owe depends on the department and
+   * application type promotion settles.
+   */
+  morning: TrainingPartStatus | null;
+  mockClinic: TrainingPartStatus | null;
+  /** Who marked mock clinic off, and the note they left. */
+  mockClinicMarkOff: { byName: string | null; at: Date; note: string | null } | null;
   locked: boolean;
   /**
    * Widened past OverallClearance for the roster's second half. An accepted
@@ -708,8 +788,8 @@ async function listExpectedForAssessment(
     // Their attendance IS an unlinked row keyed on the address, exactly like the
     // acceptance half: they have no Person for a Training row to belong to.
     prisma.eventAttendance.findMany({
-      where: { event: { cycleId: cycle.id, kind: "TRAINING" }, attendeeEmail: { in: emails } },
-      select: { attendeeEmail: true },
+      where: { event: { cycleId: cycle.id, kind: { in: ["TRAINING", "MOCK_CLINIC"] } }, attendeeEmail: { in: emails } },
+      select: { attendeeEmail: true, event: { select: { kind: true } } },
     }),
     prisma.trainingAbsenceExcuse.findMany({
       where: { cycleId: cycle.id, OR: [{ personId: { in: linkedPersonIds } }, { emailLower: { in: emails } }] },
@@ -722,9 +802,7 @@ async function listExpectedForAssessment(
   for (const p of accounts) {
     if (p.contactEmail) accountsByEmail.set(p.contactEmail.toLowerCase(), p);
   }
-  const attended = new Set(
-    attendance.flatMap((a) => (a.attendeeEmail ? [a.attendeeEmail.toLowerCase()] : [])),
-  );
+  const attended = attendedByKind(attendance);
   const excusesByPerson = new Map<string, TrainingExcuse>();
   const excusesByEmail = new Map<string, TrainingExcuse>();
   for (const row of excuseRows) {
@@ -751,7 +829,10 @@ async function listExpectedForAssessment(
       // to read a second copy off: they have not been accepted, so none exists.
       certStatus: effectiveComplianceStatus(account?.hipaaCertificates ?? [], term.endDate),
       origin: a.applicantType,
-      trainingState: attended.has(applicant.emailLower) ? "COMPLETE" : "PENDING",
+      trainingState: attended.morning.has(applicant.emailLower) ? "COMPLETE" : "PENDING",
+      morning: attended.morning.has(applicant.emailLower) ? "ATTENDED" : null,
+      mockClinic: attended.mockClinic.has(applicant.emailLower) ? "ATTENDED" : null,
+      mockClinicMarkOff: null,
       // A quiz-attempt state on a Training row they cannot have.
       locked: false,
       // Not NOT_CLEARED: there is nothing to clear yet. They are here to attend,
@@ -953,7 +1034,10 @@ export async function listTrainingRoster(cycleId: string, viewerId: string): Pro
   const emailsLower = [...memberEmails, ...pendingEmails];
   const excusePersonIds = [...personIds, ...accounts.map((p) => p.id)];
   const [trainingRows, excuseRows, pendingAttendance, priorService] = await Promise.all([
-    prisma.training.findMany({ where: { termId: cycle.termId, track: cycle.track, personId: { in: personIds } } }),
+    prisma.training.findMany({
+      where: { termId: cycle.termId, track: cycle.track, personId: { in: personIds } },
+      include: { mockClinicMarkedBy: { select: { name: true } } },
+    }),
     prisma.trainingAbsenceExcuse.findMany({
       where: { cycleId, OR: [{ personId: { in: excusePersonIds } }, { emailLower: { in: emailsLower } }] },
       include: { recordedBy: { select: { name: true } } },
@@ -965,8 +1049,8 @@ export async function listTrainingRoster(cycleId: string, viewerId: string): Pro
     pendingEmails.length === 0
       ? Promise.resolve([])
       : prisma.eventAttendance.findMany({
-          where: { event: { cycleId, kind: "TRAINING" }, attendeeEmail: { in: pendingEmails } },
-          select: { attendeeEmail: true },
+          where: { event: { cycleId, kind: { in: ["TRAINING", "MOCK_CLINIC"] } }, attendeeEmail: { in: pendingEmails } },
+          select: { attendeeEmail: true, event: { select: { kind: true } } },
         }),
     // The arrival story the application cannot tell: a member the roster copy
     // carried over from last term filled nothing in this cycle. Asked only
@@ -979,9 +1063,7 @@ export async function listTrainingRoster(cycleId: string, viewerId: string): Pro
     ),
   ]);
   for (const personId of priorService.keys()) originByPerson.set(personId, "RETURNING");
-  const attended = new Set(
-    pendingAttendance.flatMap((a) => (a.attendeeEmail ? [a.attendeeEmail.toLowerCase()] : [])),
-  );
+  const attended = attendedByKind(pendingAttendance);
   const training = new Map(trainingRows.map((t) => [t.personId, t]));
   const excusesByPerson = new Map<string, TrainingExcuse>();
   const excusesByEmail = new Map<string, TrainingExcuse>();
@@ -1008,6 +1090,11 @@ export async function listTrainingRoster(cycleId: string, viewerId: string): Pro
       departmentCode: m.department.code,
       certStatus, origin: originByPerson.get(m.person.id) ?? null,
       trainingState, locked: row?.locked ?? false,
+      morning: row?.morningStatus ?? null,
+      mockClinic: row?.mockClinicStatus ?? null,
+      mockClinicMarkOff: row?.mockClinicMarkedAt
+        ? { byName: row.mockClinicMarkedBy?.name ?? null, at: row.mockClinicMarkedAt, note: row.mockClinicNote }
+        : null,
       overallClearance: overallClearance(certStatus, trainingState === "COMPLETE"),
       excuse: excuseFor(m.person.id, m.person.contactEmail),
     };
@@ -1015,7 +1102,10 @@ export async function listTrainingRoster(cycleId: string, viewerId: string): Pro
 
   const pendingRows: TrainingRosterRow[] = pending.map((a) => {
     const applicant = a.application.applicant;
-    const trainingState: TrainingState = attended.has(applicant.emailLower) ? "COMPLETE" : "PENDING";
+    // Attendance is all an applicant row can show: whether it completes their
+    // training depends on the department and application type promotion
+    // settles, so the morning check-in stands in for it until then, as before.
+    const trainingState: TrainingState = attended.morning.has(applicant.emailLower) ? "COMPLETE" : "PENDING";
     const known = accountsFor(applicant);
     return {
       kind: "applicant",
@@ -1045,6 +1135,9 @@ export async function listTrainingRoster(cycleId: string, viewerId: string): Pro
       ),
       origin: a.application.applicantType,
       trainingState,
+      morning: attended.morning.has(applicant.emailLower) ? "ATTENDED" : null,
+      mockClinic: attended.mockClinic.has(applicant.emailLower) ? "ATTENDED" : null,
+      mockClinicMarkOff: null,
       // Locking is a quiz-attempt state on a Training row they cannot have.
       locked: false,
       // Its own state, not NOT_CLEARED. Attendance alone must not make them look
@@ -1074,4 +1167,95 @@ export async function listTrainingRoster(cycleId: string, viewerId: string): Pro
   // Interleaved, not appended. A lead reading this in the run-up to a session is
   // looking for a name, and three alphabetical lists is three places to look.
   return [...memberRows, ...pendingRows, ...expectedRows].sort(comparePersonName);
+}
+
+/** Unlinked attendance rows split by which part of training day they were. */
+function attendedByKind(
+  rows: { attendeeEmail: string | null; event: { kind: string } }[],
+): { morning: Set<string>; mockClinic: Set<string> } {
+  const morning = new Set<string>();
+  const mockClinic = new Set<string>();
+  for (const r of rows) {
+    if (!r.attendeeEmail) continue;
+    (r.event.kind === "MOCK_CLINIC" ? mockClinic : morning).add(r.attendeeEmail.toLowerCase());
+  }
+  return { morning, mockClinic };
+}
+
+/**
+ * Mark a member's mock clinic done without an attendance row.
+ *
+ * The ops process: a member who missed mock clinic makes it up with (or is
+ * waived by) their director, the director tells IT, and IT marks it off here.
+ * Clinic-wide attendance authority only, not a department director's: the
+ * director's word is the input, and the mark-off is the clinic acting on it.
+ *
+ * Deliberately not a back-dated check-in. The attendance sheet keeps meaning
+ * who was physically in the room, and the note says why this person counts.
+ */
+export async function markMockClinicDone(
+  cycleId: string,
+  personId: string,
+  note: string,
+  actorId: string,
+): Promise<void> {
+  const authority = await resolveAttendanceAuthority(actorId);
+  if (!authority.all) {
+    throw new RecruitmentAuthError("Only clinic-wide attendance staff (IT) can mark mock clinic done.");
+  }
+  const trimmed = note.trim();
+  if (!trimmed) throw new TrainingStateError("Say why they count: who confirmed the make-up, and when.");
+  const cycle = await prisma.recruitmentCycle.findUnique({ where: { id: cycleId }, select: { termId: true, track: true, isTermTraining: true } });
+  if (!cycle?.isTermTraining) throw new TrainingStateError("This cycle is not the term's training cycle.");
+  const isMember = await prisma.termMembership.count({
+    where: { personId, termId: cycle.termId, kind: cycle.track, status: "ACTIVE" },
+  });
+  if (isMember === 0) throw new TrainingStateError("Not an active member of this track this term.");
+
+  const now = new Date();
+  await prisma.$transaction(async (tx) => {
+    await tx.training.upsert({
+      where: { personId_termId_track: { personId, termId: cycle.termId, track: cycle.track } },
+      create: {
+        personId, termId: cycle.termId, cycleId, track: cycle.track,
+        mockClinicMarkedById: actorId, mockClinicMarkedAt: now, mockClinicNote: trimmed,
+      },
+      update: { mockClinicMarkedById: actorId, mockClinicMarkedAt: now, mockClinicNote: trimmed },
+    });
+    await recomputeTrainingStanding(tx, { personId, termId: cycle.termId, track: cycle.track });
+  });
+  await recordAudit({
+    actorPersonId: actorId,
+    action: "recruitment.mock_clinic_marked_off",
+    entityType: "Training",
+    entityId: `${personId}:${cycle.termId}:${cycle.track}`,
+    after: { note: trimmed },
+  });
+}
+
+/** Take a mock clinic mark-off back (entered against the wrong person, say). */
+export async function undoMockClinicMarkOff(cycleId: string, personId: string, actorId: string): Promise<void> {
+  const authority = await resolveAttendanceAuthority(actorId);
+  if (!authority.all) {
+    throw new RecruitmentAuthError("Only clinic-wide attendance staff (IT) can undo a mock clinic mark-off.");
+  }
+  const cycle = await prisma.recruitmentCycle.findUnique({ where: { id: cycleId }, select: { termId: true, track: true } });
+  if (!cycle) throw new TrainingStateError("Cycle not found.");
+  const key = { personId_termId_track: { personId, termId: cycle.termId, track: cycle.track } };
+  const before = await prisma.training.findUnique({ where: key, select: { mockClinicNote: true, mockClinicMarkedAt: true } });
+  if (!before?.mockClinicMarkedAt) return;
+  await prisma.$transaction(async (tx) => {
+    await tx.training.update({
+      where: key,
+      data: { mockClinicMarkedById: null, mockClinicMarkedAt: null, mockClinicNote: null },
+    });
+    await recomputeTrainingStanding(tx, { personId, termId: cycle.termId, track: cycle.track });
+  });
+  await recordAudit({
+    actorPersonId: actorId,
+    action: "recruitment.mock_clinic_mark_off_undone",
+    entityType: "Training",
+    entityId: `${personId}:${cycle.termId}:${cycle.track}`,
+    before: { note: before.mockClinicNote },
+  });
 }

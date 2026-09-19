@@ -20,6 +20,8 @@ import { log, flushLogs } from "@/platform/logging";
 import { runClearanceReminders } from "@/platform/email/reminders";
 import { runAttendanceNudges } from "@/platform/email/attendance-nudges";
 import { relinkUnlinkedAttendance } from "@/modules/recruitment/services/attendance-events";
+import { recomputeCurrentTrainingStanding } from "@/platform/training/standing";
+import { runMakeupReminders } from "@/modules/recruitment/services/makeup-release";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,6 +29,18 @@ export const maxDuration = 300;
 
 export async function GET(req: Request): Promise<Response> {
   if (!authorizeCron(req)) return new Response("Unauthorized", { status: 401 });
+
+  // Training-day standing first, so the reminders below judge what people owe
+  // today. Every fact change recomputes the person it touches; this pass is for
+  // the ones that do not (a membership moved department, a term was
+  // designated). Guarded like the nudges below: it must never cost the
+  // compliance-critical run its heartbeat.
+  let standing = { people: 0, nowComplete: 0, nowPending: 0 };
+  try {
+    standing = await recomputeCurrentTrainingStanding();
+  } catch (error) {
+    log.error("[cron/reminders] training standing recompute failed", { error: String(error) });
+  }
 
   const r = await runClearanceReminders();
 
@@ -39,6 +53,15 @@ export async function GET(req: Request): Promise<Response> {
   // Separately guarded: this stream is newer and narrower than clearance
   // reminders, and a failure in it must not cost the compliance-critical run
   // above its heartbeat.
+  // Chasing the online makeup training, for released cycles only. Guarded
+  // separately for the same reason as the nudges below.
+  let makeup = { sent: 0, skipped: 0 };
+  try {
+    makeup = await runMakeupReminders();
+  } catch (error) {
+    log.error("[cron/reminders] makeup reminders failed", { error: String(error) });
+  }
+
   let attendance = { linked: 0, sent: 0, resolved: 0, skipped: 0, failed: 0 };
   try {
     const linked = await relinkUnlinkedAttendance();
@@ -55,8 +78,13 @@ export async function GET(req: Request): Promise<Response> {
     attendanceResolved: attendance.resolved,
     attendanceSkipped: attendance.skipped,
     attendanceFailed: attendance.failed,
+    trainingStandingPeople: standing.people,
+    trainingStandingNowComplete: standing.nowComplete,
+    trainingStandingNowPending: standing.nowPending,
+    makeupRemindersSent: makeup.sent,
+    makeupRemindersSkipped: makeup.skipped,
   });
   await recordCronHeartbeat("reminders");
   await flushLogs();
-  return Response.json({ ok: true, ...r, attendance });
+  return Response.json({ ok: true, ...r, attendance, makeup });
 }

@@ -17,6 +17,8 @@ export const CYCLE_EMAIL_KEYS = [
   "recruitment.draft_reminder",
   "recruitment.assessment_hold",
   "recruitment.waitlist",
+  "recruitment.makeup_training",
+  "recruitment.makeup_reminder",
 ] as const;
 export type CycleEmailKey = (typeof CYCLE_EMAIL_KEYS)[number];
 

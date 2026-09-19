@@ -12,6 +12,7 @@ import {
   DeleteObjectCommand,
   DeleteObjectsCommand,
   ListObjectsV2Command,
+  HeadObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { config } from "@/platform/config";
@@ -173,4 +174,34 @@ export function presignPut(
     new PutObjectCommand({ Bucket: bucket(), Key: key, ContentType: contentType }),
     { expiresIn }
   );
+}
+
+/**
+ * Sign a GET so a browser can stream an object straight from R2. Used for
+ * course video: a 1-2 GB recording must never be proxied through a function,
+ * and R2 answers Range requests itself, which is what lets a <video> seek.
+ * `contentType` pins the response header so a file stored as
+ * application/octet-stream still plays.
+ */
+export function presignGet(
+  key: string,
+  expiresIn: number,
+  opts: { contentType?: string } = {}
+): Promise<string> {
+  return getSignedUrl(
+    s3(),
+    new GetObjectCommand({ Bucket: bucket(), Key: key, ResponseContentType: opts.contentType }),
+    { expiresIn }
+  );
+}
+
+/** The object's size in bytes, or null when it is missing. */
+export async function objectSize(key: string): Promise<number | null> {
+  try {
+    const head = await s3().send(new HeadObjectCommand({ Bucket: bucket(), Key: key }));
+    return head.ContentLength ?? null;
+  } catch (err) {
+    if (isNotFound(err)) return null;
+    throw err;
+  }
 }

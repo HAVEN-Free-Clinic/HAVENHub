@@ -20,10 +20,20 @@ import {
   recordExpectedAttendanceAction,
   resetTrainingAction,
   startCheckInAction,
+  markMockClinicDoneAction,
+  undoMockClinicMarkOffAction,
+  releaseMakeupAction,
+  setMakeupDueDateAction,
 } from "./actions";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
+import { getMakeupReleaseState, type MakeupReleaseState } from "@/modules/recruitment/services/makeup-release";
+import { formatForDateInput } from "@/platform/dates";
+import { Input } from "@/platform/ui/input";
+import { FormRow, RowField } from "@/platform/ui/form";
+import { TextLink } from "@/platform/ui/text-link";
 import { ExcuseAbsenceButton } from "@/modules/recruitment/components/excuse-absence-button";
+import { MarkMockClinicButton } from "@/modules/recruitment/components/mark-mock-clinic-button";
 import {
   ROSTER_ORIGIN_LABELS,
   ROSTER_ORIGIN_TITLES,
@@ -41,6 +51,7 @@ import { StatusBadge } from "@/platform/ui/status-badge";
 import {
   clearanceLabel,
   complianceStatusLabel,
+  trainingPartLabel,
   trainingStateLabel,
 } from "@/platform/compliance/labels";
 import { SubmitButton } from "@/platform/ui/submit-button";
@@ -83,6 +94,12 @@ export default async function TrainingRosterPage({ params }: { params: Promise<{
   const canStartCheckIn = canCheckIn && (canExcuse || trainingEvent !== null);
   // Clinic-wide only: an accepted applicant's attendance is an unlinked row.
   const canRecordApplicants = attendanceAuthority.all;
+  // Also clinic-wide only: the director confirms a mock clinic make-up, and IT,
+  // who holds clinic-wide attendance authority, marks it off.
+  const canMarkMockClinic = attendanceAuthority.all;
+  // Releasing is a lead's call, like releasing decisions: it emails everyone who
+  // owes a part, including the reprimand for an unexcused absence.
+  const makeup = canExcuse ? await getMakeupReleaseState(id) : null;
 
   let rows;
   try {
@@ -146,6 +163,8 @@ export default async function TrainingRosterPage({ params }: { params: Promise<{
           ) : undefined
         }
       />
+      {makeup && <MakeupReleaseCard cycleId={id} state={makeup} zone={zone} />}
+      <TrainingDaySummary rows={rows} />
       <ExcusedSection rows={rows} zone={zone} />
       <Table>
         <THead>
@@ -204,6 +223,24 @@ export default async function TrainingRosterPage({ params }: { params: Promise<{
                         point of recording it. */}
                     {r.excuse && <Badge tone="warning">Excused</Badge>}
                   </div>
+                  {/* The two parts of training day, which the one chip above
+                      rolls up: a morning check-in no longer finishes training
+                      for someone who still owes mock clinic. */}
+                  <dl className="grid grid-cols-[auto_auto] items-center justify-start gap-x-2 gap-y-1 text-xs">
+                    <dt className="text-subtle-foreground">Morning</dt>
+                    <dd><StatusBadge {...trainingPartLabel(r.morning)} /></dd>
+                    <dt className="text-subtle-foreground">Mock clinic</dt>
+                    <dd><StatusBadge {...trainingPartLabel(r.mockClinic)} /></dd>
+                  </dl>
+                  {r.mockClinicMarkOff && (
+                    <p className="line-clamp-2 text-xs text-subtle-foreground">
+                      {r.mockClinicMarkOff.note}
+                      {" ("}
+                      {r.mockClinicMarkOff.byName ? `${r.mockClinicMarkOff.byName}, ` : ""}
+                      {formatDateOnly(r.mockClinicMarkOff.at, zone)}
+                      {")"}
+                    </p>
+                  )}
                   {r.excuse && (
                     // Clamped, not truncated to a tooltip: a long reason must not
                     // stretch this column past the rest of the table, and the full
@@ -228,7 +265,7 @@ export default async function TrainingRosterPage({ params }: { params: Promise<{
                       same reason a scoped director may not add walk-ups at the
                       door (see authorizeTarget). They still SEE the row, because
                       reading it is departmental; they just cannot press this. */}
-                  {r.trainingState !== "COMPLETE" &&
+                  {r.morning !== "ATTENDED" &&
                     (r.kind === "member" ? (
                       <form action={recordAttendanceAction.bind(null, id, r.personId)}>
                         <SubmitButton variant="outline" size="sm" pendingLabel="Recording…">
@@ -278,9 +315,20 @@ export default async function TrainingRosterPage({ params }: { params: Promise<{
                       <ConfirmButton label="Clear excuse" confirmLabel="Clear this excuse?" size="sm" />
                     </form>
                   )}
+                  {canMarkMockClinic && r.kind === "member" && r.mockClinic === "OWED" && (
+                    <MarkMockClinicButton
+                      name={r.name}
+                      action={markMockClinicDoneAction.bind(null, id, r.personId)}
+                    />
+                  )}
+                  {canMarkMockClinic && r.kind === "member" && r.mockClinicMarkOff && (
+                    <form action={undoMockClinicMarkOffAction.bind(null, id, r.personId)}>
+                      <ConfirmButton label="Undo mark-off" confirmLabel="Remove this mock clinic mark-off?" size="sm" />
+                    </form>
+                  )}
                   {r.kind === "member" && r.locked && (
                     <form action={resetTrainingAction.bind(null, id, r.personId)}>
-                      <ConfirmButton label="Reset" confirmLabel="Reset this member's quiz lockout?" size="sm" />
+                      <ConfirmButton label="Reset" confirmLabel="Reset this member's makeup lockout?" size="sm" />
                     </form>
                   )}
                 </div>
@@ -298,6 +346,120 @@ export default async function TrainingRosterPage({ params }: { params: Promise<{
         </tbody>
       </Table>
     </PageBody>
+  );
+}
+
+/**
+ * Releasing the online makeup training, and what it will do when pressed.
+ *
+ * Deliberately shows the counts BEFORE the button: releasing sends an email
+ * that tells people their absence was unacceptable, and the one thing a lead
+ * needs before pressing it is how many people that is.
+ */
+function MakeupReleaseCard({ cycleId, state, zone }: { cycleId: string; state: MakeupReleaseState; zone: string }) {
+  const ready = state.course?.ready ?? false;
+  return (
+    <Card>
+      <SectionHeader level="card" className="mb-3">Online makeup training</SectionHeader>
+      <div className="space-y-3">
+        {!state.course ? (
+          <Alert tone="info">
+            No makeup course is linked to this cycle yet. Create a video course in Learning, upload
+            the recording, write its quiz questions, then link it to this cycle.
+          </Alert>
+        ) : !ready ? (
+          <Alert tone="warning">
+            <TextLink href={`/learning/manage/${state.course.id}`}>{state.course.title}</TextLink> is
+            not ready yet: every section needs a video and the course must be active. Releasing is
+            blocked until it is, so nobody is emailed a link to an empty course.
+          </Alert>
+        ) : (
+          <p className="text-sm text-foreground-soft">
+            Course:{" "}
+            <TextLink href={`/learning/manage/${state.course.id}`}>{state.course.title}</TextLink>
+          </p>
+        )}
+
+        <form action={setMakeupDueDateAction.bind(null, cycleId)}>
+          <FormRow>
+            <RowField label="Due date">
+              <Input
+                name="makeupDueAt"
+                type="date"
+                defaultValue={state.dueAt ? formatForDateInput(state.dueAt, zone) : ""}
+              />
+            </RowField>
+            <SubmitButton size="sm" variant="outline" pendingLabel="Saving…">Save due date</SubmitButton>
+          </FormRow>
+        </form>
+
+        <dl className="flex flex-wrap gap-x-8 gap-y-2 text-sm">
+          <Count label="Owe the course" value={state.owesMorning} />
+          <Count label="Owe mock clinic" value={state.owesMockClinic} />
+          <Count label="Accepted, no contract yet" value={state.notOnboarded} />
+          <Count label="Emailed" value={state.emailed} />
+        </dl>
+
+        {state.releasedAt ? (
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="text-sm text-foreground-soft">
+              Released {formatDateOnly(state.releasedAt, zone)}. Anyone who still owes a part is
+              chased by email every three days until they finish.
+            </p>
+            <form action={releaseMakeupAction.bind(null, cycleId)}>
+              <SubmitButton size="sm" variant="outline" pendingLabel="Sending…">
+                Email anyone not yet told
+              </SubmitButton>
+            </form>
+          </div>
+        ) : (
+          <form action={releaseMakeupAction.bind(null, cycleId)}>
+            <SubmitButton disabled={!ready} pendingLabel="Releasing…">
+              Release makeup training
+            </SubmitButton>
+          </form>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+/**
+ * How much follow-up this session left, in three numbers.
+ *
+ * The table below answers it one row at a time, which is the wrong shape for
+ * the question staff actually arrive with after training day: how many people
+ * do we still have to chase, and for which of the two parts. Counted off the
+ * rows the page already fetched, so it costs no query and is scoped exactly as
+ * they are.
+ */
+function TrainingDaySummary({ rows }: { rows: TrainingRosterRow[] }) {
+  const members = rows.filter((r) => r.kind === "member");
+  const owesMorning = members.filter((r) => r.morning === "OWED").length;
+  const owesMockClinic = members.filter((r) => r.mockClinic === "OWED").length;
+  const clear = members.filter((r) => r.trainingState === "COMPLETE").length;
+  return (
+    <Card>
+      <SectionHeader level="card" className="mb-3">Training day</SectionHeader>
+      {members.length === 0 ? (
+        <EmptyState inline>Nobody on the term roster for this cycle yet.</EmptyState>
+      ) : (
+        <dl className="flex flex-wrap gap-x-8 gap-y-2 text-sm">
+          <Count label="Cleared" value={clear} />
+          <Count label="Owe the online makeup course" value={owesMorning} />
+          <Count label="Owe mock clinic" value={owesMockClinic} />
+        </dl>
+      )}
+    </Card>
+  );
+}
+
+function Count({ label, value }: { label: string; value: number }) {
+  return (
+    <div>
+      <dt className="text-xs text-subtle-foreground">{label}</dt>
+      <dd className="text-lg font-semibold text-foreground">{value}</dd>
+    </div>
   );
 }
 

@@ -70,8 +70,15 @@ export default async function EventCheckInPage({
 
       {event.kind === "TRAINING" && (
         <Alert tone="info">
-          Checking someone in here completes their training for this cycle, whether or not they
-          have finished onboarding. Anyone with onboarding outstanding is emailed what is left.
+          Checking someone in here counts as their morning training session for this cycle, whether
+          or not they have finished onboarding. Anyone with anything outstanding, mock clinic
+          included, is emailed what is left.
+        </Alert>
+      )}
+      {event.kind === "MOCK_CLINIC" && (
+        <Alert tone="info">
+          Checking someone in here counts as their mock clinic for this cycle, whether or not they
+          have finished onboarding. Anyone with anything outstanding is emailed what is left.
         </Alert>
       )}
 

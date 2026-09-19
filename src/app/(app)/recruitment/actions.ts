@@ -181,8 +181,10 @@ export async function setTrainingCycleAction(cycleId: string, value: boolean) {
 
 export async function updateQuizSettingsAction(cycleId: string, formData: FormData) {
   const person = await requirePermission("recruitment.manage_cycles");
-  const quizPassPercent = Number(formData.get("quizPassPercent"));
-  const quizMaxAttempts = Number(formData.get("quizMaxAttempts"));
+  // The quiz fields left this form with the quiz (retired 2026-09-19); absent
+  // means "leave the stored value", which nothing reads any more.
+  const quizPassPercent = formData.has("quizPassPercent") ? Number(formData.get("quizPassPercent")) : undefined;
+  const quizMaxAttempts = formData.has("quizMaxAttempts") ? Number(formData.get("quizMaxAttempts")) : undefined;
   const rawDate = (formData.get("inPersonTrainingDate") as string | null) ?? "";
   // Anchor at noon UTC so the calendar day is timezone-stable (matches clinicDates).
   const inPersonTrainingDate = rawDate ? new Date(`${rawDate}T12:00:00Z`) : null;

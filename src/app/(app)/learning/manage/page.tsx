@@ -2,6 +2,7 @@ import { requirePermission } from "@/platform/auth/session";
 import { PageHeader } from "@/platform/ui/page-header";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { Input } from "@/platform/ui/input";
+import { Select } from "@/platform/ui/select";
 import { Card } from "@/platform/ui/card";
 import { listCourses } from "@/modules/learning/services/courses";
 import { createCourseAction } from "./actions";
@@ -17,11 +18,17 @@ export default async function ManageCoursesPage() {
 
   return (
     <>
-      <PageHeader title="Manage courses" description="Create courses and upload their SCORM packages." />
+      <PageHeader title="Manage courses" description="Create courses from a SCORM package or from video lessons." />
       <div className="mt-6 max-w-2xl space-y-6">
         <Card>
-          <form action={createCourseAction} className="flex gap-2">
-            <Input name="title" placeholder="New course title" required className="flex-1" />
+          <form action={createCourseAction} className="flex flex-wrap gap-2">
+            <Input name="title" placeholder="New course title" required className="min-w-48 flex-1" />
+            {/* A course's kind is fixed at creation: its content is either a
+                SCORM package or video sections, never both. */}
+            <Select name="kind" defaultValue="SCORM" aria-label="Course type" className="w-44">
+              <option value="SCORM">SCORM package</option>
+              <option value="VIDEO">Video lessons</option>
+            </Select>
             <SubmitButton pendingLabel="Creating…">Create</SubmitButton>
           </form>
         </Card>
@@ -57,11 +64,15 @@ export default async function ManageCoursesPage() {
                       same Badges /learning already gives them. */}
                   <TD>
                     <Badge tone={c.hasPackage ? "success" : "warning"}>
-                      {c.hasPackage ? "Uploaded" : "No package"}
+                      {c.hasPackage ? "Ready" : c.kind === "VIDEO" ? "Unfinished" : "No package"}
                     </Badge>
                   </TD>
                   <TD className="text-muted-foreground">
-                    {c.assignToAll ? "All departments" : "By department"}
+                    {c.makeupForCycleTitle
+                      ? `Makeup: ${c.makeupForCycleTitle}`
+                      : c.assignToAll
+                        ? "All departments"
+                        : "By department"}
                   </TD>
                   <TD>
                     <ActiveBadge active={c.isActive} />

@@ -8,7 +8,7 @@ import {
 } from "./training";
 import * as trainingService from "./training";
 import { completeTraining, resolveTrainingState } from "./training";
-import { getMyTraining, resetTraining, listTrainingRoster } from "./training";
+import { getMyTraining, resetTraining, listTrainingRoster, markMockClinicDone, undoMockClinicMarkOff } from "./training";
 import {
   recordAbsenceExcuse,
   clearAbsenceExcuse,
@@ -70,21 +70,10 @@ it("requires manage_cycles to designate", async () => {
   await expect(setTrainingCycle(c1.id, true, plain.id)).rejects.toBeInstanceOf(RecruitmentAuthError);
 });
 
-it("refuses to designate a cycle whose quiz has no keyed questions", async () => {
-  const { srr, c1 } = await seed(); // no quiz seeded on c1
-  await expect(setTrainingCycle(c1.id, true, srr.id)).rejects.toBeInstanceOf(TrainingStateError);
-  expect((await prisma.recruitmentCycle.findUnique({ where: { id: c1.id } }))?.isTermTraining).toBe(false);
-});
-
-// The case the guard exists for: questions.length is non-zero (2, from addQuiz),
-// so the old `questions.length === 0` check would have let this through. Only
-// countGradedQuestions(...) === 0 catches a quiz whose keys were all stripped.
-it("refuses to designate a cycle whose quiz has questions but none are keyed", async () => {
-  const { srr, c1 } = await seed();
-  await addQuiz(c1.id);
-  await prisma.formField.updateMany({ where: { cycleId: c1.id }, data: { correctValue: null } });
-  await expect(setTrainingCycle(c1.id, true, srr.id)).rejects.toBeInstanceOf(TrainingStateError);
-  expect((await prisma.recruitmentCycle.findUnique({ where: { id: c1.id } }))?.isTermTraining).toBe(false);
+it("designates a cycle with no quiz at all: the quiz is retired, so nothing requires one", async () => {
+  const { term, srr, c1 } = await seed(); // no quiz seeded on c1
+  await setTrainingCycle(c1.id, true, srr.id);
+  expect((await getTrainingCycleForTerm(term.id, "VOLUNTEER"))?.id).toBe(c1.id);
 });
 
 it("designates successfully once the cycle has at least one keyed question", async () => {
@@ -189,9 +178,13 @@ it("getMyTraining returns the cycle and state, and nothing a quiz would render f
   expect(my!.inPersonTrainingDate?.getTime()).toBe(date.getTime());
   // c1 still HAS a keyed quiz (seedMember adds one for the designation guard);
   // none of it reaches the member.
-  expect(Object.keys(my!).sort()).toEqual(
-    ["completedAt", "completedVia", "cycle", "inPersonTrainingDate", "state", "term", "track", "trackLabel"],
-  );
+  expect(Object.keys(my!).sort()).toEqual([
+    "completedAt", "completedVia", "cycle", "excused", "inPersonTrainingDate", "locked", "makeupCourseId",
+    "makeupDueAt", "mockClinic", "morning", "returning", "sessionHeld", "state", "term", "track", "trackLabel",
+  ]);
+  // Viewing computes the standing that nothing had yet.
+  expect(my!.morning).toBe("OWED");
+  expect(my!.makeupCourseId).toBeNull();
 });
 
 it("resetTraining still clears an old quiz lockout on an open row", async () => {
@@ -1074,4 +1067,44 @@ it("listTrainingRoster stops expecting them once the evaluation is recorded", as
 
   const rows = await listTrainingRoster(c1.id, srr.id);
   expect(rows.some((r) => r.kind === "expected")).toBe(false);
+});
+
+// ---------------------------------------------------------------------------
+// IT's mock clinic mark-off.
+
+/** The cycle's mock clinic, which is what makes the part owed at all. */
+async function seedMockClinic(termId: string, cycleId: string) {
+  return prisma.attendanceEvent.create({
+    data: { termId, cycleId, kind: "MOCK_CLINIC", title: "Mock clinic", startsAt: new Date("2026-09-19T17:20:00Z") },
+  });
+}
+
+it("marks mock clinic done with a note, which completes training and survives a recompute", async () => {
+  const { term, srr, vol, c1 } = await seedMember();
+  await seedMockClinic(term.id, c1.id);
+  // They came in the morning, which is now only half of training day.
+  const morning = await prisma.attendanceEvent.create({
+    data: { termId: term.id, cycleId: c1.id, kind: "TRAINING", title: "Training", startsAt: new Date("2026-09-19T14:00:00Z") },
+  });
+  await prisma.eventAttendance.create({ data: { eventId: morning.id, personId: vol.id, method: "STAFF", recordedById: srr.id } });
+  const key = { personId_termId_track: { personId: vol.id, termId: term.id, track: "VOLUNTEER" as const } };
+
+  await markMockClinicDone(c1.id, vol.id, "Made up with the SRHD director on 10/1", srr.id);
+
+  const row = await prisma.training.findUniqueOrThrow({ where: key });
+  expect(row).toMatchObject({ status: "COMPLETE", mockClinicStatus: "MARKED_OFF", mockClinicNote: "Made up with the SRHD director on 10/1" });
+  expect(row.mockClinicMarkedById).toBe(srr.id);
+
+  await undoMockClinicMarkOff(c1.id, vol.id, srr.id);
+  expect(await prisma.training.findUniqueOrThrow({ where: key })).toMatchObject({
+    status: "PENDING", mockClinicStatus: "OWED", mockClinicNote: null, mockClinicMarkedAt: null,
+  });
+});
+
+it("refuses a mark-off without clinic-wide attendance authority, and one with no note", async () => {
+  const { term, srr, plain, vol, c1 } = await seedMember();
+  await seedMockClinic(term.id, c1.id);
+  await expect(markMockClinicDone(c1.id, vol.id, "Director said so", plain.id)).rejects.toBeInstanceOf(RecruitmentAuthError);
+  await expect(markMockClinicDone(c1.id, vol.id, "   ", srr.id)).rejects.toBeInstanceOf(TrainingStateError);
+  expect(await prisma.training.findUnique({ where: { personId_termId_track: { personId: vol.id, termId: term.id, track: "VOLUNTEER" } } })).toBeNull();
 });

@@ -32,6 +32,7 @@ import { joinNames } from "../engine/dual-appointments";
 import { epicRequirementFor } from "../contract/epic-requirement";
 import { RecruitmentAuthError } from "./review";
 import { linkAttendanceByEmail } from "./attendance-events";
+import { recomputeTrainingStanding } from "@/platform/training/standing";
 
 /** Thrown when another promote claimed the contract first. Benign: counted as skipped. */
 class ContractAlreadyClaimedError extends Error {
@@ -575,6 +576,16 @@ export async function promoteContracts(
         } catch (err) {
           log.error("[promotion] attendance link failed", errorAttrs(err, { contractId: id }));
         }
+      }
+      // Now that the membership exists, their department decides what training
+      // day asks of them (clinical rules, new vs returning). A standing written
+      // at check-in, before they had a membership, was computed without that.
+      // Best-effort for the same reason as the link above; the reminders sweep
+      // recomputes anyone this misses.
+      try {
+        await recomputeTrainingStanding(prisma, { personId: result.personId, termId: cycle.termId, track: kind });
+      } catch (err) {
+        log.error("[promotion] training standing recompute failed", errorAttrs(err, { contractId: id }));
       }
     } catch (err) {
       if (err instanceof ContractAlreadyClaimedError) {

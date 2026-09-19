@@ -4,14 +4,15 @@ import type { AttendanceEventKind } from "@prisma/client";
 export const KIND_LABELS: Record<AttendanceEventKind, string> = {
   TRAINING: "Training session",
   INFO_SESSION: "Info session",
+  MOCK_CLINIC: "Mock clinic",
   OTHER: "Other event",
 };
 
 /**
- * Badge tone per kind. Training is the one kind whose check-ins change a
- * member's clearance (it completes their training), so it carries the accent
- * tone; the other two only record who was there.
+ * Badge tone per kind. Training and mock clinic are the two parts of training
+ * day, the only kinds whose check-ins change a member's clearance, so they
+ * carry the accent tone; the others only record who was there.
  */
 export function kindTone(kind: AttendanceEventKind): "brand" | "default" {
-  return kind === "TRAINING" ? "brand" : "default";
+  return kind === "TRAINING" || kind === "MOCK_CLINIC" ? "brand" : "default";
 }

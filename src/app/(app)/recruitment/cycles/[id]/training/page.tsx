@@ -153,6 +153,7 @@ export default async function TrainingRosterPage({ params }: { params: Promise<{
           ) : undefined
         }
       />
+      <TrainingDaySummary rows={rows} />
       <ExcusedSection rows={rows} zone={zone} />
       <Table>
         <THead>
@@ -334,6 +335,45 @@ export default async function TrainingRosterPage({ params }: { params: Promise<{
         </tbody>
       </Table>
     </PageBody>
+  );
+}
+
+/**
+ * How much follow-up this session left, in three numbers.
+ *
+ * The table below answers it one row at a time, which is the wrong shape for
+ * the question staff actually arrive with after training day: how many people
+ * do we still have to chase, and for which of the two parts. Counted off the
+ * rows the page already fetched, so it costs no query and is scoped exactly as
+ * they are.
+ */
+function TrainingDaySummary({ rows }: { rows: TrainingRosterRow[] }) {
+  const members = rows.filter((r) => r.kind === "member");
+  const owesMorning = members.filter((r) => r.morning === "OWED").length;
+  const owesMockClinic = members.filter((r) => r.mockClinic === "OWED").length;
+  const clear = members.filter((r) => r.trainingState === "COMPLETE").length;
+  return (
+    <Card>
+      <SectionHeader level="card" className="mb-3">Training day</SectionHeader>
+      {members.length === 0 ? (
+        <EmptyState inline>Nobody on the term roster for this cycle yet.</EmptyState>
+      ) : (
+        <dl className="flex flex-wrap gap-x-8 gap-y-2 text-sm">
+          <Count label="Cleared" value={clear} />
+          <Count label="Owe the online makeup course" value={owesMorning} />
+          <Count label="Owe mock clinic" value={owesMockClinic} />
+        </dl>
+      )}
+    </Card>
+  );
+}
+
+function Count({ label, value }: { label: string; value: number }) {
+  return (
+    <div>
+      <dt className="text-xs text-subtle-foreground">{label}</dt>
+      <dd className="text-lg font-semibold text-foreground">{value}</dd>
+    </div>
   );
 }
 

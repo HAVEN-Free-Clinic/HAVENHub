@@ -1,8 +1,10 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ActiveBadge } from "@/platform/ui/active-badge";
 import { requirePermission } from "@/platform/auth/session";
 import { scopeEditorDepartments } from "@/platform/departments";
 import { PageHeader } from "@/platform/ui/page-header";
+import { buttonClasses } from "@/platform/ui/button";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { Card } from "@/platform/ui/card";
 import { Input, Textarea, Field } from "@/platform/ui/input";
@@ -55,7 +57,22 @@ export default async function EditCoursePage({
   return (
     <>
       <SetBreadcrumbLeaf label={course.title} />
-      <PageHeader title={course.title} status={<ActiveBadge active={course.isActive} />} />
+      <PageHeader
+        title={course.title}
+        status={<ActiveBadge active={course.isActive} />}
+        // The only way into the player for someone who manages the course:
+        // a makeup course is deliberately unassigned, so it never appears on
+        // the Learning list, and the player's preview (video-progress.ts)
+        // otherwise has no door. Says "Preview" rather than "Open" because
+        // nothing a manager does behind this link is recorded.
+        action={
+          isVideo ? (
+            <Link href={`/learning/${course.id}`} className={buttonClasses("outline", "md")}>
+              Preview course
+            </Link>
+          ) : undefined
+        }
+      />
       <div className="mt-6 grid max-w-3xl gap-8">
         {course.isActive && isAssigned && !hasContent && (
           <Alert tone="warning">

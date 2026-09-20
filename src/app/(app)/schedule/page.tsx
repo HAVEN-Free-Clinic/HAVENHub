@@ -626,10 +626,20 @@ export default async function MySchedulePage({
                   Not on a phone: there the three cards stacked full width and
                   pushed a volunteer's own shifts below the fold on a clinic day,
                   to repeat numbers the sections below already give. */}
+              {/* Each tile links to the section below that expands on it, so a
+                  tap on the summary reaches the detail instead of doing nothing.
+                  The tiles are the elevated, obvious targets at the top of the
+                  page: without a destination a member arriving to check their
+                  availability clicked "Dates available", saw no response, and
+                  left (recorded as dead clicks on the tile, its value, and its
+                  label). Anchors are scoped by term id so a member on two terms
+                  gets unique ids rather than a duplicate that jumps to the wrong
+                  section. */}
               <div className="mb-8 hidden gap-4 sm:grid sm:grid-cols-3">
-                <StatCard label="Shifts this term" value={t.shifts.length} />
+                <StatCard label="Shifts this term" value={t.shifts.length} href={`#shifts-${t.term.id}`} />
                 <StatCard
                   label="Dates available"
+                  href={`#availability-${t.term.id}`}
                   value={
                     t.availability && t.clinicDates.length > 0
                       ? `${t.availability.dates.length} of ${t.clinicDates.length}`
@@ -639,11 +649,12 @@ export default async function MySchedulePage({
                 <StatCard
                   label="Pending requests"
                   value={t.pendingRequests.size}
+                  href={`#shifts-${t.term.id}`}
                   tone={t.pendingRequests.size > 0 ? "warning" : "default"}
                 />
               </div>
 
-              <section>
+              <section id={`shifts-${t.term.id}`} className="scroll-mt-8">
                 <SectionHeader as="h2" level="title" className="mb-5">My shifts</SectionHeader>
 
                 {!hasShifts ? (
@@ -686,7 +697,7 @@ export default async function MySchedulePage({
                   that), and a director applies it from the schedule builder.
                   Once a shift is assigned, the request options on that shift
                   are the way to change it. */}
-              <section className="mt-10">
+              <section id={`availability-${t.term.id}`} className="mt-10 scroll-mt-8">
                 <SectionHeader as="h2" level="title" className="mb-2">My availability</SectionHeader>
                 <p className="text-sm text-subtle-foreground mb-5">
                   {t.availability === null

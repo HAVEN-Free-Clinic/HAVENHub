@@ -8,6 +8,7 @@ import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { Field, Input, Textarea } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { FormActions } from "@/platform/ui/form";
+import { SaveForm } from "@/platform/ui/save-form";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { formatTimestamp, sectionLength } from "@/modules/learning/engine/watch";
 import {
@@ -156,7 +157,7 @@ export async function VideoCourseEditor({ courseId }: { courseId: string }) {
                     </div>
                   </div>
 
-                  <form action={updateSectionAction} className="mt-4 space-y-4">
+                  <SaveForm action={updateSectionAction} className="mt-4 space-y-4">
                     <input type="hidden" name="courseId" value={courseId} />
                     <input type="hidden" name="sectionId" value={section.id} />
                     <Field label="Title">
@@ -192,7 +193,7 @@ export async function VideoCourseEditor({ courseId }: { courseId: string }) {
                     <FormActions>
                       <SubmitButton>Save section</SubmitButton>
                     </FormActions>
-                  </form>
+                  </SaveForm>
 
                   <div className="mt-6 border-t border-border pt-4">
                     <SectionHeader level="card">Quiz</SectionHeader>
@@ -205,7 +206,7 @@ export async function VideoCourseEditor({ courseId }: { courseId: string }) {
                       <ul className="mt-3 space-y-4">
                         {section.questions.map((q) => (
                           <li key={q.id} className="rounded-lg border border-border p-3">
-                            <form action={saveQuestionAction} className="space-y-3">
+                            <SaveForm action={saveQuestionAction} className="space-y-3">
                               <input type="hidden" name="courseId" value={courseId} />
                               <input type="hidden" name="questionId" value={q.id} />
                               <Field label="Question">
@@ -221,7 +222,7 @@ export async function VideoCourseEditor({ courseId }: { courseId: string }) {
                               <FormActions>
                                 <SubmitButton>Save question</SubmitButton>
                               </FormActions>
-                            </form>
+                            </SaveForm>
                             <form action={deleteQuestionAction} className="mt-2">
                               <input type="hidden" name="courseId" value={courseId} />
                               <input type="hidden" name="questionId" value={q.id} />
@@ -232,7 +233,7 @@ export async function VideoCourseEditor({ courseId }: { courseId: string }) {
                       </ul>
                     )}
 
-                    <form action={saveQuestionAction} className="mt-4 space-y-3 rounded-lg border border-dashed border-border p-3">
+                    <SaveForm action={saveQuestionAction} className="mt-4 space-y-3 rounded-lg border border-dashed border-border p-3">
                       <input type="hidden" name="courseId" value={courseId} />
                       <input type="hidden" name="sectionId" value={section.id} />
                       <Field label="New question">
@@ -249,7 +250,7 @@ export async function VideoCourseEditor({ courseId }: { courseId: string }) {
                       <FormActions>
                         <SubmitButton>Add question</SubmitButton>
                       </FormActions>
-                    </form>
+                    </SaveForm>
                   </div>
                 </li>
               );
@@ -257,11 +258,11 @@ export async function VideoCourseEditor({ courseId }: { courseId: string }) {
           </ul>
         )}
 
-        <form action={createSectionAction} className="flex gap-2 border-t border-border pt-4">
+        <SaveForm action={createSectionAction} className="flex gap-2 border-t border-border pt-4" savedLabel="Added">
           <input type="hidden" name="courseId" value={courseId} />
           <Input name="title" placeholder="New section title" required className="flex-1" />
           <SubmitButton pendingLabel="Adding…">Add section</SubmitButton>
-        </form>
+        </SaveForm>
       </Card>
 
       <Card className="space-y-4">
@@ -272,7 +273,7 @@ export async function VideoCourseEditor({ courseId }: { courseId: string }) {
           their morning. A linked course is never assigned by department and never counts toward the learning
           step.
         </p>
-        <form action={setMakeupCycleAction}>
+        <SaveForm action={setMakeupCycleAction}>
           <input type="hidden" name="courseId" value={courseId} />
           <Field label="Makes up">
             <Select name="cycleId" defaultValue={course.makeupForCycleId ?? ""} className="max-w-md">
@@ -287,7 +288,7 @@ export async function VideoCourseEditor({ courseId }: { courseId: string }) {
           <FormActions>
             <SubmitButton>Save makeup link</SubmitButton>
           </FormActions>
-        </form>
+        </SaveForm>
       </Card>
     </>
   );

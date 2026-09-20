@@ -19,9 +19,17 @@ import {
 } from "@/modules/learning/services/video-courses";
 import { parseTimestamp } from "@/modules/learning/engine/watch";
 
-/** Where every form on the course editor returns to. */
-function editPath(courseId: string, saved: string): string {
-  return `/learning/manage/${courseId}?saved=${saved}`;
+/**
+ * The editor's own path, revalidated after every save.
+ *
+ * Deliberately NOT a redirect: a redirect is a navigation and a navigation
+ * scrolls to the top, which threw the author back to the page header every
+ * time they saved a question near the bottom. Revalidating re-renders the page
+ * in place, so the scroll position survives; the UI/save-form wrapper is what
+ * reports the save in the toast's absence.
+ */
+function editPath(courseId: string): string {
+  return `/learning/manage/${courseId}`;
 }
 
 function errorPath(courseId: string): (m: string) => string {
@@ -83,7 +91,7 @@ export async function clearCaptionsAction(formData: FormData): Promise<void> {
     work: () => clearVideoCaptions(String(formData.get("videoId")), person.personId),
     domainErrors: [LearningValidationError],
     errorRedirect: errorPath(courseId),
-    successRedirect: editPath(courseId, "captions"),
+    revalidate: editPath(courseId),
   });
 }
 
@@ -94,7 +102,7 @@ export async function deleteVideoAction(formData: FormData): Promise<void> {
     work: () => deleteCourseVideo(String(formData.get("videoId")), person.personId),
     domainErrors: [LearningValidationError],
     errorRedirect: errorPath(courseId),
-    successRedirect: editPath(courseId, "video"),
+    revalidate: editPath(courseId),
   });
 }
 
@@ -107,7 +115,7 @@ export async function createSectionAction(formData: FormData): Promise<void> {
     },
     domainErrors: [LearningValidationError],
     errorRedirect: errorPath(courseId),
-    successRedirect: editPath(courseId, "section"),
+    revalidate: editPath(courseId),
   });
 }
 
@@ -133,7 +141,7 @@ export async function updateSectionAction(formData: FormData): Promise<void> {
     },
     domainErrors: [LearningValidationError],
     errorRedirect: errorPath(courseId),
-    successRedirect: editPath(courseId, "section"),
+    revalidate: editPath(courseId),
   });
 }
 
@@ -144,7 +152,7 @@ export async function deleteSectionAction(formData: FormData): Promise<void> {
     work: () => deleteSection(String(formData.get("sectionId")), person.personId),
     domainErrors: [LearningValidationError],
     errorRedirect: errorPath(courseId),
-    successRedirect: editPath(courseId, "section"),
+    revalidate: editPath(courseId),
   });
 }
 
@@ -156,7 +164,7 @@ export async function moveSectionAction(formData: FormData): Promise<void> {
     work: () => moveSection(String(formData.get("sectionId")), direction, person.personId),
     domainErrors: [LearningValidationError],
     errorRedirect: errorPath(courseId),
-    successRedirect: editPath(courseId, "section"),
+    revalidate: editPath(courseId),
   });
 }
 
@@ -182,7 +190,7 @@ export async function saveQuestionAction(formData: FormData): Promise<void> {
     },
     domainErrors: [LearningValidationError],
     errorRedirect: errorPath(courseId),
-    successRedirect: editPath(courseId, "question"),
+    revalidate: editPath(courseId),
   });
 }
 
@@ -193,7 +201,7 @@ export async function deleteQuestionAction(formData: FormData): Promise<void> {
     work: () => deleteQuestion(String(formData.get("questionId")), person.personId),
     domainErrors: [LearningValidationError],
     errorRedirect: errorPath(courseId),
-    successRedirect: editPath(courseId, "question"),
+    revalidate: editPath(courseId),
   });
 }
 
@@ -205,6 +213,6 @@ export async function setMakeupCycleAction(formData: FormData): Promise<void> {
     work: () => setMakeupCycle(courseId, cycleId, person.personId),
     domainErrors: [LearningValidationError],
     errorRedirect: errorPath(courseId),
-    successRedirect: editPath(courseId, "makeup"),
+    revalidate: editPath(courseId),
   });
 }

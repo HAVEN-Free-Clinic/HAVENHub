@@ -27,6 +27,16 @@ type VideoContext = {
   courseId: string;
   termId: string;
   makeup: { cycleId: string; access: MakeupAccess } | null;
+  /**
+   * The viewer manages courses and this one is not theirs to take, so they are
+   * looking at it rather than doing it: every section opens, the quizzes open
+   * without watching, and NOTHING is written. That last part is what makes it
+   * safe to hand out with learning.manage_courses -- a manager who actually
+   * owes the course is a learner like anyone else (the checks below only fall
+   * through to preview when the course is not owed or not assigned), so this
+   * can never be used to clear a requirement without doing it.
+   */
+  preview: boolean;
 };
 
 /**
@@ -40,25 +50,34 @@ async function resolveContext(personId: string, courseId: string): Promise<Video
     select: { id: true, kind: true, isActive: true, videoReady: true, recurrence: true, makeupForCycleId: true },
   });
   if (!course || course.kind !== "VIDEO") throw new LearningAuthError("This course is not assigned to you.");
+  const manages = () => can(personId, "learning.manage_courses");
 
   if (course.makeupForCycleId) {
-    if (!course.isActive || !course.videoReady) {
-      throw new LearningAuthError("The makeup course is not open yet.");
-    }
     const access = await getMakeupAccess(personId, course.makeupForCycleId);
-    if (access.status === "NOT_OWED") throw new MakeupNotOwedError();
-    return { courseId, termId: access.termId, makeup: { cycleId: course.makeupForCycleId, access } };
+    const makeup = { cycleId: course.makeupForCycleId, access };
+    // Not open yet, or not theirs: a manager sees it anyway, to check the
+    // course before releasing it to the people who owe it.
+    if (!course.isActive || !course.videoReady) {
+      if (!(await manages())) throw new LearningAuthError("The makeup course is not open yet.");
+      return { courseId, termId: access.termId, makeup, preview: true };
+    }
+    if (access.status === "NOT_OWED") {
+      if (!(await manages())) throw new MakeupNotOwedError();
+      return { courseId, termId: access.termId, makeup, preview: true };
+    }
+    return { courseId, termId: access.termId, makeup, preview: false };
   }
 
+  const active = await activeTermId();
   // isCourseAssignedTo checks active + ready + scope + audience, the same
   // resolver the learning gate uses.
   if (!(await isCourseAssignedTo(personId, courseId))) {
-    throw new LearningAuthError("This course is not assigned to you.");
+    if (!(await manages())) throw new LearningAuthError("This course is not assigned to you.");
+    return { courseId, termId: active ?? "", makeup: null, preview: true };
   }
-  const active = await activeTermId();
   if (!active) throw new LearningValidationError("No active term to record progress against.");
   const termId = await resolveProgressTermId(prisma, personId, courseId, course.recurrence, active);
-  return { courseId, termId, makeup: null };
+  return { courseId, termId, makeup: null, preview: false };
 }
 
 type LoadedSection = {
@@ -145,6 +164,8 @@ export type LearnerVideoCourse = {
   complete: boolean;
   /** Makeup only: locked after too many failed attempts. */
   locked: boolean;
+  /** Looking, not doing: sections and quizzes all open, nothing recorded. */
+  preview: boolean;
   sections: LearnerVideoSection[];
 };
 
@@ -161,7 +182,11 @@ export async function getVideoCourseForLearner(personId: string, courseId: strin
     }),
   ]);
   const byId = new Map(progress.map((p) => [p.sectionId, p]));
-  const states = sectionStates(sections, byId);
+  // A preview opens everything: the point is to read the course, and the
+  // watch gate is exactly what gets in the way of checking the quizzes.
+  const states = ctx.preview
+    ? sections.map((s) => ({ id: s.id, unlocked: true, watched: true, passed: false, quizOpen: true }))
+    : sectionStates(sections, byId);
   const lockResetAt = ctx.makeup?.access.lockResetAt ?? null;
   const complete = rollup?.status === "COMPLETE" || ctx.makeup?.access.status === "DONE";
 
@@ -171,8 +196,9 @@ export async function getVideoCourseForLearner(personId: string, courseId: strin
     description: course.description,
     status: complete ? "COMPLETE" : rollup ? "IN_PROGRESS" : "NOT_STARTED",
     isMakeup: ctx.makeup != null,
-    complete,
-    locked: ctx.makeup?.access.locked ?? false,
+    complete: ctx.preview ? false : complete,
+    locked: ctx.preview ? false : ctx.makeup?.access.locked ?? false,
+    preview: ctx.preview,
     sections: sections.map((s, i) => {
       const p = byId.get(s.id);
       return {
@@ -211,6 +237,9 @@ export async function recordSectionHeartbeat(
   if (!section?.video) throw new LearningValidationError("This section is not part of the course.");
   const length = sectionLength(section, section.video.durationSeconds);
   if (length == null) throw new LearningValidationError("This section is not ready yet.");
+  // A preview writes nothing, so it credits nothing: the player is told its
+  // own position back and seeks freely.
+  if (ctx.preview) return { watchedSeconds: Math.max(0, Math.min(reportedSeconds, length)), complete: true };
 
   return runSerializable(async (tx) => {
     const progress = await loadProgress(tx, personId, courseId, ctx.termId);
@@ -267,8 +296,10 @@ export async function submitSectionQuiz(
   rawAnswers: Record<string, unknown>
 ): Promise<SectionQuizResult> {
   const ctx = await resolveContext(personId, courseId);
-  if (ctx.makeup?.access.status === "DONE") throw new LearningValidationError("You have already finished this course.");
-  if (ctx.makeup?.access.locked) throw new MakeupLockedError();
+  if (!ctx.preview && ctx.makeup?.access.status === "DONE") {
+    throw new LearningValidationError("You have already finished this course.");
+  }
+  if (!ctx.preview && ctx.makeup?.access.locked) throw new MakeupLockedError();
 
   const sections = await loadSections(prisma, courseId);
   const section = sections.find((s) => s.id === sectionId);
@@ -282,6 +313,28 @@ export async function submitSectionQuiz(
   }
   const graded = section.questions.map((q) => ({ key: q.id, correctValue: q.correctValue }));
   const makeup = ctx.makeup;
+
+  // A preview is graded and shown, and that is all: no attempt row, no
+  // progress, no completion, so a manager reading the course cannot finish it
+  // for themselves or spend anyone's attempts.
+  if (ctx.preview) {
+    const result = gradeQuiz(graded, answers, section.passPercent);
+    return {
+      score: result.score,
+      total: result.total,
+      percent: result.percent,
+      passed: result.passed,
+      attemptsUsed: 0,
+      maxAttempts: null,
+      locked: false,
+      verdictByKey: Object.fromEntries(
+        graded
+          .filter((q) => q.correctValue !== null)
+          .map((q) => [q.key, answers[q.key] === q.correctValue ? "correct" : "wrong"] as const)
+      ),
+      courseComplete: false,
+    };
+  }
 
   const outcome = await runSerializable(async (tx) => {
     const progress = await loadProgress(tx, personId, courseId, ctx.termId);

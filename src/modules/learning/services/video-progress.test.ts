@@ -202,3 +202,63 @@ it("authorizes the video file for a manager and an owing learner only", async ()
   expect(await authorizeVideoFile(stranger.id, video.id)).toBeNull();
   void course;
 });
+
+// ---------------------------------------------------------------------------
+// Manager preview: a course that is not theirs to take.
+
+it("lets a course manager open every section and quiz without watching, and records nothing", async () => {
+  const { manager, course, term, part1, q1 } = await seed();
+  // A manager does not owe the makeup, which is what would normally refuse them.
+  standing.getMakeupAccess.mockResolvedValue({ status: "NOT_OWED", termId: term.id, track: "VOLUNTEER", locked: false, lockResetAt: null });
+
+  const view = await getVideoCourseForLearner(manager.id, course.id);
+
+  expect(view.preview).toBe(true);
+  expect(view.sections.map((s) => s.state.quizOpen)).toEqual([true, true]);
+  expect(view.sections.map((s) => s.state.unlocked)).toEqual([true, true]);
+
+  // The quiz grades and answers back, exactly as a learner would see.
+  const result = await submitSectionQuiz(manager.id, course.id, part1.id, { [q1!.id]: q1!.correctValue! });
+  expect(result).toMatchObject({ passed: true, score: 1, total: 1, courseComplete: false, attemptsUsed: 0 });
+
+  // ...and nothing was written: no attempt, no progress, no completion, and no
+  // training credit. This is what makes it safe to hand to every manager.
+  expect(await prisma.sectionQuizAttempt.count()).toBe(0);
+  expect(await prisma.sectionProgress.count()).toBe(0);
+  expect(await prisma.courseProgress.count()).toBe(0);
+  expect(standing.recomputeTrainingStanding).not.toHaveBeenCalled();
+
+  // A heartbeat in preview credits nothing either.
+  const beat = await recordSectionHeartbeat(manager.id, course.id, part1.id, 900);
+  expect(beat.watchedSeconds).toBe(900);
+  expect(await prisma.sectionProgress.count()).toBe(0);
+});
+
+it("treats a manager who actually owes the makeup as a learner, not a previewer", async () => {
+  const { manager, course, term, part1, q1 } = await seed();
+  owes(term.id);
+
+  const view = await getVideoCourseForLearner(manager.id, course.id);
+
+  expect(view.preview).toBe(false);
+  // The watch gate still applies to them.
+  expect(view.sections[0]!.state.quizOpen).toBe(false);
+  await expect(
+    submitSectionQuiz(manager.id, course.id, part1.id, { [q1!.id]: q1!.correctValue! })
+  ).rejects.toBeInstanceOf(LearningValidationError);
+});
+
+it("lets a manager preview a makeup course that is not released or ready yet", async () => {
+  const { manager, course, term } = await seed();
+  await prisma.course.update({ where: { id: course.id }, data: { videoReady: false } });
+  standing.getMakeupAccess.mockResolvedValue({ status: "NOT_OWED", termId: term.id, track: "VOLUNTEER", locked: false, lockResetAt: null });
+
+  const view = await getVideoCourseForLearner(manager.id, course.id);
+  expect(view.preview).toBe(true);
+});
+
+it("still refuses a learner who does not manage courses", async () => {
+  const { learner, course, term } = await seed();
+  standing.getMakeupAccess.mockResolvedValue({ status: "NOT_OWED", termId: term.id, track: "VOLUNTEER", locked: false, lockResetAt: null });
+  await expect(getVideoCourseForLearner(learner.id, course.id)).rejects.toBeInstanceOf(MakeupNotOwedError);
+});

@@ -215,10 +215,29 @@ export type MyTraining = {
   sessionHeld: boolean;
 };
 
-/** Whether training day is over: today in `zone` is strictly past the
- *  in-person date. Compared by calendar day key, never raw timestamps, so there
- *  is no UTC-midnight rollover. No date set: nothing to wait for. */
-export function sessionHeld(inPersonTrainingDate: Date | null, now: Date, zone: string): boolean {
+/**
+ * Whether training day is over, which decides whether an owed part reads
+ * "come on the day" or "make it up".
+ *
+ * Releasing the makeup settles it outright. A lead only presses that button
+ * once the session has happened, and it is the same act that emails these
+ * people to say they missed it -- so without this the page contradicted the
+ * email it arrived with, telling somebody to attend a session they had already
+ * missed that morning. Seen on staging on the day itself.
+ *
+ * Failing a release, the calendar rule: today in `zone` is strictly past the
+ * in-person date. Compared by day key, never raw timestamps, so there is no
+ * UTC-midnight rollover. Deliberately not the event's start time: a session
+ * runs for hours, and somebody reading this at lunchtime has not missed it.
+ * No date set at all: nothing to wait for.
+ */
+export function sessionHeld(
+  inPersonTrainingDate: Date | null,
+  now: Date,
+  zone: string,
+  makeupReleasedAt: Date | null = null,
+): boolean {
+  if (makeupReleasedAt) return true;
   if (!inPersonTrainingDate) return true;
   return formatForDateInput(now, zone) > isoDateKey(inPersonTrainingDate);
 }
@@ -287,7 +306,7 @@ export async function getMyTrainingForTerm(personId: string, term: { id: string;
         makeupCourseId,
         makeupDueAt: cycle?.makeupDueAt ?? null,
         locked: row?.locked ?? false,
-        sessionHeld: sessionHeld(cycle?.inPersonTrainingDate ?? null, now, zone),
+        sessionHeld: sessionHeld(cycle?.inPersonTrainingDate ?? null, now, zone, cycle?.makeupReleasedAt ?? null),
       };
     }),
   );

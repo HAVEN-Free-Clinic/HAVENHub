@@ -1,5 +1,6 @@
 import { auth } from "@/platform/auth/auth";
 import { getActivePerson } from "@/platform/auth/match-person";
+import { isSerializationError } from "@/platform/db";
 import { recordSectionHeartbeat } from "@/modules/learning/services/video-progress";
 import { LearningAuthError, LearningValidationError } from "@/modules/learning/services/errors";
 
@@ -38,6 +39,10 @@ export async function POST(request: Request): Promise<Response> {
   } catch (err) {
     if (err instanceof LearningAuthError) return Response.json({ error: err.message }, { status: 403 });
     if (err instanceof LearningValidationError) return Response.json({ error: err.message }, { status: 409 });
+    // A write-conflict that outlasted every retry: the heartbeat is droppable,
+    // so answer 503 rather than a 500. The player treats a non-ok reply as a
+    // dropped beat, and the next beat carries the same furthest point.
+    if (isSerializationError(err)) return new Response("Try again", { status: 503 });
     throw err;
   }
 }

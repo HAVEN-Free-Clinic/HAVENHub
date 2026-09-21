@@ -99,14 +99,21 @@ export function isSerializationError(err: unknown): err is Prisma.PrismaClientKn
 }
 
 /**
- * Run `fn` in a Serializable transaction, retrying a few times when Postgres
- * aborts it with a write-conflict/deadlock (P2034). Use when two transactions can
- * read-then-write the same rows and must not lose an update. `fn` must be free of
- * external side effects, since it may run more than once.
+ * Run `fn` in a Serializable transaction, retrying when Postgres aborts it with
+ * a write-conflict/deadlock (P2034). Use when two transactions can read-then-write
+ * the same rows and must not lose an update. `fn` must be free of external side
+ * effects, since it may run more than once.
+ *
+ * Between attempts it waits a short RANDOM interval that grows with the attempt
+ * count. The randomness is the point: when many callers conflict on the same
+ * rows at once (e.g. a burst of video heartbeats), retrying in lockstep just
+ * reproduces the same collision, so each retry is spread over its own small
+ * window instead. A healthy call pays nothing -- the wait is only on the path
+ * to a retry.
  */
 export async function runSerializable<T>(
   fn: (tx: TransactionClient) => Promise<T>,
-  attempts = 3,
+  { attempts = 5, backoffMs = 25 }: { attempts?: number; backoffMs?: number } = {},
 ): Promise<T> {
   for (let attempt = 1; ; attempt++) {
     try {
@@ -114,8 +121,8 @@ export async function runSerializable<T>(
         isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
       });
     } catch (err) {
-      if (attempt < attempts && isSerializationError(err)) continue;
-      throw err;
+      if (attempt >= attempts || !isSerializationError(err)) throw err;
+      if (backoffMs > 0) await new Promise((resolve) => setTimeout(resolve, Math.random() * backoffMs * attempt));
     }
   }
 }
@@ -135,13 +142,13 @@ export async function runSerializable<T>(
  *     Person, and "null" there means "log out", so degrading would sign a
  *     member out over a blip. It retries instead.
  *
- * Unlike `runSerializable`, this waits between attempts, and the difference is
- * deliberate. A serialization conflict is resolved the instant the competing
- * transaction commits, so an immediate retry is the right move. A dropped
- * connection is not: retrying into the same just-closed pooled connection with
- * no pause is the least likely moment to succeed. The backoff is linear and
- * short (50ms, then 100ms) because this sits in front of a page render -- the
- * budget is bounded at 150ms of added latency, and only on a failing request.
+ * Both this and `runSerializable` wait between attempts, but for different
+ * reasons and so with different shapes. `runSerializable` de-correlates racing
+ * transactions with a random backoff. Here the wait is linear and deterministic
+ * (50ms, then 100ms): a dropped connection needs a pause because retrying into
+ * the same just-closed pooled connection is the least likely moment to succeed,
+ * and this sits in front of a page render, so the budget is bounded at 150ms of
+ * added latency, and only on a failing request.
  */
 export async function withDbRetry<T>(
   fn: () => Promise<T>,

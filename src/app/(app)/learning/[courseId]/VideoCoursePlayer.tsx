@@ -177,6 +177,10 @@ function SectionVideo({
   // the credited point between heartbeats.
   const reachedRef = useRef(section.watchedSeconds);
   const [error, setError] = useState<string | null>(null);
+  // True while a heartbeat fetch is awaiting its response. One at a time: the
+  // timer, a pause and a page-hide can all fire close together, and without
+  // this they stack onto the same write.
+  const sendingRef = useRef(false);
   // The same fact as the `watched` prop, in a ref, because the media event
   // handlers and the heartbeat close over it and must see the current value
   // without re-subscribing.
@@ -196,6 +200,8 @@ function SectionVideo({
         navigator.sendBeacon("/api/learning/video-heartbeat", new Blob([body], { type: "application/json" }));
         return;
       }
+      if (sendingRef.current) return;
+      sendingRef.current = true;
       try {
         const res = await fetch("/api/learning/video-heartbeat", {
           method: "POST",
@@ -213,6 +219,8 @@ function SectionVideo({
       } catch {
         // A dropped heartbeat is not worth interrupting playback: the next one
         // carries the same furthest point.
+      } finally {
+        sendingRef.current = false;
       }
     },
     [courseId, section.id, onWatched]
@@ -226,11 +234,13 @@ function SectionVideo({
     const onHide = () => {
       if (document.visibilityState === "hidden") void send(true);
     };
+    const onPageHide = () => void send(true);
     document.addEventListener("visibilitychange", onHide);
-    window.addEventListener("pagehide", () => void send(true));
+    window.addEventListener("pagehide", onPageHide);
     return () => {
       clearInterval(id);
       document.removeEventListener("visibilitychange", onHide);
+      window.removeEventListener("pagehide", onPageHide);
     };
   }, [send]);
 

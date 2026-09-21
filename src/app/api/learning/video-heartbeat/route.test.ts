@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { Prisma } from "@prisma/client";
 
 vi.mock("@/platform/auth/auth", () => ({ auth: vi.fn() }));
 vi.mock("@/platform/auth/match-person", () => ({ getActivePerson: vi.fn() }));
@@ -62,5 +63,18 @@ describe("POST /api/learning/video-heartbeat", () => {
     expect((await POST(req(BODY))).status).toBe(403);
     vi.mocked(recordSectionHeartbeat).mockRejectedValueOnce(new LearningValidationError("later section"));
     expect((await POST(req(BODY))).status).toBe(409);
+  });
+
+  it("drops a heartbeat with 503 when the write conflict outlasts every retry", async () => {
+    authed();
+    const conflict = new Prisma.PrismaClientKnownRequestError("write conflict", { code: "P2034", clientVersion: "x" });
+    vi.mocked(recordSectionHeartbeat).mockRejectedValueOnce(conflict);
+    expect((await POST(req(BODY))).status).toBe(503);
+  });
+
+  it("still lets an unexpected error surface as a 500", async () => {
+    authed();
+    vi.mocked(recordSectionHeartbeat).mockRejectedValueOnce(new Error("boom"));
+    await expect(POST(req(BODY))).rejects.toThrow("boom");
   });
 });

@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Prisma } from "@prisma/client";
-import { isDbUnreachableError, isSchemaMissingError, isUniqueConstraintError, withDbRetry } from "./db";
+import { isDbUnreachableError, isSchemaMissingError, isSerializationError, isUniqueConstraintError, prisma, runSerializable, withDbRetry } from "./db";
 
 describe("isUniqueConstraintError", () => {
   it("is true for a P2002 known-request error", () => {
@@ -12,6 +12,63 @@ describe("isUniqueConstraintError", () => {
     expect(isUniqueConstraintError(other)).toBe(false);
     expect(isUniqueConstraintError(new Error("nope"))).toBe(false);
     expect(isUniqueConstraintError(null)).toBe(false);
+  });
+});
+
+describe("isSerializationError", () => {
+  it("is true for a P2034 write-conflict and false otherwise", () => {
+    const conflict = new Prisma.PrismaClientKnownRequestError("conflict", { code: "P2034", clientVersion: "x" });
+    expect(isSerializationError(conflict)).toBe(true);
+    const other = new Prisma.PrismaClientKnownRequestError("dup", { code: "P2002", clientVersion: "x" });
+    expect(isSerializationError(other)).toBe(false);
+    expect(isSerializationError(new Error("nope"))).toBe(false);
+  });
+});
+
+describe("runSerializable", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  const conflict = () =>
+    new Prisma.PrismaClientKnownRequestError("write conflict", { code: "P2034", clientVersion: "x" });
+  // backoffMs: 0 throughout so the suite does not sleep. The one wait case sets
+  // it and pins Math.random to make the delay deterministic.
+  const noWait = { backoffMs: 0 };
+
+  it("runs the callback once and returns its value when there is no conflict", async () => {
+    const tx = vi.spyOn(prisma, "$transaction").mockResolvedValue("ok" as never);
+    await expect(runSerializable(async () => "ok", noWait)).resolves.toBe("ok");
+    expect(tx).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries a write-conflict and resolves once it clears", async () => {
+    const tx = vi
+      .spyOn(prisma, "$transaction")
+      .mockRejectedValueOnce(conflict())
+      .mockResolvedValue("ok" as never);
+    await expect(runSerializable(async () => "ok", noWait)).resolves.toBe("ok");
+    expect(tx).toHaveBeenCalledTimes(2);
+  });
+
+  it("gives up after the budget and rethrows the conflict", async () => {
+    const tx = vi.spyOn(prisma, "$transaction").mockRejectedValue(conflict());
+    await expect(runSerializable(async () => "ok", { attempts: 3, backoffMs: 0 })).rejects.toThrow("write conflict");
+    expect(tx).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not retry an error that is not a write-conflict", async () => {
+    const tx = vi.spyOn(prisma, "$transaction").mockRejectedValue(new Error("boom"));
+    await expect(runSerializable(async () => "ok", noWait)).rejects.toThrow("boom");
+    expect(tx).toHaveBeenCalledTimes(1);
+  });
+
+  it("waits a jittered interval between attempts, never before the first", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    vi.spyOn(prisma, "$transaction").mockRejectedValueOnce(conflict()).mockResolvedValue("ok" as never);
+    const started = Date.now();
+    // One failure => one wait of 0.5 * 40 * 1 = 20ms. Asserted as a floor so a
+    // slow runner cannot flake.
+    await expect(runSerializable(async () => "ok", { backoffMs: 40 })).resolves.toBe("ok");
+    expect(Date.now() - started).toBeGreaterThanOrEqual(15);
   });
 });
 

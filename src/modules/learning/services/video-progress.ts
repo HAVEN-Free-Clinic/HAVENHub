@@ -241,6 +241,17 @@ export async function recordSectionHeartbeat(
   // own position back and seeks freely.
   if (ctx.preview) return { watchedSeconds: Math.max(0, Math.min(reportedSeconds, length)), complete: true };
 
+  // A watched section has nothing left to credit (watchedAt latches), so its
+  // heartbeats write nothing and open no transaction. Rewatching sends them,
+  // and so did a player that looped at a section's end; writing them anyway
+  // conflicted with the quiz transaction, which reads the same rows, until the
+  // quiz lost every retry.
+  const existing = await prisma.sectionProgress.findUnique({
+    where: { personId_sectionId_termId: { personId, sectionId, termId: ctx.termId } },
+    select: { watchedSeconds: true, watchedAt: true },
+  });
+  if (existing?.watchedAt) return { watchedSeconds: existing.watchedSeconds, complete: true };
+
   return runSerializable(async (tx) => {
     const progress = await loadProgress(tx, personId, courseId, ctx.termId);
     const byId = new Map(progress.map((p) => [p.sectionId, p]));

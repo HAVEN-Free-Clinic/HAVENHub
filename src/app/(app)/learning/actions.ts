@@ -1,5 +1,6 @@
 "use server";
 import { requirePermission, requirePersonSession } from "@/platform/auth/session";
+import { isSerializationError } from "@/platform/db";
 import { persistScoCmi, type CmiSnapshot } from "@/modules/learning/services/enrollment";
 import { submitSectionQuiz, type SectionQuizResult } from "@/modules/learning/services/video-progress";
 import { LearningAuthError, LearningValidationError, MakeupLockedError } from "@/modules/learning/services/errors";
@@ -30,6 +31,12 @@ export async function submitSectionQuizAction(input: {
   } catch (err) {
     if (err instanceof MakeupLockedError || err instanceof LearningValidationError || err instanceof LearningAuthError) {
       return { error: err.message };
+    }
+    // Lost a write conflict on every retry. The transaction rolled back, so no
+    // attempt was spent and submitting again is safe. Thrown, this would reach
+    // the error page, which re-renders the course from stale props.
+    if (isSerializationError(err)) {
+      return { error: "Your answers could not be saved just then. Nothing was counted, so please submit again." };
     }
     throw err;
   }

@@ -221,7 +221,12 @@ function SectionVideo({
   useEffect(() => {
     const id = setInterval(() => {
       const el = videoRef.current;
-      if (el && !el.paused && !el.ended) void send(false);
+      if (!el) return;
+      // Playing, or parked at the section's end before the server has credited
+      // it: the report sent on reaching the end can fall short of what real
+      // time allows, or fail, and nothing else would send another.
+      const parkedAtEnd = !doneRef.current && reachedRef.current >= section.length;
+      if ((!el.paused && !el.ended) || parkedAtEnd) void send(false);
     }, HEARTBEAT_MS);
     const onHide = () => {
       if (document.visibilityState === "hidden") void send(true);
@@ -232,7 +237,7 @@ function SectionVideo({
       clearInterval(id);
       document.removeEventListener("visibilitychange", onHide);
     };
-  }, [send]);
+  }, [send, section.length]);
 
   // Start where they left off (or at the section's start once it is watched,
   // since a watched section is free to rewatch).
@@ -251,10 +256,13 @@ function SectionVideo({
       return;
     }
     if (el.currentTime >= end) {
-      el.pause();
-      el.currentTime = end;
+      // Stop once, and do not seek. A seek fires another timeupdate, even a
+      // seek to where the video already is, so seeking back to the end here
+      // re-entered this branch forever and flooded the heartbeat from any tab
+      // left at a section's end; that flood is what aborted quiz submissions.
+      // Pausing reports the end through onPause.
       reachedRef.current = section.length;
-      void send(false);
+      if (!el.paused) el.pause();
       return;
     }
     reachedRef.current = Math.max(reachedRef.current, relative(el.currentTime));

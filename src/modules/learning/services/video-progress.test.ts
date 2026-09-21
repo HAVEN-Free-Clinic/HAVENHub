@@ -122,6 +122,27 @@ it("a forged jump to the end is clamped to real time", async () => {
   expect(r.watchedSeconds).toBeLessThan(10);
 });
 
+it("writes nothing for a heartbeat on a section already watched, so a burst of them cannot abort the quiz", async () => {
+  // A player parked at a section's end once sent heartbeats in a tight loop.
+  // Each was a Serializable write to the row the quiz transaction reads, so the
+  // quiz lost every retry (2026-09-21). Tabs still running that player keep
+  // looping until they reload, so the server must shrug these off.
+  const { learner, course, term, part1, q1 } = await seed();
+  owes(term.id);
+  await watchAll(learner.id, course.id, part1.id, 1800);
+  const before = await prisma.sectionProgress.findFirstOrThrow({ where: { personId: learner.id, sectionId: part1.id } });
+
+  const [quiz, ...beats] = await Promise.all([
+    submitSectionQuiz(learner.id, course.id, part1.id, { [q1.id]: "opt-1" }),
+    ...Array.from({ length: 10 }, () => recordSectionHeartbeat(learner.id, course.id, part1.id, 1800)),
+  ]);
+
+  expect(quiz.passed).toBe(true);
+  expect(beats).toEqual(Array.from({ length: 10 }, () => ({ watchedSeconds: 1800, complete: true })));
+  const after = await prisma.sectionProgress.findFirstOrThrow({ where: { personId: learner.id, sectionId: part1.id } });
+  expect(after.lastHeartbeatAt).toEqual(before.lastHeartbeatAt);
+});
+
 it("refuses a heartbeat for a section that is not open yet", async () => {
   const { learner, course, term, part2 } = await seed();
   owes(term.id);

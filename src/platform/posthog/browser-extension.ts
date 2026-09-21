@@ -23,9 +23,11 @@
  *
  * Three independent signals, because any of them can be missing:
  *
- *  - A stack frame whose filename is an extension URL. This is the reliable one
- *    when a stack survives, and it is scheme-based rather than a list of
- *    extension names, so it needs no maintenance as visitors install things.
+ *  - A stack frame whose filename is extension code: an extension URL, a
+ *    `file://` path, or a macOS/Safari extension bundle path. This is the
+ *    reliable one when a stack survives, and it is scheme- and location-based
+ *    rather than a list of extension names, so it needs no maintenance as
+ *    visitors install things.
  *  - A message naming a known extension. Needed because a cross-origin script
  *    error is delivered to `window.onerror` with the stack stripped ("Script
  *    error."), leaving the message as the only evidence.
@@ -53,6 +55,20 @@ const EXTENSION_SCHEMES = [
   "safari-extension://",
   "ms-browser-extension://",
 ];
+
+/**
+ * Path fragments that identify code running from the visitor's own machine, not
+ * an asset of ours. Our app is only ever served over HTTPS, so none of these can
+ * name a first-party file.
+ *
+ *  - `.appex/` is a Safari APP extension packaged inside a macOS `.app` bundle.
+ *    It runs from a `file://` path such as
+ *    `file:///Applications/<App>.app/Contents/PlugIns/<Name>.appex/.../h0.js`,
+ *    so no `*-extension://` scheme matches it. A shopping-coupon app extension
+ *    of this shape threw `UnavailableError` on /my-info in Safari 27.
+ *  - `.safariextension/` is the bundle path of the legacy Safari extension kind.
+ */
+const LOCAL_CODE_MARKERS = [".appex/", ".safariextension/"];
 
 /**
  * Message prefixes belonging to specific extensions, for the stackless case.
@@ -87,10 +103,23 @@ const EXTENSION_MESSAGE_MARKERS = ["Zotero Connector:", "Grammarly:"];
 const INJECTED_GLOBAL_MARKERS = ["__firefox__", "window.ethereum"];
 
 function isExtensionUrl(value: unknown): boolean {
-  return (
-    typeof value === "string" &&
-    EXTENSION_SCHEMES.some((scheme) => value.includes(scheme))
-  );
+  if (typeof value !== "string") return false;
+  if (value.startsWith("file://")) return true;
+  if (EXTENSION_SCHEMES.some((scheme) => value.includes(scheme))) return true;
+  return LOCAL_CODE_MARKERS.some((marker) => value.includes(marker));
+}
+
+/**
+ * The pre-normalisation frame posthog-js keeps under `junk_drawer.raw_frame`,
+ * whose `filename` holds the original path. Returns `undefined` when the frame
+ * has no such nested filename.
+ */
+function rawFrameFilename(frame: object): unknown {
+  const junkDrawer = (frame as Record<string, unknown>).junk_drawer;
+  if (typeof junkDrawer !== "object" || junkDrawer === null) return undefined;
+  const rawFrame = (junkDrawer as Record<string, unknown>).raw_frame;
+  if (typeof rawFrame !== "object" || rawFrame === null) return undefined;
+  return (rawFrame as Record<string, unknown>).filename;
 }
 
 function hasExtensionMarker(value: unknown): boolean {
@@ -130,10 +159,19 @@ function isExtensionException(entry: unknown): boolean {
   //
   // A frame with no recognisable filename fails the test and keeps the event,
   // which is the safe direction.
+  //
+  // posthog-js does not always promote the source path to a top-level key: for
+  // the Safari app-extension case the only copy of the `file://` path is under
+  // `junk_drawer.raw_frame.filename`, so read there too.
   return frames.every((frame) => {
     if (typeof frame !== "object" || frame === null) return false;
     const { filename, source, abs_path } = frame as Record<string, unknown>;
-    return isExtensionUrl(filename) || isExtensionUrl(source) || isExtensionUrl(abs_path);
+    return (
+      isExtensionUrl(filename) ||
+      isExtensionUrl(source) ||
+      isExtensionUrl(abs_path) ||
+      isExtensionUrl(rawFrameFilename(frame))
+    );
   });
 }
 

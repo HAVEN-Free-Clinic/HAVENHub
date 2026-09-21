@@ -5,6 +5,7 @@ import { isBrowserExtensionEvent } from "@/platform/posthog/browser-extension";
 import { isRecoverableHydrationEvent } from "@/platform/posthog/react-hydration";
 import { isScriptErrorEvent } from "@/platform/posthog/script-error";
 import { isAuthSessionPollEvent } from "@/platform/posthog/auth-session-poll";
+import { isNonErrorThrowEvent } from "@/platform/posthog/nonerror-throw";
 import { scrubProperties } from "@/platform/posthog/scrub-url";
 
 posthog.init(process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN!, {
@@ -12,8 +13,8 @@ posthog.init(process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN!, {
   ui_host: "https://us.posthog.com",
   defaults: "2026-01-30",
   capture_exceptions: true,
-  // Six kinds of non-error reach the global exception handler and bury the real
-  // ones in Error Tracking, so all six are dropped before capture:
+  // Seven kinds of non-error reach the global exception handler and bury the
+  // real ones in Error Tracking, so all seven are dropped before capture:
   // Next's redirect()/notFound() sentinels, which are intended control flow
   // rather than crashes; React's redacted stand-in for a server-side failure,
   // which duplicates an error the server already reported with its message and
@@ -24,10 +25,13 @@ posthog.init(process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN!, {
   // which React fixes by re-rendering before anyone sees them and which arrive
   // with no element, component, or stack to act on; the browser's opaque
   // cross-origin "Script error." report, which the browser strips of message,
-  // source, and stack and which nothing we ship can produce; and next-auth's
+  // source, and stack and which nothing we ship can produce; next-auth's
   // background session poll losing its fetch to a network blip, which changes
   // nothing the member can see because the session cookie is unaffected and the
-  // next poll reconciles.
+  // next poll reconciles; and a non-Error value -- an object, an event, a
+  // primitive -- thrown by the visitor's browser or a script it injects, which
+  // has no Error behind it, so posthog-js can only wrap it in a synthetic
+  // placeholder with no first-party frame to act on.
   //
   // The bar is "nothing is actually broken", NOT "this message is noisy". An
   // opaque exception that IS the only evidence of a user-facing failure stays --
@@ -39,7 +43,8 @@ posthog.init(process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN!, {
     isBrowserExtensionEvent(event) ||
     isRecoverableHydrationEvent(event) ||
     isScriptErrorEvent(event) ||
-    isAuthSessionPollEvent(event)
+    isAuthSessionPollEvent(event) ||
+    isNonErrorThrowEvent(event)
       ? null
       : event,
   debug: process.env.NODE_ENV === "development",

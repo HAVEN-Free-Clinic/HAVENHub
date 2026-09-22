@@ -47,6 +47,7 @@ import type {
   OrphanEpicTicketRow,
   PendingDeactivation,
   PendingEpicRequestRow,
+  StrandedDeactivationRow,
 } from "@/modules/support/services/itcm";
 import { Combobox, type ComboboxOption } from "@/platform/ui/combobox";
 import { Checkbox } from "@/platform/ui/checkbox";
@@ -73,6 +74,8 @@ type Props = {
   pending: PendingEpicRequestRow[];
   /** EPIC tickets with no Epic request attached -- the ones that fell out of the workflow. */
   orphanEpicTickets: OrphanEpicTicketRow[];
+  /** Pending DEACTIVATE requests for people who are ACTIVE again -- stranded rows no other surface shows. */
+  strandedDeactivations: StrandedDeactivationRow[];
   /** Open support tickets an Epic request can be attached to, for the Tracker's picker. */
   linkableTickets: LinkableTechRequest[];
   rollup: EpicRollup | null;
@@ -697,14 +700,66 @@ function EpicTicketsWithoutRequest({ orphans }: { orphans: OrphanEpicTicketRow[]
   );
 }
 
+/**
+ * Pending DEACTIVATE requests for people who are ACTIVE again.
+ *
+ * These are the rows cancelOpenDeactivationRequestsTx was supposed to clear on
+ * reactivation but missed. They show up on no other surface at all --
+ * listPendingEpicRequests excludes every DEACTIVATE, and listPendingDeactivations
+ * (the Generate tab's deactivation picker) requires a non-active person -- yet
+ * they still count against the one-open-request-per-person guard and block a
+ * fresh Epic request for that person. Rendered as its own sibling card, in the
+ * same spot as EpicTicketsWithoutRequest, so the fix is one click away from
+ * wherever an admin is already looking for something stuck in this queue.
+ */
+function StrandedDeactivationsCard({
+  rows,
+  cancelAction,
+}: {
+  rows: StrandedDeactivationRow[];
+  cancelAction: (requestId: string, formData: FormData) => Promise<void>;
+}) {
+  if (rows.length === 0) return null;
+  return (
+    <Card className="space-y-3">
+      <SectionHeader level="title">Deactivations for people who are active again</SectionHeader>
+      <Alert tone="warning">
+        These people were offboarded, had an Epic deactivation queued, and then
+        came back. The request is on no other surface and still blocks a new Epic
+        request for them. Cancel it unless their access really should be revoked.
+      </Alert>
+      <ul className="space-y-1">
+        {rows.map((r) => (
+          <li key={r.requestId} className="flex items-center justify-between gap-2 text-sm">
+            <span className="font-medium">{r.personName}</span>
+            {/* Its own <form>, not nested inside the bulk-select form below (a
+                nested <form> is not legal HTML -- see that form's own Cancel
+                buttons, which use formAction for the same reason). This card
+                renders as a sibling of that form, matching the Tracker's Cancel
+                button, which is also its own standalone per-row form. */}
+            <form action={cancelAction.bind(null, r.requestId)}>
+              <input type="hidden" name="tab" value="pending" />
+              <SubmitButton size="sm" variant="outline" pendingLabel="Cancelling…">
+                Cancel deactivation
+              </SubmitButton>
+            </form>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
 export function PendingTab({
   pending,
   orphans,
+  strandedDeactivations,
   action,
   cancelAction,
 }: {
   pending: PendingEpicRequestRow[];
   orphans: OrphanEpicTicketRow[];
+  strandedDeactivations: StrandedDeactivationRow[];
   action: (formData: FormData) => Promise<void>;
   cancelAction: (requestId: string, formData: FormData) => Promise<void>;
 }) {
@@ -715,6 +770,7 @@ export function PendingTab({
     return (
       <div className="space-y-4">
         <EpicTicketsWithoutRequest orphans={orphans} />
+        <StrandedDeactivationsCard rows={strandedDeactivations} cancelAction={cancelAction} />
         <EmptyState
           title="No pending Epic requests"
           description="Attach some from a support ticket, or promote a volunteer who needs Epic access."
@@ -723,8 +779,10 @@ export function PendingTab({
     );
   }
   return (
-    <form action={action} className="space-y-4">
+    <div className="space-y-4">
       <EpicTicketsWithoutRequest orphans={orphans} />
+      <StrandedDeactivationsCard rows={strandedDeactivations} cancelAction={cancelAction} />
+      <form action={action} className="space-y-4">
       <Card className="space-y-3">
         <SectionHeader level="title">Pending Epic requests</SectionHeader>
         <p className="text-xs text-subtle-foreground">
@@ -818,7 +876,8 @@ export function PendingTab({
           </SubmitButton>
         </FormActions>
       </Card>
-    </form>
+      </form>
+    </div>
   );
 }
 
@@ -836,6 +895,7 @@ export function EpicRequestTabs({
   incidentPeople,
   pending,
   orphanEpicTickets,
+  strandedDeactivations,
   linkableTickets,
   rollup,
   termOptions,
@@ -885,6 +945,7 @@ export function EpicRequestTabs({
         <PendingTab
           pending={pending}
           orphans={orphanEpicTickets}
+          strandedDeactivations={strandedDeactivations}
           action={createTicketFromPendingAction}
           cancelAction={cancelEpicRequestAction}
         />

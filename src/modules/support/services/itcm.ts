@@ -801,6 +801,42 @@ export async function listPendingDeactivations(): Promise<PendingDeactivation[]>
   return [...byPerson.values()];
 }
 
+// ---------------------------------------------------------------------------
+// listStrandedDeactivations
+// ---------------------------------------------------------------------------
+
+export type StrandedDeactivationRow = {
+  requestId: string;
+  personId: string;
+  personName: string;
+  createdAt: Date;
+};
+
+/**
+ * Pending deactivations for people who are ACTIVE again.
+ *
+ * These are invisible everywhere else: listPendingEpicRequests excludes
+ * DEACTIVATE, and listPendingDeactivations requires a non-active person. So the
+ * row cannot be seen or cancelled from any surface, while still counting
+ * against the one-open-request-per-person guard and blocking a fresh grant.
+ * Normally cancelOpenDeactivationRequestsTx clears these on reactivation; this
+ * finds the ones it missed -- the same shape of hole listPendingEpicRequests'
+ * doc comment above records having already shipped once for promotion rows.
+ */
+export async function listStrandedDeactivations(): Promise<StrandedDeactivationRow[]> {
+  const rows = await prisma.epicRequest.findMany({
+    where: { kind: "DEACTIVATE", status: "PENDING", person: { status: "ACTIVE" } },
+    select: { id: true, personId: true, createdAt: true, person: { select: { name: true } } },
+    orderBy: { createdAt: "asc" },
+  });
+  return rows.map((r) => ({
+    requestId: r.id,
+    personId: r.personId,
+    personName: r.person.name,
+    createdAt: r.createdAt,
+  }));
+}
+
 /**
  * Links the selected people's deactivation requests to a YNHH ticket when an
  * admin generates a deactivation service request. For each person: reuse an

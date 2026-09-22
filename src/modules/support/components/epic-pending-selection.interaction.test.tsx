@@ -51,7 +51,11 @@ function mount(rows: PendingEpicRequestRow[] = ROWS, orphans: OrphanEpicTicketRo
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
-  act(() => root.render(<PendingTab pending={rows} orphans={orphans} action={noop} cancelAction={noop} />));
+  act(() =>
+    root.render(
+      <PendingTab pending={rows} orphans={orphans} strandedDeactivations={[]} action={noop} cancelAction={noop} />
+    )
+  );
   mounted = { container, root };
   return container;
 }

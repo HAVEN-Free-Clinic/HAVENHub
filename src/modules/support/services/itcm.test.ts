@@ -6,6 +6,7 @@ import {
   listEpicAuthorizers,
   listDepartmentsWithMembers,
   listPendingDeactivations,
+  listStrandedDeactivations,
   listEpicTicketsWithoutRequest,
   listPendingEpicRequests,
   reconcileDeactivationRequests,
@@ -219,6 +220,31 @@ describe("listPendingDeactivations", () => {
     });
 
     expect(await listPendingDeactivations()).toEqual([]);
+  });
+});
+
+describe("listStrandedDeactivations", () => {
+  beforeEach(resetDb);
+
+  it("finds a pending deactivation for a person who is active again", async () => {
+    const actor = await createPerson("Admin");
+    const sam = await createPerson("Sam Rivera", { epicId: "EP1", status: "ACTIVE" });
+    const req = await prisma.epicRequest.create({
+      data: { personId: sam.id, kind: "DEACTIVATE", status: "PENDING", requestedById: actor.id },
+    });
+
+    const rows = await listStrandedDeactivations();
+    expect(rows.map((r) => r.requestId)).toEqual([req.id]);
+  });
+
+  it("ignores a deactivation for someone who is still offboarded", async () => {
+    const actor = await createPerson("Admin");
+    const sam = await createPerson("Sam Rivera", { epicId: "EP1", status: "OFFBOARDED" });
+    await prisma.epicRequest.create({
+      data: { personId: sam.id, kind: "DEACTIVATE", status: "PENDING", requestedById: actor.id },
+    });
+
+    expect(await listStrandedDeactivations()).toEqual([]);
   });
 });
 

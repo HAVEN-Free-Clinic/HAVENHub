@@ -24,6 +24,7 @@ import {
   listIncidentPeople,
   listEpicTicketsWithoutRequest,
   listPendingEpicRequests,
+  listStrandedDeactivations,
   listLinkableTechRequests,
   closeTicket,
   updateServiceRequestNumber,
@@ -321,6 +322,7 @@ export default async function EpicRequestsPage({ searchParams }: PageProps) {
     incidentPeople,
     pending,
     orphanEpicTickets,
+    strandedDeactivations,
     linkableTickets,
   ] =
     await Promise.all([
@@ -340,6 +342,10 @@ export default async function EpicRequestsPage({ searchParams }: PageProps) {
       // Same tab, same reason: an EPIC ticket nobody attached a request to is a
       // hole in this queue, so it is loaded and shown beside it.
       activeTab === "pending" ? listEpicTicketsWithoutRequest() : [],
+      // Same tab again: a PENDING DEACTIVATE for someone who is ACTIVE again is
+      // invisible everywhere else -- the same shape of hole listPendingEpicRequests
+      // once had for promotion rows -- so it is loaded and offered a cancel here.
+      activeTab === "pending" ? listStrandedDeactivations() : [],
       needsTracker ? listLinkableTechRequests() : [],
     ]);
 
@@ -374,6 +380,7 @@ export default async function EpicRequestsPage({ searchParams }: PageProps) {
         incidentPeople={incidentPeople}
         pending={pending}
         orphanEpicTickets={orphanEpicTickets}
+        strandedDeactivations={strandedDeactivations}
         linkableTickets={linkableTickets}
         rollup={rollup}
         termOptions={termOptions}

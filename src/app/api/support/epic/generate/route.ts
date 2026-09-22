@@ -246,6 +246,19 @@ export async function POST(req: Request) {
 
   const isDeactivate = requestType === "deactivate_individual" || requestType === "bulk_deactivate";
 
+  // A deactivation has exactly one date: the effective deactivation date
+  // (endDate). There is no "New Hire start date" field for a termination, so a
+  // start date is meaningless on it -- the client still renders and seeds a
+  // start input for every request type (a later task reworks that), so this
+  // route, which is a directly-callable POST and cannot trust the client (see
+  // the multi-person guard below), forces it empty here rather than trusting
+  // whatever the client happened to send. Left as-is on the client's stray
+  // value, it would print the live term start in the bulk-deactivation
+  // spreadsheet's Start Date column, and the range guard below would reject a
+  // legitimate ad-hoc deactivation whenever its effective date falls before
+  // that unrelated term start.
+  const effectiveStartDate = isDeactivate ? "" : (startDate ?? "");
+
   // Every request type (new, modify, renew, and deactivate) requires an
   // access/effective date from the admin so a blank date never reaches YNHH.
   if (!endDate?.trim()) {
@@ -258,8 +271,10 @@ export async function POST(req: Request) {
   // An inverted range would print a start after its own end on the PDF and the
   // spreadsheet. Compared as MM/DD/YYYY reordered to sortable YYYYMMDD rather
   // than via Date, so no timezone can shift the calendar day the admin picked.
+  // effectiveStartDate is always "" on a deactivation, so this can never fire
+  // for one.
   const sortable = (us: string) => `${us.slice(6, 10)}${us.slice(0, 2)}${us.slice(3, 5)}`;
-  if (startDate?.trim() && sortable(startDate) > sortable(endDate)) {
+  if (effectiveStartDate.trim() && sortable(effectiveStartDate) > sortable(endDate)) {
     return NextResponse.json(
       { error: "The access start date is after the end date." },
       { status: 400 }
@@ -274,7 +289,7 @@ export async function POST(req: Request) {
   const toDate = (us: string): Date | null =>
     us ? new Date(`${us.slice(6, 10)}-${us.slice(0, 2)}-${us.slice(3, 5)}T00:00:00.000Z`) : null;
 
-  const accessDates = { start: toDate(startDate ?? ""), end: toDate(effectiveEndDate) };
+  const accessDates = { start: toDate(effectiveStartDate), end: toDate(effectiveEndDate) };
 
   // Load people from the database.
   const people = await getPeopleByIds(personIds);
@@ -354,7 +369,7 @@ export async function POST(req: Request) {
     requestType,
     authorizer,
     person: personArg,
-    startDate: startDate ?? "",
+    startDate: effectiveStartDate,
     endDate: effectiveEndDate,
     mirrorPerson: isBulk ? null : singleMirrorPerson,
     templateBytes,
@@ -432,7 +447,7 @@ export async function POST(req: Request) {
     const xlsxBuffer = await generateSpreadsheet({
       requestType,
       people: peopleRows,
-      startDate: startDate ?? "",
+      startDate: effectiveStartDate,
       endDate: effectiveEndDate,
     });
 

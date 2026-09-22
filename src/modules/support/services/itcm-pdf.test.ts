@@ -360,6 +360,6 @@ describe("generatePdf New Hire start date", () => {
     });
 
     const fields = await readTextFields(bytes);
-    expect(fields.Text75).not.toBe("");
+    expect(fields.Text75).toMatch(/^\d{2}\/\d{2}\/\d{4}$/);
   });
 });

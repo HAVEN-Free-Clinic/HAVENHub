@@ -465,6 +465,36 @@ describe("reconcileDeactivationRequests", () => {
     expect(stored.accessEndDate?.toISOString()).toBe(end.toISOString());
     expect(stored.accessStartDate).toBeNull();
   });
+
+  // reconcileDeactivationRequests' own comment says a DEACTIVATE is usually
+  // queued at offboard, which makes this updateMany adoption branch (not the
+  // create above) the dominant production path -- so it needs its own
+  // coverage, not just an inference from the create-path test. Re-reads the
+  // SAME ROW BY ITS ID, which is what proves adoption happened rather than a
+  // fall-through create of a second row.
+  it("persists accessEndDate when adopting an existing un-ticketed PENDING DEACTIVATE", async () => {
+    const actor = await prisma.person.create({ data: { name: "Actor" } });
+    const person = await prisma.person.create({ data: { name: "Leaving", epicId: "E10", status: "OFFBOARDED" } });
+    const queued = await prisma.epicRequest.create({
+      data: {
+        personId: person.id,
+        kind: "DEACTIVATE",
+        status: "PENDING",
+        requestedById: actor.id,
+        ticketId: null,
+        accessEndDate: null,
+      },
+    });
+    const end = new Date("2026-10-31T00:00:00.000Z");
+
+    const ticket = await reconcileDeactivationRequests(actor.id, [person.id], "Deactivate - Leaving", end);
+
+    const adopted = await prisma.epicRequest.findUniqueOrThrow({ where: { id: queued.id } });
+    expect(adopted.ticketId).toBe(ticket.id);
+    expect(adopted.status).toBe("SUBMITTED");
+    expect(adopted.accessEndDate?.toISOString()).toBe(end.toISOString());
+    expect(adopted.accessStartDate).toBeNull();
+  });
 });
 
 describe("submitEpicRequests", () => {

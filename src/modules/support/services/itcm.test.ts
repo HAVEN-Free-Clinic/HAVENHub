@@ -4,6 +4,7 @@ import { resetDb } from "@/platform/test/db";
 import {
   authorizerInitials,
   listEpicAuthorizers,
+  listDepartmentsWithMembers,
   listPendingDeactivations,
   listEpicTicketsWithoutRequest,
   listPendingEpicRequests,
@@ -50,6 +51,20 @@ async function grantPermission(personId: string, permission: string) {
     },
   });
   await prisma.roleAssignment.create({ data: { roleId: role.id, personId, termId: null } });
+}
+
+async function threeTermFixture() {
+  const prev = await prisma.term.create({
+    data: { code: "SP26", name: "Spring 2026", startDate: new Date("2026-01-01"), endDate: new Date("2026-05-01"), status: "ARCHIVED" },
+  });
+  const live = await prisma.term.create({
+    data: { code: "SU26", name: "Summer 2026", startDate: new Date("2026-05-15"), endDate: new Date("2026-08-15"), status: "ACTIVE" },
+  });
+  const next = await prisma.term.create({
+    data: { code: "FA26", name: "Fall 2026", startDate: new Date("2026-09-01"), endDate: new Date("2026-12-20"), status: "PLANNING" },
+  });
+  const dept = await prisma.department.create({ data: { code: "PCAR", name: "Patient Care" } });
+  return { prev, live, next, dept };
 }
 
 describe("authorizerInitials", () => {
@@ -1166,5 +1181,56 @@ describe("markBatchSent", () => {
       data: { submittedById: actor.id, description: "x" },
     });
     await expect(markBatchSent(actor.id, ticket.id)).rejects.toThrow(SupportForbiddenError);
+  });
+});
+
+describe("listDepartmentsWithMembers term scope", () => {
+  beforeEach(resetDb);
+
+  it("includes next-term members and badges them with their term code", async () => {
+    const { next, dept } = await threeTermFixture();
+    const sam = await createPerson("Sam Rivera");
+    await prisma.termMembership.create({
+      data: { personId: sam.id, termId: next.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" },
+    });
+
+    const depts = await listDepartmentsWithMembers();
+    const row = depts[0].volunteers.find((v) => v.id === sam.id);
+    expect(row?.termCode).toBe(next.code);
+  });
+
+  it("prefers the live term's role when a person holds two memberships", async () => {
+    const { live, prev, dept } = await threeTermFixture();
+    const sam = await createPerson("Sam Rivera");
+    await prisma.termMembership.create({
+      data: { personId: sam.id, termId: prev.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" },
+    });
+    await prisma.termMembership.create({
+      data: { personId: sam.id, termId: live.id, departmentId: dept.id, kind: "DIRECTOR", status: "ACTIVE" },
+    });
+
+    const depts = await listDepartmentsWithMembers();
+    expect(depts[0].directors.map((d) => d.id)).toContain(sam.id);
+    expect(depts[0].volunteers.map((v) => v.id)).not.toContain(sam.id);
+    expect(depts[0].directors.find((d) => d.id === sam.id)?.termCode).toBeNull();
+  });
+
+  it("lists a department-switcher once, under the department they are in now", async () => {
+    // Reuse the fixture's PCAR department rather than creating a second one:
+    // Department.code is unique, and threeTermFixture already seeds "PCAR".
+    const { live, prev, dept: pcar } = await threeTermFixture();
+    const vadm = await prisma.department.create({ data: { code: "VADM", name: "Volunteer Admin" } });
+    const sam = await createPerson("Sam Rivera");
+    await prisma.termMembership.create({
+      data: { personId: sam.id, termId: prev.id, departmentId: pcar.id, kind: "VOLUNTEER", status: "ACTIVE" },
+    });
+    await prisma.termMembership.create({
+      data: { personId: sam.id, termId: live.id, departmentId: vadm.id, kind: "VOLUNTEER", status: "ACTIVE" },
+    });
+
+    const depts = await listDepartmentsWithMembers();
+    const appearances = depts.flatMap((d) => [...d.directors, ...d.volunteers]).filter((m) => m.id === sam.id);
+    expect(appearances).toHaveLength(1);
+    expect(depts.find((d) => d.department.code === "VADM")?.volunteers.map((v) => v.id)).toContain(sam.id);
   });
 });

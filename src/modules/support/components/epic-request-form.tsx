@@ -313,9 +313,9 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
             {pendingDeactivations.map((p) => (
               <PersonRow
                 key={p.id}
-                person={{ id: p.id, name: p.name, netId: p.netId, contactEmail: p.contactEmail, epicId: p.epicId, kind: "VOLUNTEER" }}
+                person={{ id: p.id, name: p.name, netId: p.netId, contactEmail: p.contactEmail, epicId: p.epicId, kind: "VOLUNTEER", termCode: null }}
                 selected={selectedPeopleIds.has(p.id)}
-                onToggle={() => togglePerson(p.id, { id: p.id, name: p.name, netId: p.netId, contactEmail: p.contactEmail, epicId: p.epicId, kind: "VOLUNTEER" })}
+                onToggle={() => togglePerson(p.id, { id: p.id, name: p.name, netId: p.netId, contactEmail: p.contactEmail, epicId: p.epicId, kind: "VOLUNTEER", termCode: null })}
               />
             ))}
           </div>
@@ -547,6 +547,9 @@ function PersonRow({
         onChange={onToggle}
       />
       <span className="text-sm text-foreground">{person.name}</span>
+      {person.termCode ? (
+        <Badge tone="warning">{person.termCode}</Badge>
+      ) : null}
       {person.netId && (
         <span className="text-xs text-subtle-foreground">{person.netId}</span>
       )}

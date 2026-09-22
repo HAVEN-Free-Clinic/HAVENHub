@@ -15,6 +15,7 @@ import { Select } from "@/platform/ui/select";
 import { Field } from "@/platform/ui/input";
 import { Checkbox, CheckboxGroup } from "@/platform/ui/checkbox";
 import { Button } from "@/platform/ui/button";
+import { Badge } from "@/platform/ui/badge";
 
 type QuickAdd = { id: string; name: string | null };
 
@@ -85,6 +86,9 @@ export function EpicPersonPicker({
                 label={
                   <span className="flex items-center gap-2">
                     {m.name}
+                    {m.termCode ? (
+                      <Badge tone="warning">{m.termCode}</Badge>
+                    ) : null}
                     {m.epicId && (
                       <span className="text-xs text-subtle-foreground">{m.epicId}</span>
                     )}

@@ -2,9 +2,9 @@
  * ITCM admin service: Epic request data queries.
  *
  * Provides the data layer for the Epic request PDF generator:
- *   - listDepartmentsWithMembers: all active departments with their active
- *     term members (directors and volunteers), used to populate the person
- *     selector and find Epic ID mirror candidates.
+ *   - listDepartmentsWithMembers: all active departments with the members of
+ *     the live term and its two neighbours (directors and volunteers), used to
+ *     populate the person selector and find Epic ID mirror candidates.
  *   - findMirrorPerson: given a department and role, finds another active
  *     member in that department who already has an epicId set. Used to
  *     auto-populate the "person with similar job functions" fields.
@@ -21,6 +21,7 @@
 import type { Person, Department, YnhhTicket, EpicRequestKind, TechRequestStatus } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
+import { getNextTerm } from "@/platform/terms/next-term";
 import { recordAudit } from "@/platform/audit";
 import { can } from "@/platform/rbac/engine";
 import { MANAGE, SupportConflictError, SupportForbiddenError, SupportNotFoundError, SupportStateError } from "./tech-request";
@@ -45,6 +46,12 @@ export type MemberLite = {
   contactEmail: string | null;
   epicId: string | null;
   kind: "DIRECTOR" | "VOLUNTEER";
+  /**
+   * The term this person's membership came from, when it is NOT the live one.
+   * Null for a live-term member. Drives the badge that tells an admin they are
+   * raising a request for someone not on the current roster.
+   */
+  termCode: string | null;
 };
 
 export type DepartmentWithMembers = {
@@ -149,54 +156,85 @@ export async function listEpicAuthorizers(): Promise<EpicAuthorizer[]> {
 }
 
 /**
- * Returns all active departments with their active-term members.
+ * Returns all active departments with their selectable members.
  *
- * Only includes departments that have at least one ACTIVE membership in the
- * current term. Members are sorted by name within each role group. Used to
- * populate the person selector on the Epic request page.
+ * Epic accounts are provisioned around the term flip, not inside it, so the
+ * picker spans three rosters: the LIVE term; the NEXT term, where the incoming
+ * class onboarded ahead of the flip already holds its memberships and has no
+ * live-term row yet; and the PREVIOUS term, for a returner whose renewal has
+ * not been promoted. Anyone outside the live term carries their term code so an
+ * admin can see they are not on the current roster.
+ *
+ * Members are sorted by name within each role group.
  */
 export async function listDepartmentsWithMembers(): Promise<DepartmentWithMembers[]> {
   const activeTerm = await getActiveTerm();
   if (!activeTerm) return [];
 
-  // Also include the previous term so volunteers who haven't been added to
-  // the current term yet still appear in the Epic request form.
-  const previousTerm = await prisma.term.findFirst({
-    where: { startDate: { lt: activeTerm.startDate } },
-    orderBy: { startDate: "desc" },
-    select: { id: true },
-  });
+  const [nextTerm, previousTerm] = await Promise.all([
+    getNextTerm(),
+    prisma.term.findFirst({
+      where: { startDate: { lt: activeTerm.startDate } },
+      orderBy: { startDate: "desc" },
+      select: { id: true, code: true },
+    }),
+  ]);
 
-  const termIds = [activeTerm.id, ...(previousTerm ? [previousTerm.id] : [])];
+  // Lower rank wins when a person holds ACTIVE memberships in more than one of
+  // the three. The live term wins deliberately: it is their CURRENT role, and a
+  // future director who is a volunteer today should mirror volunteer-level Epic
+  // access, never the other way round.
+  const termMeta = new Map<string, { rank: number; code: string }>();
+  termMeta.set(activeTerm.id, { rank: 0, code: activeTerm.code });
+  if (nextTerm) termMeta.set(nextTerm.id, { rank: 1, code: nextTerm.code });
+  if (previousTerm) termMeta.set(previousTerm.id, { rank: 2, code: previousTerm.code });
 
   const memberships = await prisma.termMembership.findMany({
-    where: { termId: { in: termIds }, status: "ACTIVE" },
-    include: {
-      person: true,
+    where: { termId: { in: [...termMeta.keys()] }, status: "ACTIVE" },
+    select: {
+      kind: true,
+      termId: true,
+      departmentId: true,
       department: true,
+      // Narrowed from `person: true`. This loader is already named in
+      // page.tsx's standing comment as a payload problem, and it now spans
+      // three terms, so it reads only the six fields MemberLite needs.
+      person: {
+        select: { id: true, name: true, netId: true, contactEmail: true, epicId: true },
+      },
     },
     orderBy: [{ department: { code: "asc" } }, ...personNameOrderVia("person")],
   });
 
-  // Group by department, deduplicating by person ID so someone appearing in
-  // both the current and previous term only shows up once.
+  // A person can legitimately hold two ACTIVE memberships in ONE term (DIRECTOR
+  // in one department, VOLUNTEER in another), so the dedup cannot be a flat
+  // person-id Set: that would silently drop the second department. Instead keep
+  // every row from the person's BEST-ranked term and discard the rest, so a
+  // member who changed departments between terms is listed under the department
+  // they are in now rather than under both.
+  const bestRank = new Map<string, number>();
+  for (const m of memberships) {
+    const rank = termMeta.get(m.termId)?.rank ?? 2;
+    const seen = bestRank.get(m.person.id);
+    if (seen === undefined || rank < seen) bestRank.set(m.person.id, rank);
+  }
+
   const byDept = new Map<string, DepartmentWithMembers>();
   const seenByDept = new Map<string, Set<string>>();
 
   for (const m of memberships) {
+    const meta = termMeta.get(m.termId);
+    const rank = meta?.rank ?? 2;
+    if (rank !== bestRank.get(m.person.id)) continue;
+
     if (!byDept.has(m.departmentId)) {
-      byDept.set(m.departmentId, {
-        department: m.department,
-        directors: [],
-        volunteers: [],
-      });
+      byDept.set(m.departmentId, { department: m.department, directors: [], volunteers: [] });
       seenByDept.set(m.departmentId, new Set());
     }
     const seen = seenByDept.get(m.departmentId)!;
     if (seen.has(m.person.id)) continue;
     seen.add(m.person.id);
 
-    const entry = byDept.get(m.departmentId)!;
     const member: MemberLite = {
       id: m.person.id,
       name: m.person.name,
@@ -204,12 +242,12 @@ export async function listDepartmentsWithMembers(): Promise<DepartmentWithMember
       contactEmail: m.person.contactEmail,
       epicId: m.person.epicId,
       kind: m.kind,
+      termCode: rank === 0 ? null : (meta?.code ?? null),
     };
-    if (m.kind === "DIRECTOR") {
-      entry.directors.push(member);
-    } else {
-      entry.volunteers.push(member);
-    }
+
+    const entry = byDept.get(m.departmentId)!;
+    if (m.kind === "DIRECTOR") entry.directors.push(member);
+    else entry.volunteers.push(member);
   }
 
   return [...byDept.values()];

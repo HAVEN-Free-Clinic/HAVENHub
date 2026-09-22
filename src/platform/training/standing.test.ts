@@ -22,6 +22,7 @@ const base: TrainingDayFacts = {
   completedMakeupCourse: false,
   markedOff: false,
   passedRetiredQuiz: false,
+  director: false,
 };
 const parts = (f: Partial<TrainingDayFacts>) => trainingDayParts({ ...base, ...f });
 
@@ -74,10 +75,23 @@ describe("trainingDayParts: the rule table ops set on 2026-09-19", () => {
   });
 
   it("directors keep the old rule: the morning only, no clinical waiver", () => {
-    expect(parts({ track: "DIRECTOR", clinical: true, returning: true })).toEqual({
+    expect(parts({ track: "DIRECTOR", clinical: true, returning: true, director: true })).toEqual({
       morning: "OWED",
       mockClinic: "NOT_REQUIRED",
     });
+  });
+
+  it("a director owes neither part of VOLUNTEER training day, and keeps credit for what they attended", () => {
+    // Directors staff the volunteer session. A check-in there (or a volunteer
+    // membership held alongside the directorship) must not turn into a makeup
+    // they are chased for.
+    expect(parts({ director: true })).toEqual({ morning: "NOT_REQUIRED", mockClinic: "NOT_REQUIRED" });
+    expect(parts({ director: true, attendedMorning: true })).toEqual({ morning: "ATTENDED", mockClinic: "NOT_REQUIRED" });
+    expect(parts({ director: true, attendedMorning: true, attendedMockClinic: true })).toEqual({
+      morning: "ATTENDED",
+      mockClinic: "ATTENDED",
+    });
+    expect(partsComplete(parts({ director: true }))).toBe(true);
   });
 
   it("keeps a retired-quiz pass, which nothing can re-derive", () => {
@@ -140,6 +154,19 @@ async function volunteer(fx: Fx, opts: { dept: "clinical" | "plain"; type: Appli
       email: opts.email, status: "PROMOTED", promotedPersonId: person.id,
     },
   });
+  return person;
+}
+
+/** A director of the term: an ACTIVE DIRECTOR membership, and optionally a
+ *  VOLUNTEER one alongside it. */
+async function director(fx: Fx, opts: { email: string; alsoVolunteer?: boolean }) {
+  const person = await prisma.person.create({ data: { name: opts.email, status: "ACTIVE", contactEmail: opts.email } });
+  const kinds: Track[] = opts.alsoVolunteer ? ["DIRECTOR", "VOLUNTEER"] : ["DIRECTOR"];
+  for (const kind of kinds) {
+    await prisma.termMembership.create({
+      data: { personId: person.id, termId: fx.term.id, departmentId: fx.plain.id, kind, status: "ACTIVE" },
+    });
+  }
   return person;
 }
 
@@ -289,6 +316,52 @@ describe("recomputeTrainingStanding", () => {
     expect((await standing(a.id, fx.term.id))?.status).toBe("COMPLETE");
     expect(await standing(b.id, fx.term.id)).toMatchObject({ status: "PENDING", mockClinicStatus: "OWED" });
   });
+
+  it("does not hold a director who checked in to staff the volunteer morning to mock clinic", async () => {
+    // What happened on 2026-09-19: directors checked in at the volunteer session
+    // they were running, that check-in created a VOLUNTEER row, and with no
+    // volunteer membership they were read as non-clinical volunteers who owed
+    // mock clinic, then emailed the makeup.
+    const fx = await fixture();
+    const d = await director(fx, { email: "staff@x.edu" });
+    await checkIn(fx.morning.id, d.id);
+
+    await recomputeTrainingStanding(prisma, { personId: d.id, termId: fx.term.id, track: "VOLUNTEER" });
+
+    expect(await standing(d.id, fx.term.id)).toMatchObject({
+      status: "COMPLETE",
+      morningStatus: "ATTENDED",
+      mockClinicStatus: "NOT_REQUIRED",
+    });
+  });
+
+  it("clears directors' stale owed rows on the term-wide pass, including a director who is also a volunteer", async () => {
+    const fx = await fixture();
+    const staff = await director(fx, { email: "staff@x.edu" });
+    const dual = await director(fx, { email: "dual@x.edu", alsoVolunteer: true });
+    await checkIn(fx.morning.id, staff.id);
+    // Rows as the old rule left them: owing, and already emailed the makeup.
+    for (const [p, morning] of [[staff, "ATTENDED"], [dual, "OWED"]] as const) {
+      await prisma.training.create({
+        data: {
+          personId: p.id, termId: fx.term.id, cycleId: fx.cycle.id, track: "VOLUNTEER", status: "PENDING",
+          morningStatus: morning, mockClinicStatus: "OWED", makeupEmailedAt: new Date(),
+        },
+      });
+    }
+
+    const r = await recomputeTrainingStandingForTerm(fx.term.id, "VOLUNTEER");
+
+    expect(r).toEqual({ people: 2, nowComplete: 2, nowPending: 0 });
+    expect(await standing(staff.id, fx.term.id)).toMatchObject({ status: "COMPLETE", morningStatus: "ATTENDED", mockClinicStatus: "NOT_REQUIRED" });
+    expect(await standing(dual.id, fx.term.id)).toMatchObject({ status: "COMPLETE", morningStatus: "NOT_REQUIRED", mockClinicStatus: "NOT_REQUIRED" });
+    // Nothing owed is what keeps them out of the release email and its reminders.
+    expect(
+      await prisma.training.count({
+        where: { termId: fx.term.id, track: "VOLUNTEER", OR: [{ morningStatus: "OWED" }, { mockClinicStatus: "OWED" }] },
+      }),
+    ).toBe(0);
+  });
 });
 
 describe("getMakeupAccess / lockMakeup", () => {
@@ -308,6 +381,10 @@ describe("getMakeupAccess / lockMakeup", () => {
     expect((await getMakeupAccess(attended.id, fx.cycle.id)).status).toBe("NOT_OWED");
     expect((await getMakeupAccess(clinical.id, fx.cycle.id)).status).toBe("NOT_OWED");
     expect((await getMakeupAccess(stranger.id, fx.cycle.id)).status).toBe("NOT_OWED");
+    // A director is never assigned the volunteer makeup, even one who also holds
+    // a volunteer membership and missed the morning.
+    const dual = await director(fx, { email: "dual@x.edu", alsoVolunteer: true });
+    expect((await getMakeupAccess(dual.id, fx.cycle.id)).status).toBe("NOT_OWED");
 
     const course = await prisma.course.create({ data: { title: "Makeup", kind: "VIDEO", makeupForCycleId: fx.cycle.id } });
     await prisma.courseProgress.create({ data: { personId: owes.id, courseId: course.id, termId: fx.term.id, status: "COMPLETE", completedAt: new Date() } });

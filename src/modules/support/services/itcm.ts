@@ -159,8 +159,18 @@ export async function listDepartmentsWithMembers(): Promise<DepartmentWithMember
   const activeTerm = await getActiveTerm();
   if (!activeTerm) return [];
 
+  // Also include the previous term so volunteers who haven't been added to
+  // the current term yet still appear in the Epic request form.
+  const previousTerm = await prisma.term.findFirst({
+    where: { startDate: { lt: activeTerm.startDate } },
+    orderBy: { startDate: "desc" },
+    select: { id: true },
+  });
+
+  const termIds = [activeTerm.id, ...(previousTerm ? [previousTerm.id] : [])];
+
   const memberships = await prisma.termMembership.findMany({
-    where: { termId: activeTerm.id, status: "ACTIVE" },
+    where: { termId: { in: termIds }, status: "ACTIVE" },
     include: {
       person: true,
       department: true,
@@ -168,8 +178,11 @@ export async function listDepartmentsWithMembers(): Promise<DepartmentWithMember
     orderBy: [{ department: { code: "asc" } }, ...personNameOrderVia("person")],
   });
 
-  // Group by department.
+  // Group by department, deduplicating by person ID so someone appearing in
+  // both the current and previous term only shows up once.
   const byDept = new Map<string, DepartmentWithMembers>();
+  const seenByDept = new Map<string, Set<string>>();
+
   for (const m of memberships) {
     if (!byDept.has(m.departmentId)) {
       byDept.set(m.departmentId, {
@@ -177,7 +190,12 @@ export async function listDepartmentsWithMembers(): Promise<DepartmentWithMember
         directors: [],
         volunteers: [],
       });
+      seenByDept.set(m.departmentId, new Set());
     }
+    const seen = seenByDept.get(m.departmentId)!;
+    if (seen.has(m.person.id)) continue;
+    seen.add(m.person.id);
+
     const entry = byDept.get(m.departmentId)!;
     const member: MemberLite = {
       id: m.person.id,

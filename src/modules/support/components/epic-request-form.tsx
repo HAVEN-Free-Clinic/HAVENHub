@@ -40,20 +40,22 @@ import { TextLink } from "@/platform/ui/text-link";
 type Props = {
   departments: DepartmentWithMembers[];
   pendingDeactivations: PendingDeactivation[];
-  /** Current term's ITCM directors, the people who can authorize a request. */
   authorizers: EpicAuthorizer[];
+  termStart: string | null;
+  termEnd: string | null;
 };
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-export function EpicRequestForm({ departments, pendingDeactivations, authorizers }: Props) {
+export function EpicRequestForm({ departments, pendingDeactivations, authorizers, termStart, termEnd }: Props) {
   // Step 1: configuration. The authorizer is identified by person id; default
   // to the first ITCM director (empty string when there are none).
   const [authorizerId, setAuthorizerId] = useState<string>(authorizers[0]?.id ?? "");
   const [requestType, setRequestType] = useState<RequestType>("new_individual");
-  const [endDate, setEndDate] = useState("");
+  const [startDate, setStartDate] = useState(termStart ?? "");
+  const [endDate, setEndDate] = useState(termEnd ?? "");
 
   const selectedAuthorizer = useMemo(
     () => authorizers.find((a) => a.id === authorizerId) ?? null,
@@ -128,7 +130,7 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
       return;
     }
     if (!endDate) {
-      setError("Set the access end date before generating this request.");
+      setError("Set the access date range before generating this request.");
       return;
     }
     setError(null);
@@ -219,13 +221,23 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
             </Select>
           </Field>
 
-          <Field label="Access end date">
-            <Input
-              type="date"
-              required
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-            />
+          <Field label="Access date range">
+            <div className="flex items-center gap-2">
+              <Input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                placeholder="Start date"
+              />
+              <span className="text-muted-foreground text-sm shrink-0">to</span>
+              <Input
+                type="date"
+                required
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                placeholder="End date"
+              />
+            </div>
           </Field>
         </div>
 

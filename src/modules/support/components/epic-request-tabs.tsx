@@ -78,6 +78,8 @@ type Props = {
   rollup: EpicRollup | null;
   termOptions: TermOption[];
   liveTermId: string | null;
+  liveTermStart: string | null;
+  liveTermEnd: string | null;
   /**
    * "Now", stamped once on the server, for the Tracker's business-days-open
    * count. A render-body `new Date()` would be read once during SSR and again
@@ -828,6 +830,8 @@ export function EpicRequestTabs({
   rollup,
   termOptions,
   liveTermId,
+  liveTermStart,
+  liveTermEnd,
   nowIso,
   closeTicketAction,
   updateServiceRequestNumberAction,
@@ -849,7 +853,7 @@ export function EpicRequestTabs({
         <TabNav activeTab={activeTab} />
       </Suspense>
       {activeTab === "generate" ? (
-        <EpicRequestForm departments={departments} pendingDeactivations={pendingDeactivations} authorizers={authorizers} />
+        <EpicRequestForm departments={departments} pendingDeactivations={pendingDeactivations} authorizers={authorizers} termStart={liveTermStart} termEnd={liveTermEnd} />
       ) : activeTab === "term-batch" ? (
         rollup ? (
           <TermBatchTab

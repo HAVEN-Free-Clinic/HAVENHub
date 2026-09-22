@@ -1144,6 +1144,22 @@ describe("markBatchSent", () => {
     expect(second.sentAt?.getTime()).toBe(first.sentAt?.getTime());
   });
 
+  it("audits the send exactly once, even on a second confirmation", async () => {
+    const actor = await createPerson("Admin");
+    await grantPermission(actor.id, "support.manage_requests");
+    const ticket = await prisma.ynhhTicket.create({
+      data: { submittedById: actor.id, description: "NEW - Sam Rivera" },
+    });
+
+    await markBatchSent(actor.id, ticket.id);
+    await markBatchSent(actor.id, ticket.id);
+
+    const rows = await prisma.auditLog.findMany({
+      where: { action: "epic.batch_sent", entityId: ticket.id },
+    });
+    expect(rows).toHaveLength(1);
+  });
+
   it("refuses without the permission", async () => {
     const actor = await createPerson("Nobody");
     const ticket = await prisma.ynhhTicket.create({

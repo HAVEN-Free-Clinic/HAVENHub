@@ -471,7 +471,8 @@ export async function closeTicket(actorPersonId: string, ticketId: string) {
  * the admin attaches them in their own mail client. So EpicRequest.status
  * flipping to SUBMITTED at generation time says nothing about whether YNHH ever
  * heard of the batch. This is the only fact that does, which is why the
- * days-open counter and the Epic cron both read it rather than submittedAt.
+ * days-open counter reads it rather than submittedAt, and why a planned Epic
+ * digest will chase a batch that has none.
  *
  * Idempotent: a repeat confirmation keeps the original timestamp, because the
  * first one is the honest answer to "when did this go out". Audits
@@ -486,17 +487,23 @@ export async function markBatchSent(actorPersonId: string, ticketId: string): Pr
   if (!ticket) throw new SupportNotFoundError(`YnhhTicket not found: ${ticketId}`);
   if (ticket.sentAt) return;
 
-  await prisma.ynhhTicket.updateMany({
+  const now = new Date();
+  const claimed = await prisma.ynhhTicket.updateMany({
     where: { id: ticketId, sentAt: null },
-    data: { sentAt: new Date(), sentById: actorPersonId },
+    data: { sentAt: now, sentById: actorPersonId },
   });
+  // Someone else confirmed this send first. Their timestamp is the honest one
+  // and their audit row already records it, so this call adds nothing -- and
+  // auditing here would write a second "epic.batch_sent" row with a sentAt
+  // that does not match what was actually stored.
+  if (claimed.count === 0) return;
 
   await recordAudit({
     actorPersonId,
     action: "epic.batch_sent",
     entityType: "YnhhTicket",
     entityId: ticketId,
-    after: { sentAt: new Date().toISOString() },
+    after: { sentAt: now.toISOString() },
   });
 }
 

@@ -230,6 +230,8 @@ model Person {
   epicRequestsSubmitted          EpicRequest[]                @relation("epicRequestRequestedBy")
   /// YNHH tickets this person submitted.
   ynhhTicketsSubmitted           YnhhTicket[]                 @relation("ynhhTicketSubmittedBy")
+  /// YNHH tickets this person confirmed as sent.
+  ynhhTicketsSent                YnhhTicket[]                 @relation("ynhhTicketSentBy")
   /// One-off YNHH incidents that concern this person.
   ynhhTicketsAbout               YnhhTicket[]                 @relation("ynhhTicketPerson")
   /// IT Support tickets this person submitted.
@@ -759,6 +761,9 @@ enum EpicRequestStatus {
   PENDING
   SUBMITTED
   COMPLETED
+  /// YNHH declined this request. Distinct from CANCELLED, which means WE
+  /// withdrew it: conflating them loses whether a re-raise is warranted.
+  REJECTED
   CANCELLED
 }
 
@@ -922,6 +927,19 @@ model EpicRequest {
   ticketId      String?
   techRequestId String?
   completedAt   DateTime?
+  /// What we asked YNHH for. Printed on the PDF, the spreadsheet and the cover
+  /// email, and until now persisted nowhere -- so the system could not answer
+  /// "whose Epic access expires this month" and inferred renewals from roster
+  /// diffs instead.
+  accessStartDate     DateTime?
+  accessEndDate       DateTime?
+  /// Why YNHH refused, or any note recorded at resolution. Paired with REJECTED.
+  outcomeNote         String?
+  /// When the member was told their account is ready, and with which template.
+  /// Null on a COMPLETED request is a real defect the Epic cron reports: the
+  /// account exists and nobody told them.
+  memberEmailedAt     DateTime?
+  memberEmailTemplate String?
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
   /// Subject of the request. Cascade: requests belong to the person.
@@ -957,10 +975,18 @@ model YnhhTicket {
   personId             String?
   submittedAt          DateTime                @default(now())
   closedAt             DateTime?
+  /// When an admin confirmed they sent this batch to YNHH. Null means the
+  /// artifacts were generated but the email may never have left: the send is a
+  /// manual copy-paste, so this is the only signal separating a batch YNHH is
+  /// working from one that was generated and forgotten.
+  sentAt               DateTime?
+  sentById             String?
   /// EPIC requests grouped under this ticket.
   requests             EpicRequest[]
   /// Person who submitted the ticket to YNHH IT. Restrict: any referencing row blocks deletion of this person.
   submittedBy          Person                  @relation("ynhhTicketSubmittedBy", fields: [submittedById], references: [id], onDelete: Restrict)
+  /// Person who confirmed the send. Restrict: matches submittedBy.
+  sentBy               Person?                 @relation("ynhhTicketSentBy", fields: [sentById], references: [id], onDelete: Restrict)
   /// Optional person a one-off YNHH incident concerns. SetNull: keep the log entry if the person is deleted.
   person               Person?                 @relation("ynhhTicketPerson", fields: [personId], references: [id], onDelete: SetNull)
   /// Files attached to a one-off YNHH incident.

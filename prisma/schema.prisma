@@ -761,10 +761,13 @@ enum EpicRequestStatus {
   PENDING
   SUBMITTED
   COMPLETED
+  CANCELLED
   /// YNHH declined this request. Distinct from CANCELLED, which means WE
   /// withdrew it: conflating them loses whether a re-raise is warranted.
+  /// Declared last because `ALTER TYPE ... ADD VALUE` appends, and keeping the
+  /// declaration order equal to the Postgres order stops migrate from seeing
+  /// drift on every later diff.
   REJECTED
-  CANCELLED
 }
 
 enum YnhhTicketStatus {
@@ -916,17 +919,17 @@ model OffboardFlag {
 /// optionally to a YnhhTicket once one is opened with YNHH IT. Cascade-deleted
 /// with the person (the person is the subject of the request).
 model EpicRequest {
-  id            String            @id @default(cuid())
-  personId      String
-  kind          EpicRequestKind
-  status        EpicRequestStatus @default(PENDING)
-  jobTitle      String?
-  mirrorEpicId  String?
-  notes         String?
-  requestedById String
-  ticketId      String?
-  techRequestId String?
-  completedAt   DateTime?
+  id                  String            @id @default(cuid())
+  personId            String
+  kind                EpicRequestKind
+  status              EpicRequestStatus @default(PENDING)
+  jobTitle            String?
+  mirrorEpicId        String?
+  notes               String?
+  requestedById       String
+  ticketId            String?
+  techRequestId       String?
+  completedAt         DateTime?
   /// What we asked YNHH for. Printed on the PDF, the spreadsheet and the cover
   /// email, and until now persisted nowhere -- so the system could not answer
   /// "whose Epic access expires this month" and inferred renewals from roster
@@ -940,16 +943,16 @@ model EpicRequest {
   /// account exists and nobody told them.
   memberEmailedAt     DateTime?
   memberEmailTemplate String?
-  createdAt     DateTime          @default(now())
-  updatedAt     DateTime          @updatedAt
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
   /// Subject of the request. Cascade: requests belong to the person.
-  person        Person            @relation("epicRequestPerson", fields: [personId], references: [id], onDelete: Cascade)
+  person              Person            @relation("epicRequestPerson", fields: [personId], references: [id], onDelete: Cascade)
   /// Person who submitted the request. Restrict: any referencing row blocks deletion of this person.
-  requestedBy   Person            @relation("epicRequestRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
+  requestedBy         Person            @relation("epicRequestRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
   /// The YNHH ticket opened for this request (optional).
-  ticket        YnhhTicket?       @relation(fields: [ticketId], references: [id], onDelete: SetNull)
+  ticket              YnhhTicket?       @relation(fields: [ticketId], references: [id], onDelete: SetNull)
   /// The IT Support ticket this request is attached to, if any. SetNull: deleting the ticket detaches its requests but keeps them for YNHH/audit history.
-  techRequest   TechRequest?      @relation("techRequestEpic", fields: [techRequestId], references: [id], onDelete: SetNull)
+  techRequest         TechRequest?      @relation("techRequestEpic", fields: [techRequestId], references: [id], onDelete: SetNull)
 
   @@index([status])
   @@index([personId, status])

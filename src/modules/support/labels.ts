@@ -36,14 +36,14 @@ export const EPIC_STATUS_LABELS: Record<EpicRequestStatus, string> = {
   PENDING: "Pending",
   SUBMITTED: "Submitted",
   COMPLETED: "Completed",
-  REJECTED: "Rejected by YNHH",
   CANCELLED: "Cancelled",
+  REJECTED: "Rejected by YNHH",
 };
 
 export const EPIC_STATUS_TONE: Record<EpicRequestStatus, SupportTone> = {
   PENDING: "default",
   SUBMITTED: "warning",
   COMPLETED: "success",
-  REJECTED: "critical",
   CANCELLED: "critical",
+  REJECTED: "critical",
 };

@@ -63,6 +63,8 @@ export type EpicRollup = {
     id: string;
     code: string;
     name: string;
+    /** Term start date as YYYY-MM-DD, the default access start date for a batch. */
+    startDateIso: string;
     /** Term end date as YYYY-MM-DD, the default access end date for a batch. */
     endDateIso: string;
   };
@@ -108,7 +110,7 @@ export async function loadTermEpicRollup(termId: string): Promise<EpicRollup> {
   const personIds = [...new Set(memberships.map((m) => m.personId))];
   if (personIds.length === 0) {
     return {
-      term: { id: term.id, code: term.code, name: term.name, endDateIso: isoDay(term.endDate) },
+      term: { id: term.id, code: term.code, name: term.name, startDateIso: isoDay(term.startDate), endDateIso: isoDay(term.endDate) },
       groups: { NEW: [], MODIFY: [], RENEW: [] },
     };
   }
@@ -285,7 +287,7 @@ export async function loadTermEpicRollup(termId: string): Promise<EpicRollup> {
   }
 
   return {
-    term: { id: term.id, code: term.code, name: term.name, endDateIso: isoDay(term.endDate) },
+    term: { id: term.id, code: term.code, name: term.name, startDateIso: isoDay(term.startDate), endDateIso: isoDay(term.endDate) },
     groups,
   };
 }

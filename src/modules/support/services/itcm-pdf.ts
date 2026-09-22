@@ -231,11 +231,13 @@ export async function generatePdf(args: {
   requestType: RequestType;
   authorizer: Authorizer;
   person: { firstName: string; lastName: string; email: string; netId: string; epicId: string; yaleAffiliation: string } | null;
+  /** MM/DD/YYYY, or "" when not applicable (e.g. a deactivation). */
+  startDate: string;
   endDate: string;
   mirrorPerson: { name: string; epicId: string } | null;
   templateBytes: Uint8Array;
 }): Promise<Uint8Array> {
-  const { requestType, authorizer: auth, person, endDate, mirrorPerson, templateBytes } = args;
+  const { requestType, authorizer: auth, person, startDate, endDate, mirrorPerson, templateBytes } = args;
   // Configured display zone (default Eastern), not the server's UTC wall clock, so the
   // Section I authorization date and New-Hire start date match the filename and the
   // client-computed email subject instead of dating a day ahead late-evening Eastern.
@@ -322,7 +324,10 @@ export async function generatePdf(args: {
   // Section V: Access type + similar person
   if (isNew) {
     checkBox(form, "Check Box49");
-    fillText(form, "Text75", today); // New Hire start date; no end date on the PDF for New
+    // The admin's chosen access start date. Falls back to today so a blank
+    // field never reaches YNHH as an empty New Hire start date. There is no
+    // end-date field on the PDF for New; the cover email carries it.
+    fillText(form, "Text75", startDate || today);
   } else if (isDeactivate) {
     if (TERMINATION_CHECKBOX) checkBox(form, TERMINATION_CHECKBOX);
     fillText(form, "Text76", endDate); // effective deactivation date

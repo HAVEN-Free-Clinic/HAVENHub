@@ -63,6 +63,7 @@ export function TermBatchTab({
 }) {
   const router = useRouter();
   const [authorizerId, setAuthorizerId] = useState(authorizers[0]?.id ?? "");
+  const [startDate, setStartDate] = useState(rollup.term.startDateIso);
   const [endDate, setEndDate] = useState(rollup.term.endDateIso);
   // One flat selection across all three groups. They are disjoint by person --
   // buildEpicRollup pushes each personId into exactly one of NEW/MODIFY/RENEW --
@@ -121,6 +122,7 @@ export function TermBatchTab({
         requestType: requestTypeForGroup(group, personIds.length),
         authorizer,
         personIds,
+        startDate,
         endDate,
         termId: rollup.term.id,
       });
@@ -159,7 +161,7 @@ export function TermBatchTab({
 
       <Card className="space-y-4">
         <SectionHeader level="title">Batch settings</SectionHeader>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-3">
           <Field label="Authorizer">
             <Select
               value={authorizerId}
@@ -176,6 +178,9 @@ export function TermBatchTab({
                 ))
               )}
             </Select>
+          </Field>
+          <Field label="Access start date">
+            <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
           </Field>
           <Field label="Access end date">
             <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />

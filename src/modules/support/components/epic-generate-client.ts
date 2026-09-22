@@ -49,6 +49,8 @@ export async function runEpicGeneration(input: {
   requestType: EpicRequestType;
   authorizer: { id: string; initials: string };
   personIds: string[];
+  /** ISO YYYY-MM-DD, straight off a date input. Empty string when not applicable. */
+  startDate: string;
   /** ISO YYYY-MM-DD, straight off a date input. */
   endDate: string;
   /** Target term; omit to use the active term. */
@@ -56,7 +58,10 @@ export async function runEpicGeneration(input: {
 }): Promise<EpicGenerationResult> {
   // The server and PDF expect MM/DD/YYYY. Convert by slicing rather than via Date
   // so the calendar day the admin picked survives regardless of timezone.
-  const endDateFormatted = `${input.endDate.slice(5, 7)}/${input.endDate.slice(8, 10)}/${input.endDate.slice(0, 4)}`;
+  const toUs = (iso: string) =>
+    iso ? `${iso.slice(5, 7)}/${iso.slice(8, 10)}/${iso.slice(0, 4)}` : "";
+  const startDateFormatted = toUs(input.startDate);
+  const endDateFormatted = toUs(input.endDate);
 
   const res = await fetch("/api/support/epic/generate", {
     method: "POST",
@@ -65,6 +70,7 @@ export async function runEpicGeneration(input: {
       requestType: input.requestType,
       authorizerId: input.authorizer.id,
       personIds: input.personIds,
+      startDate: startDateFormatted,
       endDate: endDateFormatted,
       termId: input.termId,
     }),

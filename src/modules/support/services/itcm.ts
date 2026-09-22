@@ -729,7 +729,9 @@ export async function listPendingDeactivations(): Promise<PendingDeactivation[]>
 export async function reconcileDeactivationRequests(
   actorPersonId: string,
   personIds: string[],
-  ticketDescription: string
+  ticketDescription: string,
+  /** The effective deactivation date, stored on every attached/created request. */
+  accessEndDate: Date | null = null
 ): Promise<YnhhTicket> {
   const ticket = await prisma.$transaction(async (tx) => {
     // Classify each person's existing open DEACTIVATE request first. A request
@@ -765,7 +767,7 @@ export async function reconcileDeactivationRequests(
         // ticket, orphaning it there. Mirrors createTicket's updateMany claim.
         const claimed = await tx.epicRequest.updateMany({
           where: { id: existingId, status: "PENDING" },
-          data: { status: "SUBMITTED", ticketId: ticket.id },
+          data: { status: "SUBMITTED", ticketId: ticket.id, accessEndDate },
         });
         if (claimed.count !== 1) {
           throw new SupportStateError(
@@ -774,7 +776,7 @@ export async function reconcileDeactivationRequests(
         }
       } else {
         await tx.epicRequest.create({
-          data: { personId, kind: "DEACTIVATE", status: "SUBMITTED", ticketId: ticket.id, requestedById: actorPersonId },
+          data: { personId, kind: "DEACTIVATE", status: "SUBMITTED", ticketId: ticket.id, requestedById: actorPersonId, accessEndDate },
         });
       }
     }
@@ -825,7 +827,8 @@ export async function submitEpicRequests(
   actorPersonId: string,
   kind: "NEW" | "MODIFY" | "RENEW",
   ticketDescription: string,
-  requests: { personId: string; mirrorEpicId: string | null }[]
+  requests: { personId: string; mirrorEpicId: string | null }[],
+  accessDates: { start: Date | null; end: Date | null } = { start: null, end: null }
 ): Promise<YnhhTicket> {
   const personIds = requests.map((r) => r.personId);
 
@@ -896,7 +899,13 @@ export async function submitEpicRequests(
       if (existingId) {
         const claimed = await tx.epicRequest.updateMany({
           where: { id: existingId, status: "PENDING", ticketId: null },
-          data: { status: "SUBMITTED", ticketId: ticket.id, mirrorEpicId: r.mirrorEpicId },
+          data: {
+            status: "SUBMITTED",
+            ticketId: ticket.id,
+            mirrorEpicId: r.mirrorEpicId,
+            accessStartDate: accessDates.start,
+            accessEndDate: accessDates.end,
+          },
         });
         if (claimed.count !== 1) {
           throw new SupportStateError(
@@ -917,6 +926,8 @@ export async function submitEpicRequests(
           mirrorEpicId: r.mirrorEpicId,
           requestedById: actorPersonId,
           ticketId: ticket.id,
+          accessStartDate: accessDates.start,
+          accessEndDate: accessDates.end,
         })),
       });
     }

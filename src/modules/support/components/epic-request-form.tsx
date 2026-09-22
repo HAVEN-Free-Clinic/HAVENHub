@@ -143,6 +143,7 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
         requestType,
         authorizer: selectedAuthorizer,
         personIds: [...selectedPeopleIds],
+        startDate,
         endDate,
       });
       setEmailDraft({ subject: result.subject, body: result.body });

@@ -23,6 +23,7 @@ async function loadOutput() {
     requestType: "new_individual",
     authorizer,
     person,
+    startDate: "09/01/2026",
     endDate: "10/15/2026",
     mirrorPerson: { name: "Mirror Person", epicId: "MIR456" },
     templateBytes,
@@ -35,6 +36,7 @@ async function loadDeactivateIndividual() {
     requestType: "deactivate_individual",
     authorizer,
     person: { firstName: "Jane", lastName: "Doe", email: "jane.doe@yale.edu", netId: "jd123", epicId: "EPIC123", yaleAffiliation: "Yale College" },
+    startDate: "",
     endDate: "10/15/2026",
     mirrorPerson: null,
     templateBytes,
@@ -47,11 +49,28 @@ async function loadBulkDeactivate() {
     requestType: "bulk_deactivate",
     authorizer,
     person: null,
+    startDate: "",
     endDate: "10/15/2026",
     mirrorPerson: null,
     templateBytes,
   });
   return PDFDocument.load(bytes);
+}
+
+/** Reads every text field's value off a filled PDF, keyed by field name. */
+async function readTextFields(bytes: Uint8Array): Promise<Record<string, string>> {
+  const doc = await PDFDocument.load(bytes);
+  const form = doc.getForm();
+  const out: Record<string, string> = {};
+  for (const f of form.getFields()) {
+    const name = f.getName();
+    try {
+      out[name] = form.getTextField(name).getText() ?? "";
+    } catch {
+      // Not a text field (checkbox); skip.
+    }
+  }
+  return out;
 }
 
 describe("generatePdf deactivation", () => {
@@ -197,6 +216,7 @@ describe("Section IV affiliation routing", () => {
       requestType: "new_individual",
       authorizer,
       person: { ...person, yaleAffiliation },
+      startDate: "09/01/2026",
       endDate: "10/15/2026",
       mirrorPerson: { name: "Mirror Person", epicId: "MIR456" },
       templateBytes,
@@ -309,5 +329,37 @@ describe("epicPositionLabel (bulk spreadsheet Role / Job Title cell)", () => {
     expect(epicPositionLabel(undefined)).toBe("");
     expect(epicPositionLabel("")).toBe("");
     expect(epicPositionLabel("   ")).toBe("");
+  });
+});
+
+describe("generatePdf New Hire start date", () => {
+  it("writes the admin's start date into the New Hire start date field", async () => {
+    const bytes = await generatePdf({
+      requestType: "new_individual",
+      authorizer,
+      person,
+      startDate: "09/01/2026",
+      endDate: "12/20/2026",
+      mirrorPerson: null,
+      templateBytes,
+    });
+
+    const fields = await readTextFields(bytes);
+    expect(fields.Text75).toBe("09/01/2026");
+  });
+
+  it("falls back to today when no start date is given", async () => {
+    const bytes = await generatePdf({
+      requestType: "new_individual",
+      authorizer,
+      person,
+      startDate: "",
+      endDate: "12/20/2026",
+      mirrorPerson: null,
+      templateBytes,
+    });
+
+    const fields = await readTextFields(bytes);
+    expect(fields.Text75).not.toBe("");
   });
 });

@@ -133,12 +133,15 @@ async function generateSpreadsheet(args: {
     /** Role / Job Title cell, derived per person from their Yale affiliation. */
     position: string;
   }>;
+  startDate: string;
   endDate: string;
 }): Promise<Buffer> {
   const ExcelJS = (await import("exceljs")).default;
-  const { requestType, people, endDate } = args;
+  const { requestType, people, startDate, endDate } = args;
   const zone = await getDisplayTimeZone();
   const today = formatDateOnly(new Date(), zone, { month: "2-digit", day: "2-digit", year: "numeric" });
+  // The admin's chosen start date; today only when they left it blank.
+  const startCell = startDate || today;
   const isNew = isNewAccountRequest(requestType);
 
   const wb = new ExcelJS.Workbook();
@@ -166,7 +169,7 @@ async function generateSpreadsheet(args: {
     const row = ws.addRow([
       p.lastName, p.firstName, "", p.email, "",
       p.position, p.position,
-      today, endDate, "No", p.netId, "",
+      startCell, endDate, "No", p.netId, "",
       isNew ? "" : p.epicId, p.mirrorEpicId,
     ]);
     row.eachCell((cell) => {
@@ -179,7 +182,7 @@ async function generateSpreadsheet(args: {
     const maxLen = Math.max(
       headers[i]?.length ?? 10,
       ...people.map((p) => {
-        const vals = [p.lastName, p.firstName, "", p.email, "", p.position, p.position, today, endDate, "No", p.netId, "", isNew ? "" : p.epicId, p.mirrorEpicId];
+        const vals = [p.lastName, p.firstName, "", p.email, "", p.position, p.position, startCell, endDate, "No", p.netId, "", isNew ? "" : p.epicId, p.mirrorEpicId];
         return String(vals[i] ?? "").length;
       })
     );
@@ -212,12 +215,14 @@ export async function POST(req: Request) {
     requestType: RequestType;
     authorizerId: string;
     personIds: string[];
+    /** MM/DD/YYYY, or "" when not applicable (e.g. a deactivation). */
+    startDate: string;
     endDate: string;
     /** Target term. Omitted by the Generate tab, which always means the active term. */
     termId?: string;
   };
 
-  const { requestType, authorizerId, personIds, endDate, termId } = body;
+  const { requestType, authorizerId, personIds, startDate, endDate, termId } = body;
 
   if (!Object.prototype.hasOwnProperty.call(PDF_FILENAMES, requestType)) {
     return NextResponse.json({ error: "Invalid request type" }, { status: 400 });
@@ -250,8 +255,26 @@ export async function POST(req: Request) {
     );
   }
 
+  // An inverted range would print a start after its own end on the PDF and the
+  // spreadsheet. Compared as MM/DD/YYYY reordered to sortable YYYYMMDD rather
+  // than via Date, so no timezone can shift the calendar day the admin picked.
+  const sortable = (us: string) => `${us.slice(6, 10)}${us.slice(0, 2)}${us.slice(3, 5)}`;
+  if (startDate?.trim() && sortable(startDate) > sortable(endDate)) {
+    return NextResponse.json(
+      { error: "The access start date is after the end date." },
+      { status: 400 }
+    );
+  }
+
   // The blank-date guard above means endDate is always present for every type.
   const effectiveEndDate = endDate;
+
+  // MM/DD/YYYY to a UTC midnight Date. Built from parts rather than parsed, so
+  // the stored day is the day the admin picked in every server timezone.
+  const toDate = (us: string): Date | null =>
+    us ? new Date(`${us.slice(6, 10)}-${us.slice(0, 2)}-${us.slice(3, 5)}T00:00:00.000Z`) : null;
+
+  const accessDates = { start: toDate(startDate ?? ""), end: toDate(effectiveEndDate) };
 
   // Load people from the database.
   const people = await getPeopleByIds(personIds);
@@ -331,6 +354,7 @@ export async function POST(req: Request) {
     requestType,
     authorizer,
     person: personArg,
+    startDate: startDate ?? "",
     endDate: effectiveEndDate,
     mirrorPerson: isBulk ? null : singleMirrorPerson,
     templateBytes,
@@ -408,6 +432,7 @@ export async function POST(req: Request) {
     const xlsxBuffer = await generateSpreadsheet({
       requestType,
       people: peopleRows,
+      startDate: startDate ?? "",
       endDate: effectiveEndDate,
     });
 
@@ -433,7 +458,7 @@ export async function POST(req: Request) {
     // submission of already-submitted people is rejected (400) rather than
     // orphaning their existing ticket, mirroring the grant path below.
     try {
-      await reconcileDeactivationRequests(actor.id, people.map((p) => p.id), ticketDescription);
+      await reconcileDeactivationRequests(actor.id, people.map((p) => p.id), ticketDescription, accessDates.end);
     } catch (err) {
       if (err instanceof SupportStateError || err instanceof SupportNotFoundError) {
         return NextResponse.json({ error: err.message }, { status: 400 });
@@ -452,7 +477,8 @@ export async function POST(req: Request) {
         actor.id,
         epicKind,
         ticketDescription,
-        people.map((p) => ({ personId: p.id, mirrorEpicId: mirrorByPersonId.get(p.id)?.epicId ?? null }))
+        people.map((p) => ({ personId: p.id, mirrorEpicId: mirrorByPersonId.get(p.id)?.epicId ?? null })),
+        accessDates
       );
     } catch (err) {
       // An existing OPEN request is a recoverable conflict, not bad input: the

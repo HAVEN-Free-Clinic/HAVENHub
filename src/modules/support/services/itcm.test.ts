@@ -17,6 +17,7 @@ import {
   listLinkableTechRequests,
   resolveMirrorsByPerson,
   updateServiceRequestNumber,
+  markBatchSent,
 } from "./itcm";
 import { persistAttachment } from "./attachments";
 import { createTechRequest, SupportConflictError, SupportForbiddenError, SupportNotFoundError, SupportStateError } from "./tech-request";
@@ -1110,5 +1111,44 @@ describe("resolveMirrorsByPerson (#32)", () => {
 
     const mirrors = await resolveMirrorsByPerson([sam.id], term.id);
     expect(mirrors.get(sam.id)?.epicId).toBe("DIR-EPIC");
+  });
+});
+
+describe("markBatchSent", () => {
+  it("stamps who confirmed the send and when", async () => {
+    const actor = await createPerson("Admin");
+    await grantPermission(actor.id, "support.manage_requests");
+    const ticket = await prisma.ynhhTicket.create({
+      data: { submittedById: actor.id, description: "NEW - Sam Rivera" },
+    });
+
+    await markBatchSent(actor.id, ticket.id);
+
+    const after = await prisma.ynhhTicket.findUniqueOrThrow({ where: { id: ticket.id } });
+    expect(after.sentAt).toBeInstanceOf(Date);
+    expect(after.sentById).toBe(actor.id);
+  });
+
+  it("is idempotent: a second confirmation keeps the first timestamp", async () => {
+    const actor = await createPerson("Admin");
+    await grantPermission(actor.id, "support.manage_requests");
+    const ticket = await prisma.ynhhTicket.create({
+      data: { submittedById: actor.id, description: "NEW - Sam Rivera" },
+    });
+
+    await markBatchSent(actor.id, ticket.id);
+    const first = await prisma.ynhhTicket.findUniqueOrThrow({ where: { id: ticket.id } });
+    await markBatchSent(actor.id, ticket.id);
+    const second = await prisma.ynhhTicket.findUniqueOrThrow({ where: { id: ticket.id } });
+
+    expect(second.sentAt?.getTime()).toBe(first.sentAt?.getTime());
+  });
+
+  it("refuses without the permission", async () => {
+    const actor = await createPerson("Nobody");
+    const ticket = await prisma.ynhhTicket.create({
+      data: { submittedById: actor.id, description: "x" },
+    });
+    await expect(markBatchSent(actor.id, ticket.id)).rejects.toThrow(SupportForbiddenError);
   });
 });

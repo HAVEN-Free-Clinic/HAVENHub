@@ -29,6 +29,7 @@ import {
   updateServiceRequestNumber,
   logYnhhIncident,
   resolveIncident,
+  markBatchSent,
 } from "@/modules/support/services/itcm";
 import { persistAttachment } from "@/modules/support/services/attachments";
 import { SupportForbiddenError, SupportNotFoundError, SupportStateError } from "@/modules/support/services/tech-request";
@@ -62,6 +63,13 @@ async function closeTicketAction(ticketId: string) {
     }
     throw err;
   }
+  revalidatePath("/support/epic");
+}
+
+async function markBatchSentAction(formData: FormData) {
+  "use server";
+  const actor = await requirePermission("support.manage_requests");
+  await markBatchSent(actor.personId, String(formData.get("ticketId")));
   revalidatePath("/support/epic");
 }
 
@@ -372,6 +380,7 @@ export default async function EpicRequestsPage({ searchParams }: PageProps) {
         liveTermStart={liveTerm?.startDate?.toISOString().split("T")[0] ?? null}
         liveTermEnd={liveTerm?.endDate?.toISOString().split("T")[0] ?? null}
         nowIso={new Date().toISOString()}
+        markBatchSentAction={markBatchSentAction}
         closeTicketAction={closeTicketAction}
         updateServiceRequestNumberAction={updateServiceRequestNumberAction}
         logIncidentAction={logIncidentAction}

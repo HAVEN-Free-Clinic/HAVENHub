@@ -88,6 +88,8 @@ type Props = {
    * (see router-hook-crash.ts for why that is worth avoiding here).
    */
   nowIso: string;
+  /** Confirms a batch was actually emailed to YNHH; stamps YnhhTicket.sentAt. */
+  markBatchSentAction: (formData: FormData) => Promise<void>;
   closeTicketAction: (ticketId: string) => Promise<void>;
   updateServiceRequestNumberAction: (ticketId: string, value: string) => Promise<void>;
   logIncidentAction: (formData: FormData) => Promise<void>;
@@ -322,7 +324,11 @@ function TrackerTable({
       {openTickets.map((row) => {
         const { ticket, requests } = row;
         const isIncident = Boolean(ticket.subject);
-        const days = businessDaysSince(new Date(ticket.submittedAt), now, zone);
+        // Business days are counted from sentAt, not submittedAt: a PDF that was
+        // generated but never emailed to YNHH is not "1 day open" -- it hasn't
+        // gone anywhere yet. See markBatchSent in itcm.ts for why sentAt is the
+        // only fact that separates a working batch from a forgotten one.
+        const days = ticket.sentAt ? businessDaysSince(new Date(ticket.sentAt), now, zone) : 0;
         return (
           <Card key={ticket.id} className="space-y-3">
             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -332,9 +338,13 @@ function TrackerTable({
                 </p>
                 <p className="text-xs text-muted-foreground">
                   Submitted {formatDateOnly(new Date(ticket.submittedAt), zone)} by {ticket.submittedBy.name}
-                  <span className={`ml-2 font-medium ${days > 5 ? "text-critical-foreground" : "text-warning-foreground"}`}>
-                    · {days} business day{days !== 1 ? "s" : ""} open
-                  </span>
+                  {ticket.sentAt ? (
+                    <span className={`ml-2 font-medium ${days > 5 ? "text-critical-foreground" : "text-warning-foreground"}`}>
+                      · {days} business day{days !== 1 ? "s" : ""} since sent
+                    </span>
+                  ) : (
+                    <Badge tone="warning" className="ml-2">Not yet marked sent to YNHH</Badge>
+                  )}
                 </p>
                 <TicketNumberField
                   ticketId={ticket.id}
@@ -833,6 +843,7 @@ export function EpicRequestTabs({
   liveTermStart,
   liveTermEnd,
   nowIso,
+  markBatchSentAction,
   closeTicketAction,
   updateServiceRequestNumberAction,
   logIncidentAction,
@@ -853,7 +864,7 @@ export function EpicRequestTabs({
         <TabNav activeTab={activeTab} />
       </Suspense>
       {activeTab === "generate" ? (
-        <EpicRequestForm departments={departments} pendingDeactivations={pendingDeactivations} authorizers={authorizers} termStart={liveTermStart} termEnd={liveTermEnd} />
+        <EpicRequestForm departments={departments} pendingDeactivations={pendingDeactivations} authorizers={authorizers} termStart={liveTermStart} termEnd={liveTermEnd} markBatchSentAction={markBatchSentAction} />
       ) : activeTab === "term-batch" ? (
         rollup ? (
           <TermBatchTab
@@ -862,6 +873,7 @@ export function EpicRequestTabs({
             authorizers={authorizers}
             termOptions={termOptions}
             liveTermId={liveTermId}
+            markBatchSentAction={markBatchSentAction}
           />
         ) : (
           <EmptyState

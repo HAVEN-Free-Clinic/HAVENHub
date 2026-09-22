@@ -55,11 +55,14 @@ export function TermBatchTab({
   authorizers,
   termOptions,
   liveTermId,
+  markBatchSentAction,
 }: {
   rollup: EpicRollup;
   authorizers: EpicAuthorizer[];
   termOptions: TermOption[];
   liveTermId: string | null;
+  /** Confirms a batch was actually emailed to YNHH; stamps YnhhTicket.sentAt. */
+  markBatchSentAction: (formData: FormData) => Promise<void>;
 }) {
   const router = useRouter();
   const [authorizerId, setAuthorizerId] = useState(authorizers[0]?.id ?? "");
@@ -85,7 +88,13 @@ export function TermBatchTab({
   const [busyGroup, setBusyGroup] = useState<RollupGroupKind | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
-  const [draft, setDraft] = useState<{ group: RollupGroupKind; subject: string; body: string } | null>(null);
+  const [draft, setDraft] = useState<{
+    group: RollupGroupKind;
+    subject: string;
+    body: string;
+    /** The YnhhTicket this batch was recorded under. Null when tracking was skipped. */
+    ynhhTicketId: string | null;
+  } | null>(null);
 
   /** The selectable ids of one group, in render order. */
   function groupIds(group: RollupGroupKind): string[] {
@@ -126,7 +135,7 @@ export function TermBatchTab({
         endDate,
         termId: rollup.term.id,
       });
-      setDraft({ group, subject: result.subject, body: result.body });
+      setDraft({ group, subject: result.subject, body: result.body, ynhhTicketId: result.ynhhTicketId });
       if (result.trackingWarning) {
         setWarning(result.trackingWarning);
       } else {
@@ -248,6 +257,17 @@ export function TermBatchTab({
             value={`To: helpdesk@ynhh.org\nSubject: ${draft.subject}\n\n${draft.body}`}
             errorMessage="Copy failed. Select the text above and copy manually."
           />
+          {draft.ynhhTicketId ? (
+            <form action={markBatchSentAction} className="mt-4">
+              <input type="hidden" name="ticketId" value={draft.ynhhTicketId} />
+              <Alert tone="warning">
+                Downloading the files does not send them. Attach the PDF (and spreadsheet, for a
+                multi-person batch) to an email to helpdesk@ynhh.org, then confirm below so this
+                batch starts its clock.
+              </Alert>
+              <Button type="submit" className="mt-2">I have sent this to YNHH</Button>
+            </form>
+          ) : null}
         </Card>
       )}
     </div>

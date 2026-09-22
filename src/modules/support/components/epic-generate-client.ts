@@ -25,6 +25,12 @@ export type EpicGenerationResult = {
   body: string;
   /** Set when the artifacts were produced but tracking was skipped. */
   trackingWarning: string | null;
+  /**
+   * The YnhhTicket this batch was recorded under, so the caller can render the
+   * "I have sent this to YNHH" confirmation. Null when tracking was skipped
+   * (trackingWarning set) since no ticket was created.
+   */
+  ynhhTicketId: string | null;
 };
 
 export function base64ToBlob(base64: string, mimeType: string): Blob {
@@ -101,5 +107,6 @@ export async function runEpicGeneration(input: {
     subject: EMAIL_SUBJECTS[input.requestType](input.authorizer.initials, data.date),
     body: data.emailBody,
     trackingWarning: data.trackingWarning ?? null,
+    ynhhTicketId: data.ynhhTicketId ?? null,
   };
 }

@@ -464,6 +464,10 @@ export async function POST(req: Request) {
   // Set when the tracking guard trips on an already-open request so we can return
   // the generated artifacts with a warning instead of discarding them.
   let trackingWarning: string | null = null;
+  // The ticket this batch was recorded under, so the client can render the "I
+  // have sent this to YNHH" confirmation (markBatchSent). Stays null when
+  // tracking was skipped (trackingWarning set): nothing was recorded.
+  let ynhhTicketId: string | null = null;
 
   if (isDeactivate) {
     // Deactivation requests already exist (queued at offboard) or are created
@@ -473,7 +477,8 @@ export async function POST(req: Request) {
     // submission of already-submitted people is rejected (400) rather than
     // orphaning their existing ticket, mirroring the grant path below.
     try {
-      await reconcileDeactivationRequests(actor.id, people.map((p) => p.id), ticketDescription, accessDates.end);
+      const ticket = await reconcileDeactivationRequests(actor.id, people.map((p) => p.id), ticketDescription, accessDates.end);
+      ynhhTicketId = ticket.id;
     } catch (err) {
       if (err instanceof SupportStateError || err instanceof SupportNotFoundError) {
         return NextResponse.json({ error: err.message }, { status: 400 });
@@ -488,13 +493,14 @@ export async function POST(req: Request) {
     const epicKind = epicKindForRequestType(requestType) as "NEW" | "MODIFY" | "RENEW";
 
     try {
-      await submitEpicRequests(
+      const ticket = await submitEpicRequests(
         actor.id,
         epicKind,
         ticketDescription,
         people.map((p) => ({ personId: p.id, mirrorEpicId: mirrorByPersonId.get(p.id)?.epicId ?? null })),
         accessDates
       );
+      ynhhTicketId = ticket.id;
     } catch (err) {
       // An existing OPEN request is a recoverable conflict, not bad input: the
       // PDF/spreadsheet/email were already built above and are still exactly what
@@ -521,6 +527,9 @@ export async function POST(req: Request) {
     // Non-null when tracking was skipped because an open request already exists;
     // the client shows it as a warning and keeps the downloaded artifacts.
     trackingWarning,
+    // The YnhhTicket this batch was recorded under, so the client can render the
+    // "I have sent this to YNHH" confirmation. Null when trackingWarning is set.
+    ynhhTicketId,
     // The ET-formatted MMDDYYYY date (same one used for the filename/PDF), so the
     // client builds the email subject from it instead of the browser's local clock.
     date: dateStr,

@@ -43,13 +43,15 @@ type Props = {
   authorizers: EpicAuthorizer[];
   termStart: string | null;
   termEnd: string | null;
+  /** Confirms a batch was actually emailed to YNHH; stamps YnhhTicket.sentAt. */
+  markBatchSentAction: (formData: FormData) => Promise<void>;
 };
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-export function EpicRequestForm({ departments, pendingDeactivations, authorizers, termStart, termEnd }: Props) {
+export function EpicRequestForm({ departments, pendingDeactivations, authorizers, termStart, termEnd, markBatchSentAction }: Props) {
   // Step 1: configuration. The authorizer is identified by person id; default
   // to the first ITCM director (empty string when there are none).
   const [authorizerId, setAuthorizerId] = useState<string>(authorizers[0]?.id ?? "");
@@ -75,6 +77,9 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
   // Set when generation succeeded but tracking was skipped because an open Epic
   // request already exists; shown as a warning that points at the Tracker.
   const [trackingWarning, setTrackingWarning] = useState<string | null>(null);
+  // The YnhhTicket this batch was recorded under, so the "I have sent this to
+  // YNHH" confirmation has something to stamp. Null when tracking was skipped.
+  const [generatedTicketId, setGeneratedTicketId] = useState<string | null>(null);
 
   const isBulk = requestType.startsWith("bulk");
   const isDeactivate = requestType.startsWith("deactivate") || requestType === "bulk_deactivate";
@@ -137,6 +142,7 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
     setTrackingWarning(null);
     setLoading(true);
     setEmailDraft(null);
+    setGeneratedTicketId(null);
 
     try {
       const result = await runEpicGeneration({
@@ -147,6 +153,7 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
         endDate,
       });
       setEmailDraft({ subject: result.subject, body: result.body });
+      setGeneratedTicketId(result.ynhhTicketId);
       // Generation can succeed while tracking is skipped because a conflicting
       // request already exists. The artifacts are still valid, so surface the
       // warning (with its Tracker link, rendered below) rather than dropping it.
@@ -474,6 +481,17 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
               value={`To: helpdesk@ynhh.org\nSubject: ${emailDraft.subject}\n\n${emailDraft.body}`}
               errorMessage="Copy failed. Select the text above and copy manually."
             />
+            {generatedTicketId ? (
+              <form action={markBatchSentAction} className="mt-4">
+                <input type="hidden" name="ticketId" value={generatedTicketId} />
+                <Alert tone="warning">
+                  Downloading the files does not send them. Attach the PDF
+                  {isBulk ? " and spreadsheet" : ""} to an email to helpdesk@ynhh.org, then
+                  confirm below so this batch starts its clock.
+                </Alert>
+                <Button type="submit" className="mt-2">I have sent this to YNHH</Button>
+              </form>
+            ) : null}
           </div>
         )}
       </Card>

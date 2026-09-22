@@ -332,6 +332,8 @@ export type EpicRequestHistoryRow = {
     status: "OPEN" | "CLOSED";
     submittedAt: Date;
     closedAt: Date | null;
+    /** When an admin confirmed the batch was actually sent to YNHH. Null until then. */
+    sentAt: Date | null;
     submittedBy: { name: string };
   };
   /** The person a one-off incident concerns; null for Epic-batch tickets. */
@@ -402,6 +404,7 @@ export async function getEpicRequestHistory(
       status: t.status as "OPEN" | "CLOSED",
       submittedAt: t.submittedAt,
       closedAt: t.closedAt ?? null,
+      sentAt: t.sentAt ?? null,
       submittedBy: { name: t.submittedBy.name },
     },
     about: t.person ? { name: t.person.name } : null,
@@ -459,6 +462,42 @@ export async function closeTicket(actorPersonId: string, ticketId: string) {
   });
 
   return ticket;
+}
+
+/**
+ * Records that an admin sent this batch to YNHH.
+ *
+ * The send is a manual copy-paste: the app generates a PDF and a spreadsheet,
+ * the admin attaches them in their own mail client. So EpicRequest.status
+ * flipping to SUBMITTED at generation time says nothing about whether YNHH ever
+ * heard of the batch. This is the only fact that does, which is why the
+ * days-open counter and the Epic cron both read it rather than submittedAt.
+ *
+ * Idempotent: a repeat confirmation keeps the original timestamp, because the
+ * first one is the honest answer to "when did this go out". Audits
+ * "epic.batch_sent".
+ */
+export async function markBatchSent(actorPersonId: string, ticketId: string): Promise<void> {
+  if (!(await can(actorPersonId, MANAGE))) {
+    throw new SupportForbiddenError("You do not have permission to manage Epic requests.");
+  }
+
+  const ticket = await prisma.ynhhTicket.findUnique({ where: { id: ticketId } });
+  if (!ticket) throw new SupportNotFoundError(`YnhhTicket not found: ${ticketId}`);
+  if (ticket.sentAt) return;
+
+  await prisma.ynhhTicket.updateMany({
+    where: { id: ticketId, sentAt: null },
+    data: { sentAt: new Date(), sentById: actorPersonId },
+  });
+
+  await recordAudit({
+    actorPersonId,
+    action: "epic.batch_sent",
+    entityType: "YnhhTicket",
+    entityId: ticketId,
+    after: { sentAt: new Date().toISOString() },
+  });
 }
 
 /**

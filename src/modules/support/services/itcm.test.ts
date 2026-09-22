@@ -1200,19 +1200,50 @@ describe("listDepartmentsWithMembers term scope", () => {
   });
 
   it("prefers the live term's role when a person holds two memberships", async () => {
+    // The two rows live in different departments, and "AAAA" sorts before
+    // "PCAR" in the department-code orderBy, so the PREVIOUS-term row is
+    // guaranteed to come back from Postgres FIRST. That makes this test
+    // deterministic: with rank-based dedup removed entirely, a naive
+    // first-row-wins dedup would keep this row (VOLUNTEER, "AAAA") instead of
+    // the live-term one, and the assertions below would fail reliably rather
+    // than passing by the luck of an arbitrary row order.
     const { live, prev, dept } = await threeTermFixture();
+    const early = await prisma.department.create({ data: { code: "AAAA", name: "Early Dept" } });
     const sam = await createPerson("Sam Rivera");
     await prisma.termMembership.create({
-      data: { personId: sam.id, termId: prev.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" },
+      data: { personId: sam.id, termId: prev.id, departmentId: early.id, kind: "VOLUNTEER", status: "ACTIVE" },
     });
     await prisma.termMembership.create({
       data: { personId: sam.id, termId: live.id, departmentId: dept.id, kind: "DIRECTOR", status: "ACTIVE" },
     });
 
     const depts = await listDepartmentsWithMembers();
-    expect(depts[0].directors.map((d) => d.id)).toContain(sam.id);
-    expect(depts[0].volunteers.map((v) => v.id)).not.toContain(sam.id);
-    expect(depts[0].directors.find((d) => d.id === sam.id)?.termCode).toBeNull();
+    const pcar = depts.find((d) => d.department.code === dept.code);
+    expect(pcar?.directors.map((d) => d.id)).toContain(sam.id);
+    expect(pcar?.directors.find((d) => d.id === sam.id)?.termCode).toBeNull();
+    const appearances = depts.flatMap((d) => [...d.directors, ...d.volunteers]).filter((m) => m.id === sam.id);
+    expect(appearances).toHaveLength(1);
+  });
+
+  it("keeps a person under BOTH departments when they hold two ACTIVE memberships in the SAME term", async () => {
+    // This is the invariant the rank-based dedup exists to protect: a person
+    // can be DIRECTOR in one department and VOLUNTEER in another within the
+    // SAME term, and a flat person-id Set would silently drop the second row.
+    const { live, dept } = await threeTermFixture();
+    const vadm = await prisma.department.create({ data: { code: "VADM", name: "Volunteer Admin" } });
+    const sam = await createPerson("Sam Rivera");
+    await prisma.termMembership.create({
+      data: { personId: sam.id, termId: live.id, departmentId: dept.id, kind: "DIRECTOR", status: "ACTIVE" },
+    });
+    await prisma.termMembership.create({
+      data: { personId: sam.id, termId: live.id, departmentId: vadm.id, kind: "VOLUNTEER", status: "ACTIVE" },
+    });
+
+    const depts = await listDepartmentsWithMembers();
+    const pcar = depts.find((d) => d.department.code === dept.code);
+    const vadmDept = depts.find((d) => d.department.code === "VADM");
+    expect(pcar?.directors.map((d) => d.id)).toContain(sam.id);
+    expect(vadmDept?.volunteers.map((v) => v.id)).toContain(sam.id);
   });
 
   it("lists a department-switcher once, under the department they are in now", async () => {

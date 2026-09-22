@@ -446,7 +446,10 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
             <div className="space-y-1">
               {[...selectedPeopleMap.values()].map((p) => (
                 <div key={p.id} className="flex items-center justify-between text-sm">
-                  <span className="text-foreground">{p.name}</span>
+                  <span className="flex items-center gap-2 text-foreground">
+                    {p.name}
+                    {p.termCode ? <Badge tone="warning">{p.termCode}</Badge> : null}
+                  </span>
                   <Button
                     type="button"
                     variant="ghost"

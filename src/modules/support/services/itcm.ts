@@ -48,8 +48,10 @@ export type MemberLite = {
   kind: "DIRECTOR" | "VOLUNTEER";
   /**
    * The term this person's membership came from, when it is NOT the live one.
-   * Null for a live-term member. Drives the badge that tells an admin they are
-   * raising a request for someone not on the current roster.
+   * Null means render no badge: either a live-term member, or a row that is
+   * off-roster by construction such as a pending deactivation. Drives the
+   * badge that tells an admin they are raising a request for someone not on
+   * the current roster.
    */
   termCode: string | null;
 };
@@ -214,9 +216,16 @@ export async function listDepartmentsWithMembers(): Promise<DepartmentWithMember
   // they are in now rather than under both.
   const bestRank = new Map<string, number>();
   for (const m of memberships) {
-    const rank = termMeta.get(m.termId)?.rank ?? 2;
+    // Resolve once and branch on whether it exists, rather than defaulting
+    // rank and termCode from two independent fallbacks (`?? 2` vs `?? null`)
+    // that could disagree. The where clause above already scopes termId to
+    // termMeta's keys, so this is always a hit; skipping a miss keeps that
+    // guarantee explicit instead of letting a mismatched rank/code pair slip
+    // through if the where clause is ever widened.
+    const meta = termMeta.get(m.termId);
+    if (!meta) continue;
     const seen = bestRank.get(m.person.id);
-    if (seen === undefined || rank < seen) bestRank.set(m.person.id, rank);
+    if (seen === undefined || meta.rank < seen) bestRank.set(m.person.id, meta.rank);
   }
 
   const byDept = new Map<string, DepartmentWithMembers>();
@@ -224,8 +233,8 @@ export async function listDepartmentsWithMembers(): Promise<DepartmentWithMember
 
   for (const m of memberships) {
     const meta = termMeta.get(m.termId);
-    const rank = meta?.rank ?? 2;
-    if (rank !== bestRank.get(m.person.id)) continue;
+    if (!meta) continue;
+    if (meta.rank !== bestRank.get(m.person.id)) continue;
 
     if (!byDept.has(m.departmentId)) {
       byDept.set(m.departmentId, { department: m.department, directors: [], volunteers: [] });
@@ -242,7 +251,9 @@ export async function listDepartmentsWithMembers(): Promise<DepartmentWithMember
       contactEmail: m.person.contactEmail,
       epicId: m.person.epicId,
       kind: m.kind,
-      termCode: rank === 0 ? null : (meta?.code ?? null),
+      // Both halves come from the same `meta`, so rank and the badge it
+      // drives can never disagree.
+      termCode: meta.rank === 0 ? null : meta.code,
     };
 
     const entry = byDept.get(m.departmentId)!;

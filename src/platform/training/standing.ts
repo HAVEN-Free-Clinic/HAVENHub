@@ -17,6 +17,10 @@
  *   - Clinical, returning: owes neither.
  *   - A volunteer with any non-clinical membership that term follows the
  *     non-clinical rules. Directors keep the old rule: the morning only.
+ *   - A director of the term owes nothing on the VOLUNTEER track, even with a
+ *     volunteer membership alongside (ops, 2026-09-22). Directors staff the
+ *     volunteer session, and their check-in there once made them "owe" mock
+ *     clinic and got them the makeup email.
  *
  * Every part is DERIVED from facts on each recompute (attendance rows, the
  * makeup course's progress, the mark-off), never latched, so removing a
@@ -55,6 +59,8 @@ export type TrainingDayFacts = {
   /** Passed the retired makeup quiz: a passed QuizAttempt on the row, or a row
    *  already carrying a QUIZ morning. History nothing else can re-derive. */
   passedRetiredQuiz: boolean;
+  /** Holds an ACTIVE DIRECTOR membership that term. */
+  director: boolean;
 };
 
 export type TrainingDayParts = { morning: TrainingPartStatus; mockClinic: TrainingPartStatus };
@@ -63,6 +69,9 @@ export type TrainingDayParts = { morning: TrainingPartStatus; mockClinic: Traini
 export function trainingDayParts(f: TrainingDayFacts): TrainingDayParts {
   const volunteer = f.track === "VOLUNTEER";
   const clinical = volunteer && f.clinical;
+  // A director owes nothing on the volunteer track. What they did attend is
+  // still recorded below; it just never leaves a part OWED.
+  const directorExempt = volunteer && f.director;
 
   const morning: TrainingPartStatus = f.attendedMorning
     ? "ATTENDED"
@@ -70,7 +79,7 @@ export function trainingDayParts(f: TrainingDayFacts): TrainingDayParts {
       ? "ONLINE_COURSE"
       : f.passedRetiredQuiz
         ? "QUIZ"
-        : clinical
+        : clinical || directorExempt
           ? "NOT_REQUIRED"
           : "OWED";
 
@@ -80,7 +89,7 @@ export function trainingDayParts(f: TrainingDayFacts): TrainingDayParts {
       ? "ATTENDED"
       : f.markedOff
         ? "MARKED_OFF"
-        : clinical && f.returning
+        : (clinical && f.returning) || directorExempt
           ? "NOT_REQUIRED"
           : "OWED";
 
@@ -145,11 +154,12 @@ export async function loadTrainingDayFacts(
   if (!cycle) return null;
 
   const eventScope = { termId, cycle: { track } };
-  const [memberships, attendance, mockClinicEvents, row, makeup, returning] = await Promise.all([
+  const [memberships, directorships, attendance, mockClinicEvents, row, makeup, returning] = await Promise.all([
     db.termMembership.findMany({
       where: { personId, termId, kind: track, status: "ACTIVE" },
       select: { department: { select: { isClinical: true } } },
     }),
+    db.termMembership.count({ where: { personId, termId, kind: "DIRECTOR", status: "ACTIVE" } }),
     db.eventAttendance.findMany({
       where: { personId, event: { ...eventScope, kind: { in: ["TRAINING", "MOCK_CLINIC"] } } },
       select: { event: { select: { kind: true } } },
@@ -181,6 +191,7 @@ export async function loadTrainingDayFacts(
       completedMakeupCourse,
       markedOff: row?.mockClinicMarkedAt != null,
       passedRetiredQuiz: row?.morningStatus === "QUIZ" || (row?.attempts.length ?? 0) > 0,
+      director: directorships > 0,
     },
   };
 }
@@ -284,10 +295,15 @@ export async function recomputeTrainingStandingForTerm(
   if (!cycle) return { people: 0, nowComplete: 0, nowPending: 0 };
 
   const eventScope = { termId, cycle: { track } };
-  const [memberships, rows, attendance, mockClinicEvents, makeup, term] = await Promise.all([
+  const [memberships, directorships, rows, attendance, mockClinicEvents, makeup, term] = await Promise.all([
     prisma.termMembership.findMany({
       where: { termId, kind: track, status: "ACTIVE" },
       select: { personId: true, department: { select: { isClinical: true } } },
+    }),
+    prisma.termMembership.findMany({
+      where: { termId, kind: "DIRECTOR", status: "ACTIVE" },
+      select: { personId: true },
+      distinct: ["personId"],
     }),
     prisma.training.findMany({
       where: { termId, track },
@@ -355,6 +371,7 @@ export async function recomputeTrainingStandingForTerm(
     if (c.acceptance.application.applicantType === "RENEWAL") renewalBy.add(c.promotedPersonId);
   }
   const earlierBy = new Set(earlier.map((m) => m.personId));
+  const directorBy = new Set(directorships.map((m) => m.personId));
   const rowBy = new Map(rows.map((r) => [r.personId, r]));
 
   let nowComplete = 0;
@@ -372,6 +389,7 @@ export async function recomputeTrainingStandingForTerm(
       completedMakeupCourse: courseDoneBy.has(personId),
       markedOff: row?.mockClinicMarkedAt != null,
       passedRetiredQuiz: row?.morningStatus === "QUIZ" || (row?.attempts.length ?? 0) > 0,
+      director: directorBy.has(personId),
     });
     const complete = partsComplete(parts);
     const data = standingWrite(parts, complete, {

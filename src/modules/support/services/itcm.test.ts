@@ -449,6 +449,22 @@ describe("reconcileDeactivationRequests", () => {
     expect(await prisma.ynhhTicket.count()).toBe(ticketsBefore);
     expect(await prisma.epicRequest.count({ where: { personId: ok.id } })).toBe(0);
   });
+
+  // A deactivation has no start date (there is no "New Hire start date" field
+  // for it on the PDF), so only accessEndDate is ever passed and written.
+  it("persists accessEndDate on the created request and leaves accessStartDate null", async () => {
+    const actor = await prisma.person.create({ data: { name: "Actor" } });
+    const person = await prisma.person.create({ data: { name: "Leaving", epicId: "E9", status: "OFFBOARDED" } });
+    const end = new Date("2026-10-31T00:00:00.000Z");
+
+    const ticket = await reconcileDeactivationRequests(actor.id, [person.id], "Deactivate - Leaving", end);
+
+    const stored = await prisma.epicRequest.findFirstOrThrow({
+      where: { ticketId: ticket.id, personId: person.id },
+    });
+    expect(stored.accessEndDate?.toISOString()).toBe(end.toISOString());
+    expect(stored.accessStartDate).toBeNull();
+  });
 });
 
 describe("submitEpicRequests", () => {
@@ -653,6 +669,97 @@ describe("submitEpicRequests", () => {
 
     const updated = await prisma.techRequest.findUniqueOrThrow({ where: { id: techRequest.id } });
     expect(updated.status).toBe("AWAITING_YNHH");
+  });
+
+  // Until now accessStartDate/accessEndDate were collected and printed onto the
+  // PDF/spreadsheet/email but never written to the row, so nothing could answer
+  // "whose Epic access expires this month." Asserts on what is actually stored,
+  // not on the function's return value.
+  it("persists both access dates on a newly created request", async () => {
+    const actor = await createPerson("Manager");
+    await grantPermission(actor.id, "support.manage_requests");
+    const person = await createPerson("Alice");
+    const start = new Date("2026-09-01T00:00:00.000Z");
+    const end = new Date("2026-12-20T00:00:00.000Z");
+
+    const ticket = await submitEpicRequests(
+      actor.id,
+      "NEW",
+      "New - Individual - Alice",
+      [{ personId: person.id, mirrorEpicId: null }],
+      { start, end }
+    );
+
+    const stored = await prisma.epicRequest.findFirstOrThrow({
+      where: { ticketId: ticket.id, personId: person.id },
+    });
+    expect(stored.accessStartDate?.toISOString()).toBe(start.toISOString());
+    expect(stored.accessEndDate?.toISOString()).toBe(end.toISOString());
+  });
+
+  // The branch most likely to drop the dates: adoption is an updateMany against
+  // an existing PENDING row (see "adopts a same-kind un-ticketed PENDING request"
+  // above), not the createMany insert. Seeds that row with null dates first so a
+  // pass here cannot be explained by the row already carrying them.
+  it("persists both access dates when adopting an existing un-ticketed PENDING request", async () => {
+    const actor = await createPerson("Manager");
+    await grantPermission(actor.id, "support.manage_requests");
+    const person = await createPerson("Alice");
+    const promoted = await prisma.epicRequest.create({
+      data: {
+        personId: person.id,
+        kind: "NEW",
+        status: "PENDING",
+        requestedById: actor.id,
+        ticketId: null,
+        accessStartDate: null,
+        accessEndDate: null,
+      },
+    });
+    const start = new Date("2026-09-01T00:00:00.000Z");
+    const end = new Date("2026-12-20T00:00:00.000Z");
+
+    const ticket = await submitEpicRequests(
+      actor.id,
+      "NEW",
+      "New - Individual - Alice",
+      [{ personId: person.id, mirrorEpicId: null }],
+      { start, end }
+    );
+
+    const adopted = await prisma.epicRequest.findUniqueOrThrow({ where: { id: promoted.id } });
+    expect(adopted.ticketId).toBe(ticket.id);
+    expect(adopted.status).toBe("SUBMITTED");
+    expect(adopted.accessStartDate?.toISOString()).toBe(start.toISOString());
+    expect(adopted.accessEndDate?.toISOString()).toBe(end.toISOString());
+  });
+
+  // Regression guard for the timezone-shift class of bug the route's slicing
+  // helpers (toUs/toDate/sortable) exist to prevent: a UTC-midnight New Year's
+  // Day read back through local-time formatting in this suite's zone (America/
+  // New_York, a negative UTC offset) would roll back to December 31. Reading
+  // the stored value's UTC calendar day guards against that regressing here,
+  // one layer below those helpers, at the point the date is actually stored.
+  it("stores the exact calendar day given, in UTC, even across a year boundary", async () => {
+    const actor = await createPerson("Manager");
+    await grantPermission(actor.id, "support.manage_requests");
+    const person = await createPerson("Alice");
+    const start = new Date("2026-01-01T00:00:00.000Z");
+    const end = new Date("2026-06-30T00:00:00.000Z");
+
+    const ticket = await submitEpicRequests(
+      actor.id,
+      "NEW",
+      "New - Individual - Alice",
+      [{ personId: person.id, mirrorEpicId: null }],
+      { start, end }
+    );
+
+    const stored = await prisma.epicRequest.findFirstOrThrow({
+      where: { ticketId: ticket.id, personId: person.id },
+    });
+    expect(stored.accessStartDate?.toISOString().slice(0, 10)).toBe("2026-01-01");
+    expect(stored.accessEndDate?.toISOString().slice(0, 10)).toBe("2026-06-30");
   });
 });
 

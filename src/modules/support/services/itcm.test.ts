@@ -831,6 +831,27 @@ describe("closeTicket", () => {
     expect(closed.status).toBe("CLOSED");
     expect(closed.closedAt).not.toBeNull();
   });
+
+  it("closes a ticket whose only unresolved request was rejected by YNHH", async () => {
+    const actor = await createPerson("Admin");
+    await grantPermission(actor.id, "support.manage_requests");
+    const sam = await createPerson("Sam Rivera");
+    const ticket = await prisma.ynhhTicket.create({
+      data: { submittedById: actor.id, description: "NEW - Sam Rivera" },
+    });
+    await prisma.epicRequest.create({
+      data: {
+        personId: sam.id, kind: "NEW", status: "REJECTED",
+        requestedById: actor.id, ticketId: ticket.id,
+        outcomeNote: "Already has an account",
+      },
+    });
+
+    await closeTicket(actor.id, ticket.id);
+
+    const after = await prisma.ynhhTicket.findUniqueOrThrow({ where: { id: ticket.id } });
+    expect(after.status).toBe("CLOSED");
+  });
 });
 
 describe("updateServiceRequestNumber", () => {

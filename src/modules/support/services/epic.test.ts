@@ -91,6 +91,7 @@ import {
   sendEpicEmail,
   cancelEpicRequest,
   linkEpicRequestToTicket,
+  rejectRequest,
   EpicForbiddenError,
   EpicNotFoundError,
   EpicStateError,
@@ -1210,5 +1211,46 @@ describe("completeRequest and cancelEpicRequest drive TechRequest.status back to
     await cancelEpicRequest(actor.id, bobReq.id);
     const updated = await prisma.techRequest.findUniqueOrThrow({ where: { id: techRequest.id } });
     expect(updated.status).toBe("IN_PROGRESS");
+  });
+});
+
+describe("rejectRequest", () => {
+  it("records YNHH's refusal with its reason and leaves epicId untouched", async () => {
+    const actor = await createPerson("Admin");
+    await grantPermission(actor.id, "support.manage_requests");
+    const sam = await createPerson("Sam Rivera");
+    const req = await prisma.epicRequest.create({
+      data: { personId: sam.id, kind: "NEW", status: "SUBMITTED", requestedById: actor.id },
+    });
+
+    await rejectRequest(actor.id, req.id, "Name does not match YNHH records");
+
+    const after = await prisma.epicRequest.findUniqueOrThrow({ where: { id: req.id } });
+    expect(after.status).toBe("REJECTED");
+    expect(after.outcomeNote).toBe("Name does not match YNHH records");
+    const person = await prisma.person.findUniqueOrThrow({ where: { id: sam.id } });
+    expect(person.epicId).toBeNull();
+  });
+
+  it("refuses a request that is already resolved", async () => {
+    const actor = await createPerson("Admin");
+    await grantPermission(actor.id, "support.manage_requests");
+    const sam = await createPerson("Sam Rivera");
+    const req = await prisma.epicRequest.create({
+      data: { personId: sam.id, kind: "NEW", status: "CANCELLED", requestedById: actor.id },
+    });
+
+    await expect(rejectRequest(actor.id, req.id, "too late")).rejects.toThrow(EpicStateError);
+  });
+
+  it("requires a reason", async () => {
+    const actor = await createPerson("Admin");
+    await grantPermission(actor.id, "support.manage_requests");
+    const sam = await createPerson("Sam Rivera");
+    const req = await prisma.epicRequest.create({
+      data: { personId: sam.id, kind: "NEW", status: "SUBMITTED", requestedById: actor.id },
+    });
+
+    await expect(rejectRequest(actor.id, req.id, "   ")).rejects.toThrow(EpicStateError);
   });
 });

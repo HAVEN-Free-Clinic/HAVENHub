@@ -431,7 +431,8 @@ export async function closeTicket(actorPersonId: string, ticketId: string) {
   // (ticketId: null only), and the History tab renders its requests read-only,
   // so a still-PENDING/SUBMITTED request would be stranded with no surface that
   // can complete or cancel it, permanently blocking Epic provisioning for that
-  // person. Resolve the requests first.
+  // person. Resolve the requests first. COMPLETED, CANCELLED and REJECTED all
+  // count as resolved: a batch YNHH partly refused must still be closeable.
   const openCount = await prisma.epicRequest.count({
     where: { ticketId, status: { in: ["PENDING", "SUBMITTED"] } },
   });

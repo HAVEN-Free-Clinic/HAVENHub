@@ -483,6 +483,58 @@ export async function completeRequest(
 }
 
 /**
+ * Records that YNHH declined a request, with their reason.
+ *
+ * Distinct from cancelEpicRequest, and the distinction is the point: CANCELLED
+ * means we withdrew the request, REJECTED means YNHH said no. Before this the
+ * only way to record a refusal was to cancel, which discarded the reason and
+ * made YNHH's decision read as our own withdrawal -- so a person's history
+ * could not tell you whether re-raising was warranted.
+ *
+ * Never touches Person.epicId. Claimed atomically, the same shape as
+ * completeRequest, so a concurrent cancel cannot be silently reverted.
+ * Audits "epic.reject".
+ */
+export async function rejectRequest(
+  actorPersonId: string,
+  requestId: string,
+  outcomeNote: string
+): Promise<void> {
+  await requireManageEpic(actorPersonId);
+
+  const reason = outcomeNote.trim();
+  if (!reason) {
+    throw new EpicStateError("A rejection needs a reason: it is the only record of why YNHH declined.");
+  }
+
+  const req = await prisma.epicRequest.findUnique({ where: { id: requestId } });
+  if (!req) throw new EpicNotFoundError(`EpicRequest not found: ${requestId}`);
+  if (req.status !== "PENDING" && req.status !== "SUBMITTED") {
+    throw new EpicStateError(
+      `Cannot reject a request with status ${req.status}. Must be PENDING or SUBMITTED.`
+    );
+  }
+
+  const claimed = await prisma.epicRequest.updateMany({
+    where: { id: requestId, status: { in: ["PENDING", "SUBMITTED"] } },
+    data: { status: "REJECTED", outcomeNote: reason, completedAt: new Date() },
+  });
+  if (claimed.count === 0) {
+    throw new EpicStateError("This request was resolved by someone else. Reload and try again.");
+  }
+
+  await recordAudit({
+    actorPersonId,
+    action: "epic.reject",
+    entityType: "EpicRequest",
+    entityId: requestId,
+    after: { status: "REJECTED", outcomeNote: reason },
+  });
+
+  await onEpicResolved(actorPersonId, requestId, "REJECTED");
+}
+
+/**
  * Sends (queues) an email for an epic request.
  *
  * Requires support.manage_requests. Request and person must exist

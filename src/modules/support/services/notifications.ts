@@ -271,17 +271,22 @@ export function buildEpicSubmissionNote(
 
 /**
  * Builds the staff-only note text for the reverse transition: a single Epic
- * request finishing (COMPLETED or CANCELLED) with no sibling request still
- * outstanding, moving the linked ticket back to In Progress. ynhhTicket is
- * null when the resolved request was never linked to one (e.g. cancelled
- * before ever being submitted) -- the note still names the request so an
- * agent is not left guessing what moved the ticket.
+ * request finishing (COMPLETED, CANCELLED or REJECTED) with no sibling
+ * request still outstanding, moving the linked ticket back to In Progress.
+ * ynhhTicket is null when the resolved request was never linked to one (e.g.
+ * cancelled before ever being submitted) -- the note still names the request
+ * so an agent is not left guessing what moved the ticket.
  */
 export function buildEpicResolutionNote(
-  entry: { kind: EpicRequestKind; personName: string; outcome: "COMPLETED" | "CANCELLED" },
+  entry: { kind: EpicRequestKind; personName: string; outcome: "COMPLETED" | "CANCELLED" | "REJECTED" },
   ynhhTicket: YnhhTicketRef | null
 ): string {
-  const outcomeLabel = entry.outcome === "COMPLETED" ? "completed" : "cancelled";
+  const outcomeLabel =
+    entry.outcome === "COMPLETED"
+      ? "completed"
+      : entry.outcome === "REJECTED"
+        ? "rejected by YNHH"
+        : "cancelled";
   const ticketRef = ynhhTicket ? ` (${ynhhTicketRef(ynhhTicket)})` : "";
   return `${EPIC_KIND_LABELS[entry.kind]} for ${entry.personName} ${outcomeLabel}${ticketRef}. No other Epic request on this ticket is still with YNHH, so it moved back to In Progress.`;
 }

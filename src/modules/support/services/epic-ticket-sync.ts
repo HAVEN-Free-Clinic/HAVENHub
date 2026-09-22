@@ -25,7 +25,7 @@
  *     EpicRequests move to SUBMITTED under a YnhhTicket. Every TechRequest
  *     among them (via EpicRequest.techRequestId) moves to AWAITING_YNHH.
  *   - onEpicResolved(actorPersonId, epicRequestId, outcome): called after a
- *     single EpicRequest moves to COMPLETED or CANCELLED. Its linked
+ *     single EpicRequest moves to COMPLETED, CANCELLED or REJECTED. Its linked
  *     TechRequest moves back to IN_PROGRESS -- but ONLY when no OTHER
  *     EpicRequest attached to the same TechRequest is still SUBMITTED. A
  *     TechRequest can carry many EpicRequests (the 0..n relationship), and
@@ -171,18 +171,18 @@ export async function syncYnhhServiceRequestToIntercom(ynhhTicketId: string): Pr
 }
 
 /**
- * Called after a single EpicRequest has been committed as COMPLETED or
- * CANCELLED (epic.ts's completeRequest and cancelEpicRequest call this once
- * their own atomic claim has succeeded). No-ops when the request was never
- * attached to a TechRequest, when that TechRequest is not currently
- * AWAITING_YNHH (nothing to move it out of), or when another EpicRequest on
- * the same TechRequest is still SUBMITTED (see the module doc comment on the
- * 0..n relationship).
+ * Called after a single EpicRequest has been committed as COMPLETED,
+ * CANCELLED or REJECTED (epic.ts's completeRequest, cancelEpicRequest and
+ * rejectRequest call this once their own atomic claim has succeeded). No-ops
+ * when the request was never attached to a TechRequest, when that TechRequest
+ * is not currently AWAITING_YNHH (nothing to move it out of), or when another
+ * EpicRequest on the same TechRequest is still SUBMITTED (see the module doc
+ * comment on the 0..n relationship).
  */
 export async function onEpicResolved(
   actorPersonId: string,
   epicRequestId: string,
-  outcome: "COMPLETED" | "CANCELLED"
+  outcome: "COMPLETED" | "CANCELLED" | "REJECTED"
 ): Promise<void> {
   const req = await prisma.epicRequest.findUnique({
     where: { id: epicRequestId },

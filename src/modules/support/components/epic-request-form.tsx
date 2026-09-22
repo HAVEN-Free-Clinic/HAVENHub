@@ -13,8 +13,9 @@
  * generate route (returns a base64-encoded PDF and optional XLSX). The email
  * draft is assembled client-side from the same data since it needs no binary.
  *
- * The access end date is configurable via a date input so ITCM can set it
- * once per term without touching code.
+ * The access start and end dates are configurable via date inputs. On a
+ * deactivation the second field is the effective deactivation date and is
+ * never prefilled: it must be a deliberate choice.
  */
 
 import { useState, useMemo } from "react";
@@ -40,8 +41,11 @@ import { TextLink } from "@/platform/ui/text-link";
 type Props = {
   departments: DepartmentWithMembers[];
   pendingDeactivations: PendingDeactivation[];
+  /** Current term's ITCM directors, the people who can authorize a request. */
   authorizers: EpicAuthorizer[];
+  /** Live term start as ISO YYYY-MM-DD, prefilling the access start date. */
   termStart: string | null;
+  /** Live term end as ISO YYYY-MM-DD. Never used to prefill a deactivation. */
   termEnd: string | null;
   /** Confirms a batch was actually emailed to YNHH; stamps YnhhTicket.sentAt. */
   markBatchSentAction: (formData: FormData) => Promise<void>;
@@ -58,6 +62,10 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
   const [requestType, setRequestType] = useState<RequestType>("new_individual");
   const [startDate, setStartDate] = useState(termStart ?? "");
   const [endDate, setEndDate] = useState(termEnd ?? "");
+  // Whether the admin has touched the end date. useState seeds once at mount,
+  // so switching to a deactivate type later cannot re-seed it; this is what
+  // lets the displayed value depend on the request type without losing an edit.
+  const [endDateEdited, setEndDateEdited] = useState(false);
 
   const selectedAuthorizer = useMemo(
     () => authorizers.find((a) => a.id === authorizerId) ?? null,
@@ -83,6 +91,13 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
 
   const isBulk = requestType.startsWith("bulk");
   const isDeactivate = requestType.startsWith("deactivate") || requestType === "bulk_deactivate";
+
+  // On a deactivation this field is the EFFECTIVE DEACTIVATION DATE, not an
+  // access end date, so it is never prefilled with the term end: that would
+  // date a mid-term offboarding months out AND make the "set a date" guard
+  // unreachable, removing the forcing function entirely.
+  const endDateValue = isDeactivate && !endDateEdited ? "" : endDate;
+  const endDateLabel = isDeactivate ? "Effective deactivation date" : "Access end date";
 
   // The selected department's members for the person list.
   const selectedDept = useMemo(
@@ -134,8 +149,16 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
       setError("Select at least one person before generating.");
       return;
     }
-    if (!endDate) {
-      setError("Set the access date range before generating this request.");
+    if (!endDateValue) {
+      setError(
+        isDeactivate
+          ? "Set the effective deactivation date before generating this request."
+          : "Set the access end date before generating this request."
+      );
+      return;
+    }
+    if (!isDeactivate && startDate && startDate > endDateValue) {
+      setError("The access start date is after the end date.");
       return;
     }
     setError(null);
@@ -149,8 +172,8 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
         requestType,
         authorizer: selectedAuthorizer,
         personIds: [...selectedPeopleIds],
-        startDate,
-        endDate,
+        startDate: isDeactivate ? "" : startDate,
+        endDate: endDateValue,
       });
       setEmailDraft({ subject: result.subject, body: result.body });
       setGeneratedTicketId(result.ynhhTicketId);
@@ -229,23 +252,28 @@ export function EpicRequestForm({ departments, pendingDeactivations, authorizers
             </Select>
           </Field>
 
-          <Field label="Access date range">
-            <div className="flex items-center gap-2">
+          {!isDeactivate ? (
+            <Field label="Access start date">
               <Input
                 type="date"
+                max={endDateValue || undefined}
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                placeholder="Start date"
               />
-              <span className="text-muted-foreground text-sm shrink-0">to</span>
-              <Input
-                type="date"
-                required
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                placeholder="End date"
-              />
-            </div>
+            </Field>
+          ) : null}
+
+          <Field label={endDateLabel}>
+            <Input
+              type="date"
+              required
+              min={!isDeactivate && startDate ? startDate : undefined}
+              value={endDateValue}
+              onChange={(e) => {
+                setEndDateEdited(true);
+                setEndDate(e.target.value);
+              }}
+            />
           </Field>
         </div>
 

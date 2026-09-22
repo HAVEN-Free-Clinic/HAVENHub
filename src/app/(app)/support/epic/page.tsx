@@ -48,6 +48,7 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { EpicRequestTabs } from "@/modules/support/components/epic-request-tabs";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { getWorkingTerm } from "@/platform/terms/working-term";
+import { isoDateKey } from "@/platform/dates";
 import { listBatchTermOptions, loadTermEpicRollup } from "@/modules/support/services/epic-rollup";
 
 const EPIC_EMAIL_TEMPLATES: EpicTemplateKey[] = ["epic-onboarding", "epic-activation", "epic-password-reset"];
@@ -377,8 +378,8 @@ export default async function EpicRequestsPage({ searchParams }: PageProps) {
         rollup={rollup}
         termOptions={termOptions}
         liveTermId={liveTerm?.id ?? null}
-        liveTermStart={liveTerm?.startDate?.toISOString().split("T")[0] ?? null}
-        liveTermEnd={liveTerm?.endDate?.toISOString().split("T")[0] ?? null}
+        liveTermStart={liveTerm ? isoDateKey(liveTerm.startDate) : null}
+        liveTermEnd={liveTerm ? isoDateKey(liveTerm.endDate) : null}
         nowIso={new Date().toISOString()}
         markBatchSentAction={markBatchSentAction}
         closeTicketAction={closeTicketAction}

@@ -642,6 +642,8 @@ export async function sendEpicEmail(
  * and an admin must be able to abandon one made in error. Cancelling never
  * touches Person.epicId (revocation, if needed, happens via a DEACTIVATE
  * request). A COMPLETED or already-CANCELLED request cannot be cancelled.
+ * Sets completedAt, matching the other two terminal outcomes (completeRequest,
+ * rejectRequest): see the field's doc comment in schema.prisma for why.
  * Audits "epic.cancel".
  */
 export async function cancelEpicRequest(actorPersonId: string, requestId: string): Promise<void> {
@@ -657,7 +659,7 @@ export async function cancelEpicRequest(actorPersonId: string, requestId: string
   // complete/cancel can't be clobbered between the read above and this write.
   const claimed = await prisma.epicRequest.updateMany({
     where: { id: requestId, status: { in: ["PENDING", "SUBMITTED"] } },
-    data: { status: "CANCELLED" },
+    data: { status: "CANCELLED", completedAt: new Date() },
   });
   if (claimed.count !== 1) {
     throw new EpicStateError(

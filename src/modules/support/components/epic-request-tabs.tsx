@@ -783,99 +783,99 @@ export function PendingTab({
       <EpicTicketsWithoutRequest orphans={orphans} />
       <StrandedDeactivationsCard rows={strandedDeactivations} cancelAction={cancelAction} />
       <form action={action} className="space-y-4">
-      <Card className="space-y-3">
-        <SectionHeader level="title">Pending Epic requests</SectionHeader>
-        <p className="text-xs text-subtle-foreground">
-          Select requests and open one YNHH ticket for them. They then appear under Tracker.
-        </p>
+        <Card className="space-y-3">
+          <SectionHeader level="title">Pending Epic requests</SectionHeader>
+          <p className="text-xs text-subtle-foreground">
+            Select requests and open one YNHH ticket for them. They then appear under Tracker.
+          </p>
 
-        {/* tab=pending is read by cancelEpicRequestAction so a per-row cancel
-            (formAction below) redirects back to this tab. */}
-        <input type="hidden" name="tab" value="pending" />
+          {/* tab=pending is read by cancelEpicRequestAction so a per-row cancel
+              (formAction below) redirects back to this tab. */}
+          <input type="hidden" name="tab" value="pending" />
 
-        {/* The ids are posted as hidden inputs rather than by the row boxes'
-            own `name`, the way the offboarding tabs do it. The boxes used to be
-            uncontrolled, which is why this queue was the one bulk surface in the
-            app with no select-all and no count at all: a director ticking twelve
-            of forty and pressing Create had nothing on screen telling them how
-            many were going into the ticket. */}
-        {selection.ids.map((id) => (
-          <input key={id} type="hidden" name="requestIds" value={id} />
-        ))}
-
-        <div className="flex flex-wrap items-center gap-3">
-          <Checkbox
-            label="Select all"
-            checked={selection.allSelected}
-            indeterminate={selection.someSelected}
-            onChange={selection.toggleAll}
-          />
-          <span className="text-xs text-subtle-foreground">
-            {selection.ids.length} of {pending.length} selected
-          </span>
-        </div>
-
-        <ul className="space-y-1">
-          {pending.map((r) => (
-            <li key={r.id} className="flex flex-wrap items-center gap-2 text-sm">
-              <Checkbox
-                checked={selection.has(r.id)}
-                // onClick, not onChange: a change event carries no shiftKey.
-                onClick={(e) => selection.toggle(r.id, e.shiftKey)}
-                onChange={() => {}}
-                aria-label={`Select ${r.person.name}`}
-              />
-              <Badge>{EPIC_KIND_LABELS[r.kind]}</Badge>
-              <span className="font-medium">{r.person.name}</span>
-              {r.techRequest ? (
-                <TextLink href={`/support/${r.techRequest.id}`} size="xs">
-                  #{r.techRequest.number}
-                </TextLink>
-              ) : (
-                <span className="text-xs text-subtle-foreground">Promotion</span>
-              )}
-              {r.notes && <span className="text-xs text-subtle-foreground">· {r.notes}</span>}
-              {/* Discard a stale pending request (e.g. a promotion-origin one
-                  for someone who already has an Epic ID or withdrew). A nested
-                  <form> is not legal here, so this submits the surrounding one
-                  and overrides the action -- with the row id BOUND rather than
-                  carried as name/value, which react-dom drops from a submitter
-                  it takes an action off. Binding also makes each row's action a
-                  distinct reference, so the spinner lands on the row clicked
-                  instead of on all of them. */}
-              <SubmitButton
-                size="sm"
-                variant="ghost"
-                pendingLabel="Cancelling…"
-                formAction={cancelAction.bind(null, r.id)}
-                className="ml-auto"
-              >
-                Cancel
-              </SubmitButton>
-            </li>
+          {/* The ids are posted as hidden inputs rather than by the row boxes'
+              own `name`, the way the offboarding tabs do it. The boxes used to be
+              uncontrolled, which is why this queue was the one bulk surface in the
+              app with no select-all and no count at all: a director ticking twelve
+              of forty and pressing Create had nothing on screen telling them how
+              many were going into the ticket. */}
+          {selection.ids.map((id) => (
+            <input key={id} type="hidden" name="requestIds" value={id} />
           ))}
-        </ul>
-        <Field label="YNHH ticket description (optional)">
-          <Input name="description" placeholder="Optional" className="w-72" />
-        </Field>
-        {/* Usually blank, and that is fine: YNHH IT issues the RITM once they
-            pick the work up, so it is normally added from the Tracker later.
-            Offered here for the case where the ticket was raised with YNHH
-            first, which is the only way the note posted into the linked
-            Intercom conversation can carry a real number instead of
-            "no SR# on file yet". */}
-        <Field
-          label="YNHH service request number (optional)"
-          hint="Only if YNHH has already given you one. Otherwise add it from the Tracker when it arrives."
-        >
-          <Input name="serviceRequestNumber" placeholder="e.g. RITM0345759" className="w-72" />
-        </Field>
-        <FormActions>
-          <SubmitButton variant="primary" pendingLabel="Creating…">
-            Create YNHH ticket
-          </SubmitButton>
-        </FormActions>
-      </Card>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <Checkbox
+              label="Select all"
+              checked={selection.allSelected}
+              indeterminate={selection.someSelected}
+              onChange={selection.toggleAll}
+            />
+            <span className="text-xs text-subtle-foreground">
+              {selection.ids.length} of {pending.length} selected
+            </span>
+          </div>
+
+          <ul className="space-y-1">
+            {pending.map((r) => (
+              <li key={r.id} className="flex flex-wrap items-center gap-2 text-sm">
+                <Checkbox
+                  checked={selection.has(r.id)}
+                  // onClick, not onChange: a change event carries no shiftKey.
+                  onClick={(e) => selection.toggle(r.id, e.shiftKey)}
+                  onChange={() => {}}
+                  aria-label={`Select ${r.person.name}`}
+                />
+                <Badge>{EPIC_KIND_LABELS[r.kind]}</Badge>
+                <span className="font-medium">{r.person.name}</span>
+                {r.techRequest ? (
+                  <TextLink href={`/support/${r.techRequest.id}`} size="xs">
+                    #{r.techRequest.number}
+                  </TextLink>
+                ) : (
+                  <span className="text-xs text-subtle-foreground">Promotion</span>
+                )}
+                {r.notes && <span className="text-xs text-subtle-foreground">· {r.notes}</span>}
+                {/* Discard a stale pending request (e.g. a promotion-origin one
+                    for someone who already has an Epic ID or withdrew). A nested
+                    <form> is not legal here, so this submits the surrounding one
+                    and overrides the action -- with the row id BOUND rather than
+                    carried as name/value, which react-dom drops from a submitter
+                    it takes an action off. Binding also makes each row's action a
+                    distinct reference, so the spinner lands on the row clicked
+                    instead of on all of them. */}
+                <SubmitButton
+                  size="sm"
+                  variant="ghost"
+                  pendingLabel="Cancelling…"
+                  formAction={cancelAction.bind(null, r.id)}
+                  className="ml-auto"
+                >
+                  Cancel
+                </SubmitButton>
+              </li>
+            ))}
+          </ul>
+          <Field label="YNHH ticket description (optional)">
+            <Input name="description" placeholder="Optional" className="w-72" />
+          </Field>
+          {/* Usually blank, and that is fine: YNHH IT issues the RITM once they
+              pick the work up, so it is normally added from the Tracker later.
+              Offered here for the case where the ticket was raised with YNHH
+              first, which is the only way the note posted into the linked
+              Intercom conversation can carry a real number instead of
+              "no SR# on file yet". */}
+          <Field
+            label="YNHH service request number (optional)"
+            hint="Only if YNHH has already given you one. Otherwise add it from the Tracker when it arrives."
+          >
+            <Input name="serviceRequestNumber" placeholder="e.g. RITM0345759" className="w-72" />
+          </Field>
+          <FormActions>
+            <SubmitButton variant="primary" pendingLabel="Creating…">
+              Create YNHH ticket
+            </SubmitButton>
+          </FormActions>
+        </Card>
       </form>
     </div>
   );

@@ -413,7 +413,7 @@ describe("reconcileDeactivationRequests", () => {
       data: { personId: withReq.id, kind: "DEACTIVATE", status: "PENDING", requestedById: actor.id },
     });
 
-    const ticket = await reconcileDeactivationRequests(actor.id, [withReq.id, withoutReq.id], "Deactivate - HasReq, NoReq");
+    const ticket = await reconcileDeactivationRequests(actor.id, [withReq.id, withoutReq.id], "Deactivate - HasReq, NoReq", null);
     expect(ticket.status).toBe("OPEN");
 
     const reused = await prisma.epicRequest.findUnique({ where: { id: existing.id } });
@@ -442,7 +442,7 @@ describe("reconcileDeactivationRequests", () => {
     // NOT create a second ticket and re-point the request to it (that orphaned the
     // first ticket -- audit finding #16). With nothing new to submit it rejects.
     await expect(
-      reconcileDeactivationRequests(actor.id, [person.id], "Deactivate - AlreadySubmitted"),
+      reconcileDeactivationRequests(actor.id, [person.id], "Deactivate - AlreadySubmitted", null),
     ).rejects.toBeInstanceOf(SupportStateError);
 
     // No new ticket, and the request stays on its original ticket.
@@ -464,7 +464,7 @@ describe("reconcileDeactivationRequests", () => {
       data: { personId: pending.id, kind: "DEACTIVATE", status: "PENDING", requestedById: actor.id },
     });
 
-    const newTicket = await reconcileDeactivationRequests(actor.id, [submitted.id, pending.id], "Deactivate - mixed");
+    const newTicket = await reconcileDeactivationRequests(actor.id, [submitted.id, pending.id], "Deactivate - mixed", null);
     expect(newTicket.id).not.toBe(oldTicket.id);
     // The already-submitted request stays on its old ticket.
     expect((await prisma.epicRequest.findUniqueOrThrow({ where: { id: already.id } })).ticketId).toBe(oldTicket.id);
@@ -483,7 +483,7 @@ describe("reconcileDeactivationRequests", () => {
     // A bogus personId makes the second epicRequest.create fail (FK violation)
     // after the ticket + the first request were written in the same tx.
     await expect(
-      reconcileDeactivationRequests(actor.id, [ok.id, "does-not-exist"], "Deactivate - batch"),
+      reconcileDeactivationRequests(actor.id, [ok.id, "does-not-exist"], "Deactivate - batch", null),
     ).rejects.toBeTruthy();
 
     // The ticket (created at the top of the tx) rolled back with the failed batch:
@@ -551,7 +551,7 @@ describe("submitEpicRequests", () => {
     const ticket = await submitEpicRequests(actor.id, "NEW", "New - Bulk - Alice, Bob", [
       { personId: a.id, mirrorEpicId: "MIRROR-A" },
       { personId: b.id, mirrorEpicId: null },
-    ]);
+    ], { start: null, end: null });
 
     expect(ticket.status).toBe("OPEN");
     expect(ticket.description).toBe("New - Bulk - Alice, Bob");
@@ -575,7 +575,7 @@ describe("submitEpicRequests", () => {
 
     const ticket = await submitEpicRequests(actor.id, "NEW", "New - Individual - Alice", [
       { personId: person.id, mirrorEpicId: "MIRROR-A" },
-    ]);
+    ], { start: null, end: null });
 
     // The promotion row itself moved onto the ticket: no second request exists.
     const all = await prisma.epicRequest.findMany({ where: { personId: person.id } });
@@ -596,7 +596,7 @@ describe("submitEpicRequests", () => {
 
     const err = await submitEpicRequests(actor.id, "RENEW", "Renew - Individual - Alice", [
       { personId: person.id, mirrorEpicId: null },
-    ]).catch((e) => e);
+    ], { start: null, end: null }).catch((e) => e);
     expect(err).toBeInstanceOf(SupportConflictError);
     expect((err as SupportConflictError).personNames).toEqual(["Alice"]);
 
@@ -620,7 +620,7 @@ describe("submitEpicRequests", () => {
 
     const err = await submitEpicRequests(actor.id, "NEW", "New - Individual - Alice", [
       { personId: person.id, mirrorEpicId: null },
-    ]).catch((e) => e);
+    ], { start: null, end: null }).catch((e) => e);
     expect(err).toBeInstanceOf(SupportConflictError);
 
     // Only the original ticket survives; the request stays on it.
@@ -642,7 +642,7 @@ describe("submitEpicRequests", () => {
     const ticket = await submitEpicRequests(actor.id, "NEW", "New - Bulk - Alice, Bob", [
       { personId: a.id, mirrorEpicId: null },
       { personId: b.id, mirrorEpicId: null },
-    ]);
+    ], { start: null, end: null });
 
     const reqs = await prisma.epicRequest.findMany({ where: { ticketId: ticket.id } });
     expect(reqs).toHaveLength(2);
@@ -658,7 +658,7 @@ describe("submitEpicRequests", () => {
     await expect(
       submitEpicRequests(actor.id, "NEW", "New - Individual - Alice", [
         { personId: person.id, mirrorEpicId: null },
-      ])
+      ], { start: null, end: null })
     ).rejects.toBeInstanceOf(SupportStateError);
 
     expect(await prisma.ynhhTicket.count()).toBe(0);
@@ -673,7 +673,7 @@ describe("submitEpicRequests", () => {
     await expect(
       submitEpicRequests(actor.id, "MODIFY", "Modify - Individual - Alice", [
         { personId: person.id, mirrorEpicId: null },
-      ])
+      ], { start: null, end: null })
     ).rejects.toBeInstanceOf(SupportStateError);
 
     expect(await prisma.ynhhTicket.count()).toBe(0);
@@ -687,7 +687,7 @@ describe("submitEpicRequests", () => {
     await expect(
       submitEpicRequests(actor.id, "RENEW", "Renew - Individual - Alice", [
         { personId: person.id, mirrorEpicId: null },
-      ])
+      ], { start: null, end: null })
     ).rejects.toBeInstanceOf(SupportStateError);
 
     expect(await prisma.ynhhTicket.count()).toBe(0);
@@ -700,7 +700,7 @@ describe("submitEpicRequests", () => {
     await expect(
       submitEpicRequests(actor.id, "NEW", "New - Individual - Ghost", [
         { personId: "cld_nonexistent", mirrorEpicId: null },
-      ])
+      ], { start: null, end: null })
     ).rejects.toBeInstanceOf(SupportNotFoundError);
 
     expect(await prisma.ynhhTicket.count()).toBe(0);
@@ -737,7 +737,7 @@ describe("submitEpicRequests", () => {
 
     await submitEpicRequests(actor.id, "NEW", "New - Individual - Alice", [
       { personId: person.id, mirrorEpicId: null },
-    ]);
+    ], { start: null, end: null });
 
     const updated = await prisma.techRequest.findUniqueOrThrow({ where: { id: techRequest.id } });
     expect(updated.status).toBe("AWAITING_YNHH");
@@ -992,7 +992,7 @@ describe("closeTicket", () => {
     const actor = await createPerson("Manager");
     await grantPermission(actor.id, "support.manage_requests");
     const alice = await createPerson("Alice");
-    const ticket = await submitEpicRequests(actor.id, "NEW", "New - Alice", [{ personId: alice.id, mirrorEpicId: null }]);
+    const ticket = await submitEpicRequests(actor.id, "NEW", "New - Alice", [{ personId: alice.id, mirrorEpicId: null }], { start: null, end: null });
 
     await expect(closeTicket(actor.id, ticket.id)).rejects.toBeInstanceOf(SupportStateError);
     // Still OPEN, so the request remains actionable on the Tracker.
@@ -1003,7 +1003,7 @@ describe("closeTicket", () => {
     const actor = await createPerson("Manager");
     await grantPermission(actor.id, "support.manage_requests");
     const alice = await createPerson("Alice");
-    const ticket = await submitEpicRequests(actor.id, "NEW", "New - Alice", [{ personId: alice.id, mirrorEpicId: null }]);
+    const ticket = await submitEpicRequests(actor.id, "NEW", "New - Alice", [{ personId: alice.id, mirrorEpicId: null }], { start: null, end: null });
     await prisma.epicRequest.updateMany({ where: { ticketId: ticket.id }, data: { status: "COMPLETED" } });
 
     const closed = await closeTicket(actor.id, ticket.id);
@@ -1042,7 +1042,7 @@ describe("updateServiceRequestNumber", () => {
     const alice = await createPerson("Alice");
     const ticket = await submitEpicRequests(actor.id, "NEW", "New - Alice", [
       { personId: alice.id, mirrorEpicId: null },
-    ]);
+    ], { start: null, end: null });
 
     const updated = await updateServiceRequestNumber(actor.id, ticket.id, "  ritm0345759 ");
     expect(updated.serviceRequestNumber).toBe("RITM0345759");
@@ -1054,7 +1054,7 @@ describe("updateServiceRequestNumber", () => {
     const alice = await createPerson("Alice");
     const ticket = await submitEpicRequests(actor.id, "NEW", "New - Alice", [
       { personId: alice.id, mirrorEpicId: null },
-    ]);
+    ], { start: null, end: null });
 
     await expect(
       updateServiceRequestNumber(actor.id, ticket.id, "RITM: RITM0345759")
@@ -1073,7 +1073,7 @@ describe("updateServiceRequestNumber", () => {
     const alice = await createPerson("Alice");
     const ticket = await submitEpicRequests(actor.id, "NEW", "New - Alice", [
       { personId: alice.id, mirrorEpicId: null },
-    ]);
+    ], { start: null, end: null });
 
     await expect(
       updateServiceRequestNumber(nobody.id, ticket.id, "RITM0345759")

@@ -861,8 +861,8 @@ export async function reconcileDeactivationRequests(
   actorPersonId: string,
   personIds: string[],
   ticketDescription: string,
-  /** The effective deactivation date, stored on every attached/created request. */
-  accessEndDate: Date | null = null
+  /** The effective deactivation date, stored on every attached/created request. Pass null explicitly when there is none. */
+  accessEndDate: Date | null
 ): Promise<YnhhTicket> {
   const ticket = await prisma.$transaction(async (tx) => {
     // Classify each person's existing open DEACTIVATE request first. A request
@@ -959,7 +959,8 @@ export async function submitEpicRequests(
   kind: "NEW" | "MODIFY" | "RENEW",
   ticketDescription: string,
   requests: { personId: string; mirrorEpicId: string | null }[],
-  accessDates: { start: Date | null; end: Date | null } = { start: null, end: null }
+  /** What we asked YNHH for. Pass { start: null, end: null } explicitly when there are none. */
+  accessDates: { start: Date | null; end: Date | null }
 ): Promise<YnhhTicket> {
   const personIds = requests.map((r) => r.personId);
 

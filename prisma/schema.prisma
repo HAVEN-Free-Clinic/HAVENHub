@@ -929,6 +929,12 @@ model EpicRequest {
   requestedById       String
   ticketId            String?
   techRequestId       String?
+  /// The RESOLUTION timestamp: set when a request reaches any terminal state
+  /// (completed, rejected, or cancelled), not only on success. Planned work
+  /// needs to know when a request stopped being open, and a null on one of
+  /// the three terminal outcomes makes every such query silently wrong.
+  /// Rows cancelled before this column was set on CANCELLED keep a null, so
+  /// readers must still tolerate it.
   completedAt         DateTime?
   /// What we asked YNHH for. Printed on the PDF, the spreadsheet and the cover
   /// email, and until now persisted nowhere -- so the system could not answer

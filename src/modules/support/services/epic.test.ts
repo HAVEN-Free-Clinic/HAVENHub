@@ -872,6 +872,18 @@ describe("cancelEpicRequest", () => {
     expect(stillThere.epicId).toBe("E-123");
   });
 
+  it("sets completedAt, matching the other two terminal outcomes", async () => {
+    const person = await createPerson("P");
+    const mgr = await createPerson("Manager");
+    await grantPermission(mgr.id, "support.manage_requests");
+    const req = await pendingRequest(person.id, mgr.id);
+
+    await cancelEpicRequest(mgr.id, req.id);
+
+    const after = await prisma.epicRequest.findUniqueOrThrow({ where: { id: req.id } });
+    expect(after.completedAt).not.toBeNull();
+  });
+
   it("cancels a SUBMITTED request (so a blocking request can be cleared)", async () => {
     const person = await createPerson("P");
     const mgr = await createPerson("Manager");

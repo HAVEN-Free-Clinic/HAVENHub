@@ -41,6 +41,7 @@ import {
   type EpicTemplateKey,
 } from "@/platform/email/templates/epic";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
+import { log, errorAttrs } from "@/platform/logging";
 import { onEpicSubmitted, onEpicResolved, syncYnhhServiceRequestToIntercom } from "./epic-ticket-sync";
 import { normalizeEpicId, normalizeServiceRequestNumber } from "./identifiers";
 import { SupportStateError } from "./tech-request";
@@ -688,6 +689,23 @@ export async function cancelEpicRequest(actorPersonId: string, requestId: string
  * to silently move a request already linked to a DIFFERENT ticket
  * (EpicStateError naming the current ticket); a no-op if already linked to this
  * same ticket. Audits "epic.link_ticket".
+ *
+ * When the request being linked is already SUBMITTED to YNHH (it has a
+ * ticketId), the newly-linked TechRequest never went through createTicket's
+ * own onEpicSubmitted push -- from the ticket's perspective, it is only
+ * finding out now that it is waiting on YNHH. So this fires onEpicSubmitted
+ * itself in that case, after the link is committed, to catch it up: the
+ * TechRequest moves to AWAITING_YNHH (unless terminal) and its Intercom
+ * thread is told, exactly as if the request had been submitted after being
+ * attached rather than before. A request that is PENDING (never submitted),
+ * or COMPLETED/CANCELLED/REJECTED (already resolved, one way or another), has
+ * nothing for YNHH to be "waiting on" and does not fire it.
+ *
+ * That call happens outside any transaction (this function opens none) and is
+ * best-effort: the link above is already committed, so a failure here (the
+ * TechRequest changed state concurrently, or Intercom is unreachable) must
+ * not undo the link or throw to the caller. Failure is logged and audited as
+ * "epic.link_ticket_sync_failed" rather than silently dropped.
  */
 export async function linkEpicRequestToTicket(
   actorPersonId: string,
@@ -726,5 +744,26 @@ export async function linkEpicRequestToTicket(
     entityId: epicRequestId,
     after: { techRequestId: ticket.id, ticketNumber },
   });
+
+  // See this function's doc comment: only a request YNHH already has (status
+  // SUBMITTED, with a ticketId to reference) means the just-linked TechRequest
+  // is genuinely waiting on YNHH.
+  if (req.status === "SUBMITTED" && req.ticketId) {
+    try {
+      await onEpicSubmitted(actorPersonId, req.ticketId);
+    } catch (err) {
+      log.warn(
+        "[support] failed to sync AWAITING_YNHH after linking an already-submitted Epic request to a ticket",
+        errorAttrs(err, { epicRequestId, techRequestId: ticket.id })
+      );
+      await recordAudit({
+        actorPersonId,
+        action: "epic.link_ticket_sync_failed",
+        entityType: "TechRequest",
+        entityId: ticket.id,
+        after: { epicRequestId, error: err instanceof Error ? err.message : String(err) },
+      });
+    }
+  }
 }
 

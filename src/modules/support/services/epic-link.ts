@@ -12,8 +12,9 @@ import type { EpicRequest, EpicRequestKind } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { can } from "@/platform/rbac/engine";
+import { log, errorAttrs } from "@/platform/logging";
 import { MANAGE, SupportForbiddenError, SupportNotFoundError, SupportStateError } from "./tech-request";
-import { TERMINAL_STATUSES } from "./manage";
+import { TERMINAL_STATUSES, setStatus } from "./manage";
 
 const ATTACHABLE_KINDS: EpicRequestKind[] = ["NEW", "MODIFY", "RENEW"];
 
@@ -29,6 +30,20 @@ const ATTACHABLE_KINDS: EpicRequestKind[] = ["NEW", "MODIFY", "RENEW"];
  * bad person rejects the whole batch (no partial attach). A brand-new
  * (SUBMITTED) ticket is advanced to IN_PROGRESS; a later-stage ticket is left
  * untouched. Audits "support.epic_attach".
+ *
+ * The IN_PROGRESS advance itself happens AFTER the transaction commits, via
+ * manage.ts's setStatus rather than a raw column write inside the transaction:
+ * setStatus is what pushes the status change out to Intercom (staff note and/or
+ * ticket-state push) and records "support.status_change", and it performs that
+ * network I/O -- it must never run inside an open database transaction, where a
+ * slow or failing external call would hold the transaction open or force a
+ * rollback of already-good work. The advance is therefore best-effort: the
+ * Epic requests are already attached and committed by the time it runs, so a
+ * failure here (Intercom unreachable, or the ticket changed state concurrently)
+ * does not undo the attach and does not throw to the caller -- it is logged and
+ * audited as "support.epic_attach_status_advance_failed" instead. See other
+ * outbound Intercom paths in this module family (e.g. epic-ticket-sync.ts) for
+ * the same shape.
  */
 export async function attachEpicRequests(
   actorPersonId: string,
@@ -55,6 +70,13 @@ export async function attachEpicRequests(
       `Cannot attach an Epic request to a ${t.status} ticket. Reopen it first.`
     );
   }
+
+  // Set inside the transaction below, read after it commits. setStatus (the
+  // only correct way to advance a ticket's status -- see the doc comment
+  // above) does network I/O and must not run inside prisma.$transaction, so
+  // the transaction only records WHETHER the advance is needed and the actual
+  // call happens once everything above has safely landed.
+  let advanceToInProgress = false;
 
   const created = await prisma.$transaction(async (tx) => {
     const people = await tx.person.findMany({
@@ -99,9 +121,7 @@ export async function attachEpicRequests(
       })),
     });
 
-    if (t.status === "SUBMITTED") {
-      await tx.techRequest.update({ where: { id: techRequestId }, data: { status: "IN_PROGRESS" } });
-    }
+    advanceToInProgress = t.status === "SUBMITTED";
 
     // No open request existed for these people before this call, so every
     // PENDING row for them on this ticket is one we just created.
@@ -118,6 +138,29 @@ export async function attachEpicRequests(
     entityId: techRequestId,
     after: { personIds, kind: input.kind, count: created.length },
   });
+
+  if (advanceToInProgress) {
+    try {
+      await setStatus(actorPersonId, techRequestId, "IN_PROGRESS");
+    } catch (err) {
+      // Best-effort: the Epic requests above are already attached and
+      // committed, so a failure to advance the ticket (or reach Intercom, from
+      // inside setStatus) must not throw away that work or fail this call. The
+      // failure is recorded rather than silently dropped -- see the doc
+      // comment above.
+      log.warn(
+        "[support] failed to advance ticket status to IN_PROGRESS after Epic attach",
+        errorAttrs(err, { techRequestId })
+      );
+      await recordAudit({
+        actorPersonId,
+        action: "support.epic_attach_status_advance_failed",
+        entityType: "TechRequest",
+        entityId: techRequestId,
+        after: { targetStatus: "IN_PROGRESS", error: err instanceof Error ? err.message : String(err) },
+      });
+    }
+  }
 
   return created;
 }

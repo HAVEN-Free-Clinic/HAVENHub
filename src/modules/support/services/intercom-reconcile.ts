@@ -23,6 +23,15 @@
  * the two cases a given mismatch is. Guessing wrong writes real status data
  * from a coin flip; auditing the mismatch for a human to resolve costs
  * nothing and is never wrong. Hence: report over repair.
+ *
+ * WHERE THE REPORTS GO, since "report over repair" is only half an answer if
+ * nobody can find the report: every row this sweep writes uses an action
+ * prefixed `intercom_reconcile.`, and /admin/audit's action filter is a
+ * case-insensitive CONTAINS match (queryAudit in modules/admin/services/
+ * audit.ts). So `/admin/audit?action=intercom_reconcile` lists exactly this
+ * sweep's findings, newest first, and nothing else. That is the query to run
+ * when a ticket's Hub and Intercom statuses disagree and you want to know
+ * whether this sweep already saw it, and when.
  */
 
 import { prisma } from "@/platform/db";

@@ -13,6 +13,7 @@ vi.mock("@/platform/db", () => ({
   prisma: {
     person: { findUnique: vi.fn() },
     termMembership: { findMany: vi.fn() },
+    onboardingContract: { findMany: vi.fn() },
   },
 }));
 vi.mock("@/platform/terms/access-term", () => ({ getAccessTerm: vi.fn() }));
@@ -278,17 +279,51 @@ describe("my_clearance_status -- Epic advisory", () => {
     expect(text).toBe("You are cleared to work at clinic this term.");
   });
 
-  it("says nothing rather than guessing for a cleared member in a SOME department", async () => {
-    // SOME depends on a self-reported answer this tool has no access to (see
-    // needsEpicAdvisory's doc comment) -- a false "you need Epic" is its own
-    // harm, so SOME must never trigger the advisory, even though some SOME
-    // members genuinely do need Epic.
+  it("fires the advisory for a cleared member in a SOME department whose onboarding contract says epicNeeded", async () => {
+    // SOME is not an unreachable field -- OnboardingContract.epicNeeded is a
+    // persisted, already-answered self-report (see needsEpicAdvisory's doc
+    // comment and the epic-rollup.ts query shape it reuses). Reading it and
+    // finding a real "yes" is not a guess.
     mocked(getOnboardingStatus).mockResolvedValue(status({ cleared: true, tasks: [] }));
     mocked(prisma.person.findUnique).mockResolvedValue({ epicId: null });
     mocked(getAccessTerm).mockResolvedValue({ id: "term-1" });
     mocked(prisma.termMembership.findMany).mockResolvedValue([
       epicMembership("VOLUNTEER", "NONE", "SOME"),
     ]);
+    mocked(prisma.onboardingContract.findMany).mockResolvedValue([{ epicNeeded: true }]);
+
+    const text = await myClearanceStatusTool.run({ personId: "p1" }, {});
+
+    expect(text).toMatch(/does not cover epic access/i);
+  });
+
+  it("says nothing rather than guessing for a cleared member in a SOME department with no onboarding contract for the term", async () => {
+    // The genuine unknown: no OnboardingContract exists for this term at all
+    // (a returner promoted before this data existed, or a historical-import
+    // membership never routed through the recruitment pipeline). A false
+    // "you need Epic" is its own harm, so this -- and only this -- stays
+    // silent for a SOME department.
+    mocked(getOnboardingStatus).mockResolvedValue(status({ cleared: true, tasks: [] }));
+    mocked(prisma.person.findUnique).mockResolvedValue({ epicId: null });
+    mocked(getAccessTerm).mockResolvedValue({ id: "term-1" });
+    mocked(prisma.termMembership.findMany).mockResolvedValue([
+      epicMembership("VOLUNTEER", "NONE", "SOME"),
+    ]);
+    mocked(prisma.onboardingContract.findMany).mockResolvedValue([]);
+
+    const text = await myClearanceStatusTool.run({ personId: "p1" }, {});
+
+    expect(text).toBe("You are cleared to work at clinic this term.");
+  });
+
+  it("says nothing for a cleared member in a SOME department whose onboarding contract says epicNeeded is false", async () => {
+    mocked(getOnboardingStatus).mockResolvedValue(status({ cleared: true, tasks: [] }));
+    mocked(prisma.person.findUnique).mockResolvedValue({ epicId: null });
+    mocked(getAccessTerm).mockResolvedValue({ id: "term-1" });
+    mocked(prisma.termMembership.findMany).mockResolvedValue([
+      epicMembership("VOLUNTEER", "NONE", "SOME"),
+    ]);
+    mocked(prisma.onboardingContract.findMany).mockResolvedValue([{ epicNeeded: false }]);
 
     const text = await myClearanceStatusTool.run({ personId: "p1" }, {});
 

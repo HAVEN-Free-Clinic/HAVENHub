@@ -15,11 +15,26 @@ function createPerson(name: string, opts?: { epicId?: string | null }) {
   return prisma.person.create({ data: { name, epicId: opts?.epicId ?? null } });
 }
 
+type EpicRequirement = "ALL" | "NONE" | "SOME";
+
 let deptCounter = 0;
-function createDepartment(name: string, opts?: { epicGuidance?: string | null }) {
+function createDepartment(
+  name: string,
+  opts?: {
+    epicGuidance?: string | null;
+    requiresEpicDirector?: EpicRequirement;
+    requiresEpicVolunteer?: EpicRequirement;
+  }
+) {
   deptCounter += 1;
   return prisma.department.create({
-    data: { code: `D${deptCounter}`, name, epicGuidance: opts?.epicGuidance ?? null },
+    data: {
+      code: `D${deptCounter}`,
+      name,
+      epicGuidance: opts?.epicGuidance ?? null,
+      requiresEpicDirector: opts?.requiresEpicDirector ?? "NONE",
+      requiresEpicVolunteer: opts?.requiresEpicVolunteer ?? "NONE",
+    },
   });
 }
 
@@ -34,18 +49,19 @@ function addMembership(personId: string, termId: string, departmentId: string, k
 }
 
 type RequestStatus = "PENDING" | "SUBMITTED" | "COMPLETED" | "CANCELLED" | "REJECTED";
+type RequestKind = "NEW" | "MODIFY" | "RENEW" | "DEACTIVATE";
 
 function createEpicRequest(
   personId: string,
   requestedById: string,
   status: RequestStatus,
-  opts?: { createdAt?: Date }
+  opts?: { createdAt?: Date; kind?: RequestKind }
 ) {
   return prisma.epicRequest.create({
     data: {
       personId,
       requestedById,
-      kind: "NEW",
+      kind: opts?.kind ?? "NEW",
       status,
       ...(opts?.createdAt ? { createdAt: opts.createdAt } : {}),
     },
@@ -150,40 +166,96 @@ describe("my_epic_status", () => {
     expect(text).toMatch(/awaiting their action/i);
   });
 
-  it("includes a department's epicGuidance text when set", async () => {
+  it("never renders a DEACTIVATE request as grant progress, even SUBMITTED against a still-ACTIVE person", async () => {
+    // The exact shape fix round 1 found: reconcileDeactivationRequests
+    // (itcm.ts) can attach a SUBMITTED DEACTIVATE to a still-ACTIVE person,
+    // and listStrandedDeactivations (itcm.ts) names a PENDING one against an
+    // ACTIVE person as a real drift case. Either would previously have
+    // rendered as "a request has been raised" or "awaiting their action" --
+    // a revocation described as progress toward an account.
+    const person = await createPerson("Still Active, Deactivation Submitted");
+    const staff = await createPerson("ITCM Staff 8");
+    await createEpicRequest(person.id, staff.id, "SUBMITTED", { kind: "DEACTIVATE" });
+
+    const text = await myEpicStatusTool.run({ personId: person.id }, {});
+
+    expect(text).toMatch(/no epic access request has been raised/i);
+    expect(text).not.toMatch(/has not yet been sent to the hospital/i);
+    expect(text).not.toMatch(/awaiting their action/i);
+    expect(text).not.toMatch(/has been completed/i);
+  });
+
+  it("falls back to a non-DEACTIVATE request when a DEACTIVATE is newer, rather than reporting the revocation", async () => {
+    const person = await createPerson("Renewed Then Deactivated Request");
+    const staff = await createPerson("ITCM Staff 9");
+    await createEpicRequest(person.id, staff.id, "SUBMITTED", { createdAt: new Date("2026-01-01") });
+    await createEpicRequest(person.id, staff.id, "SUBMITTED", { createdAt: new Date("2026-06-01"), kind: "DEACTIVATE" });
+
+    const text = await myEpicStatusTool.run({ personId: person.id }, {});
+
+    expect(text).toMatch(/awaiting their action/i);
+  });
+
+  it("includes a department's epicGuidance text when set and Epic is actually required of this person's kind", async () => {
     const term = await activeTerm();
-    const dept = await createDepartment("Nursing Epic", { epicGuidance: "Nursing volunteers: raise a request only after your first shift." });
+    const dept = await createDepartment("Nursing Epic", {
+      epicGuidance: "Nursing volunteers: raise a request only after your first shift.",
+      requiresEpicVolunteer: "ALL",
+    });
     const person = await createPerson("Guided Member");
-    await addMembership(person.id, term.id, dept.id);
+    await addMembership(person.id, term.id, dept.id, "VOLUNTEER");
 
     const text = await myEpicStatusTool.run({ personId: person.id }, {});
 
     expect(text).toContain("Nursing volunteers: raise a request only after your first shift.");
   });
 
+  it("omits guidance from a department that does not require Epic for this person's kind, even when text is set", async () => {
+    // epicGuidance is documented as help text for the SOME (and, by
+    // extension, ALL) case -- a NONE department's guidance would reference an
+    // Epic requirement this person's role does not even carry, so it must not
+    // render just because the field happens to be non-empty.
+    const term = await activeTerm();
+    const dept = await createDepartment("No Requirement Dept", {
+      epicGuidance: "This text must never reach a member with no Epic requirement.",
+      requiresEpicVolunteer: "NONE",
+    });
+    const person = await createPerson("Unrequired Member");
+    await addMembership(person.id, term.id, dept.id, "VOLUNTEER");
+
+    const text = await myEpicStatusTool.run({ personId: person.id }, {});
+
+    expect(text).not.toContain("This text must never reach a member with no Epic requirement.");
+  });
+
   it("omits any guidance line when the department has none set", async () => {
     const term = await activeTerm();
-    const dept = await createDepartment("No Guidance Dept");
+    const dept = await createDepartment("No Guidance Dept", { requiresEpicVolunteer: "ALL" });
     const person = await createPerson("Unguided Member");
     await addMembership(person.id, term.id, dept.id);
 
     const text = await myEpicStatusTool.run({ personId: person.id }, {});
 
-    expect(text).toBe("You do not have an Epic account on file. No Epic access request has been raised for you yet.");
+    expect(text).toBe(
+      "You do not have an Epic account on file. No Epic access request has been raised for you yet. Contact a human on the team if you believe you need one."
+    );
   });
 
-  it("includes guidance from both departments of a dual appointment, deduplicated", async () => {
+  it("includes guidance from both departments of a dual appointment only once, deduplicated", async () => {
     const term = await activeTerm();
-    const deptA = await createDepartment("Dept A Epic", { epicGuidance: "Ask Dept A's director first." });
-    const deptB = await createDepartment("Dept B Epic", { epicGuidance: "Ask Dept B's director first." });
+    const sharedGuidance = "Ask your director before raising a request.";
+    const deptA = await createDepartment("Dept A Epic", { epicGuidance: sharedGuidance, requiresEpicVolunteer: "SOME" });
+    const deptB = await createDepartment("Dept B Epic", { epicGuidance: sharedGuidance, requiresEpicDirector: "SOME" });
     const person = await createPerson("Dual Appointment Member");
     await addMembership(person.id, term.id, deptA.id, "VOLUNTEER");
     await addMembership(person.id, term.id, deptB.id, "DIRECTOR");
 
     const text = await myEpicStatusTool.run({ personId: person.id }, {});
 
-    expect(text).toContain("Ask Dept A's director first.");
-    expect(text).toContain("Ask Dept B's director first.");
+    // Exercises the new Set() dedup path: both departments contribute the
+    // IDENTICAL string, so it must appear exactly once, not twice.
+    const occurrences = text.split(sharedGuidance).length - 1;
+    expect(occurrences).toBe(1);
   });
 
   it("declares no identity-shaped input, and resolves identity from ctx.personId alone", () => {

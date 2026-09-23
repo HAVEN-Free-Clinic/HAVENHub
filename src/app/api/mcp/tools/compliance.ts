@@ -64,22 +64,30 @@ const EPIC_ADVISORY =
 /**
  * Whether the cleared answer above needs EPIC_ADVISORY appended: the member
  * is missing an Epic account on file AND their active-term department(s)
- * definitely require one.
+ * require one.
  *
- * "Definitely" is the operative word, and it is the whole reason this function
- * exists rather than inlining a query. epicRequirementFor/strictestEpicRequirement
- * (reused, not re-derived -- see src/modules/recruitment/contract/epic-requirement.ts)
- * resolve each department's requirement to ALL, SOME, or NONE. ALL needs Epic
- * unconditionally, so that alone triggers the advisory. SOME depends on the
- * person -- resolveEpicNeeded consults a self-reported answer that lives on
- * the term's onboarding contract, which is outside what this clearance tool
- * reads -- and NONE never needs it. A SOME department therefore NEVER
- * triggers the advisory here, even though some SOME-department members
- * genuinely do need Epic: guessing wrong in either direction is real harm
- * (a false "you need Epic" sends someone chasing an account they were never
- * meant to have; the task is explicit that omission beats a guess), and a
- * missed advisory for a true SOME case is recoverable the member can still
- * ask my_epic_status or a human, while a fabricated requirement is not.
+ * epicRequirementFor/strictestEpicRequirement (reused, not re-derived -- see
+ * src/modules/recruitment/contract/epic-requirement.ts) resolve each
+ * department's requirement to ALL, SOME, or NONE. ALL needs Epic
+ * unconditionally, so that alone triggers the advisory; NONE never does.
+ *
+ * SOME depends on the person, via resolveEpicNeeded's self-reported signal --
+ * but that signal is NOT unreachable data. It is OnboardingContract.epicNeeded,
+ * a persisted column the applicant answered at onboarding, and it is read here
+ * with the exact query shape loadTermEpicRollup already uses for the same
+ * purpose (src/modules/support/services/epic-rollup.ts: `status: "PROMOTED"`,
+ * keyed on `promotedPersonId`, scoped through `acceptance.application.cycle.
+ * termId`). Fix round 1 corrected an earlier, wrong version of this comment
+ * that claimed the field was outside what this tool reads; it never was --
+ * it is a plain, already-answered fact, not a guess.
+ *
+ * The genuine unknown for a SOME department is a person with NO
+ * OnboardingContract for the access term at all -- a returner promoted before
+ * this data existed, or someone whose membership came from a historical
+ * import rather than the recruitment pipeline. There, and only there, does
+ * this function stay silent rather than assert a requirement it cannot
+ * source: a false "you need Epic" is its own harm, but a real self-reported
+ * "yes" sitting on file is not a guess to act on.
  *
  * Scoped to the access term (getAccessTerm), the same term
  * computeOnboardingForTerm used to decide `cleared` in the first place, so
@@ -104,7 +112,21 @@ async function needsEpicAdvisory(personId: string): Promise<boolean> {
   });
 
   const requirement = strictestEpicRequirement(memberships.map((m) => epicRequirementFor(m.department, m.kind)));
-  return requirement === "ALL";
+  if (requirement === "ALL") return true;
+  if (requirement === "NONE") return false;
+
+  // requirement === "SOME": consult the self-reported answer on file for this
+  // term, the same query shape as loadTermEpicRollup (see the doc comment
+  // above). A dual appointment can hold more than one OnboardingContract for
+  // the same term (one per department acceptance); "any of them said yes"
+  // mirrors strictestEpicRequirement's own ALL-beats-SOME-beats-NONE logic
+  // rather than picking an arbitrary one.
+  const contracts = await prisma.onboardingContract.findMany({
+    where: { status: "PROMOTED", promotedPersonId: personId, acceptance: { application: { cycle: { termId: term.id } } } },
+    select: { epicNeeded: true },
+  });
+  if (contracts.length === 0) return false; // no contract for this term at all -- the genuine unknown; stay silent
+  return contracts.some((c) => c.epicNeeded);
 }
 
 /**

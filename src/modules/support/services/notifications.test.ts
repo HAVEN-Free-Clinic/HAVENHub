@@ -327,6 +327,42 @@ describe("pushIntercomTicketState", () => {
       )
     ).resolves.toBeUndefined();
   });
+
+  it("does not record an audit row when the push succeeds", async () => {
+    stubIntercomFetch();
+
+    await pushIntercomTicketState(
+      { id: "t1", number: 7, status: "IN_PROGRESS", intercomTicketId: "ticket_1" },
+      "SUBMITTED"
+    );
+
+    const audit = await prisma.auditLog.findFirst({
+      where: { action: "support.intercom_ticket_state_push_failed", entityId: "t1" },
+    });
+    expect(audit).toBeNull();
+  });
+
+  it("records a support.intercom_ticket_state_push_failed audit row when the push fails", async () => {
+    // No access token configured -- pushTicketState's own fail-closed `false`
+    // (see its doc comment), reached before any fetch call, same shape as
+    // the "unreachable Intercom" case above but deterministic to trigger.
+    vi.stubEnv("INTERCOM_ACCESS_TOKEN", "");
+    vi.stubGlobal("fetch", vi.fn());
+
+    await pushIntercomTicketState(
+      { id: "t1", number: 7, status: "IN_PROGRESS", intercomTicketId: "ticket_1" },
+      "SUBMITTED"
+    );
+
+    expect(fetch).not.toHaveBeenCalled();
+
+    const audit = await prisma.auditLog.findFirst({
+      where: { action: "support.intercom_ticket_state_push_failed", entityId: "t1" },
+    });
+    expect(audit).not.toBeNull();
+    const after = audit?.after as Record<string, unknown>;
+    expect(after).toEqual({ status: "IN_PROGRESS", intercomState: "In progress" });
+  });
 });
 
 describe("buildEpicSubmissionNote", () => {

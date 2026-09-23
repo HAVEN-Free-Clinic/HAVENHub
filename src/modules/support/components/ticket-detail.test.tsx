@@ -195,7 +195,20 @@ describe("TicketDetail: synced ticket (both Intercom ids set)", () => {
     expect(html).toContain('data-conversation-id="conv-123"');
   });
 
-  it("still shows the attached Epic chain read-only, without the attach form", async () => {
+  /**
+   * baseDetail's category is GENERAL_IT (not EPIC), and TechRequest.category
+   * cannot be corrected after the fact -- it is derived from the Intercom
+   * ticket-type NAME and falls back silently to OTHER whenever that name
+   * doesn't match. A member whose Epic request arrives under a mis-typed
+   * ticket type must still be reachable here: attachEpicRequests itself
+   * works "for any ticket category" (its own docstring in epic-link.ts), so
+   * the UI must not be the thing stranding them. The read-only-Intercom rule
+   * does not narrow this either (see the module doc comment's "boundary, not
+   * exception" note) -- both attach and cancel stay reachable on this linked,
+   * non-EPIC, still-open ticket, just behind the secondary note that marks
+   * attaching here as deliberate rather than the ticket's stated purpose.
+   */
+  it("keeps the Epic chain's attach form and cancel reachable on a non-EPIC ticket, behind a secondary note", async () => {
     vi.stubEnv("NEXT_PUBLIC_INTERCOM_APP_ID", "unyx5lb2");
     vi.stubEnv("INTERCOM_MESSENGER_SECRET", "messenger-secret");
     const detail = baseDetail({
@@ -232,8 +245,48 @@ describe("TicketDetail: synced ticket (both Intercom ids set)", () => {
 
     expect(html).toContain("Epic access");
     expect(html).toContain("New account");
+    expect(html).toContain("isn&#x27;t categorised as Epic access");
+    expect(html).toContain("Attach Epic request(s)");
+    expect(html).toContain(">Cancel<");
+  });
+
+  /**
+   * The same non-EPIC reachability must stop at a terminal status -- Epic
+   * mutations are gated on the ticket still being open, exactly like every
+   * other mutation on this page (see showEpicMutations's doc comment), not
+   * on some looser "linked but non-EPIC" carve-out.
+   */
+  it("keeps the neutral empty state on a non-EPIC ticket that is terminal, with no note or attach form", async () => {
+    vi.stubEnv("NEXT_PUBLIC_INTERCOM_APP_ID", "unyx5lb2");
+    vi.stubEnv("INTERCOM_MESSENGER_SECRET", "messenger-secret");
+    const detail = baseDetail({
+      status: "RESOLVED",
+      intercomConversationId: "conv-123",
+      intercomTicketId: "ticket-123",
+    });
+    const html = renderToStaticMarkup(
+      await TicketDetail({
+        detail,
+        canManage: true,
+        isRequester: false,
+        managers: [],
+        assignAction: noop,
+        setStatusAction: noop,
+        setPriorityAction: noop,
+        resolveAction: noop,
+        cancelAction: noop,
+        comments,
+        commentAction: noop,
+        attachEpicAction: noop,
+        cancelEpicAction: noop,
+        departments: [],
+      })
+    );
+
+    expect(html).toContain("Epic access");
+    expect(html).toContain("No Epic requests attached yet.");
+    expect(html).not.toContain("isn&#x27;t categorised as Epic access");
     expect(html).not.toContain("Attach Epic request(s)");
-    expect(html).not.toContain(">Cancel<");
   });
 
   /**

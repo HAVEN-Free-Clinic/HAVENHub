@@ -49,16 +49,22 @@
  *     epic.ts drives AWAITING_YNHH itself (see epic-ticket-sync.ts) whenever an
  *     attached Epic request is submitted to YNHH, and moves it back once none
  *     remain outstanding, so a synced EPIC ticket is read-only like any other.
- *   - the Epic access section keeps its attach/cancel forms on an EPIC
- *     ticket, linked or not. This is the one place the read-only rule stops,
- *     and it is a boundary rather than an exception: Intercom took over the
- *     CONVERSATION, while the Epic to YNHH to ITCM workflow never left the
- *     Hub because Intercom cannot model it. Gating these on linkage would
- *     strand that workflow entirely now that every EPIC ticket arrives
- *     already linked via the ticket.created webhook -- an attach form hidden
- *     on linked tickets is one nobody can reach, so no EpicRequest could ever
- *     be raised. That failure is silent: the page renders correctly and
- *     simply has no way forward. See showEpicMutations below.
+ *   - the Epic access section keeps its attach/cancel forms on any open
+ *     ticket, linked or not, and regardless of category. This is the one
+ *     place the read-only rule stops, and it is a boundary rather than an
+ *     exception: Intercom took over the CONVERSATION, while the Epic to
+ *     YNHH to ITCM workflow never left the Hub because Intercom cannot
+ *     model it. Gating these on linkage, or on category === "EPIC", strands
+ *     that workflow: every EPIC ticket arrives already linked via the
+ *     ticket.created webhook, and TechRequest.category is a derived label
+ *     off the Intercom ticket-type name that falls back silently to OTHER
+ *     and can never be corrected afterward -- an attach form hidden on
+ *     either condition is one nobody can ever reach, so no EpicRequest
+ *     could be raised. That failure is silent: the page renders correctly
+ *     and simply has no way forward. On a ticket not categorised EPIC the
+ *     section still renders behind a brief secondary note explaining that
+ *     attaching there is deliberate, so an ordinary IT ticket does not shout
+ *     Epic at the manager. See showEpicMutations and isEpicCategory below.
  *   - the comment thread still shows existing comments, but the reply form
  *     is hidden (CommentThread's showReplyForm prop) -- correspondence goes
  *     through the conversation instead.
@@ -218,7 +224,25 @@ export async function TicketDetail({
   // tickets is an attach form nobody can ever reach, and no EpicRequest could
   // be raised at all. The failure would be silent -- the page renders fine,
   // it just has no way forward.
-  const showEpicMutations = detail.category === "EPIC";
+  //
+  // The same reasoning rules out gating on detail.category === "EPIC" too.
+  // TechRequest.category is derived from the Intercom ticket-type NAME and
+  // falls back silently to OTHER when that name does not match it, and no
+  // code path can ever change a ticket's category afterward. A member whose
+  // Epic request arrives under a mis-typed Intercom ticket type lands on a
+  // ticket where the attach form is hidden forever -- the same silent dead
+  // end: the page renders fine, there is just no way forward.
+  // attachEpicRequests itself works "for any ticket category" (its own
+  // docstring in epic-link.ts) and even when the ticket already has attached
+  // requests, so the service has always permitted this; the UI was the only
+  // thing stranding these members. Reachability therefore keys on the ticket
+  // still being open, like every other mutation on this page, not on
+  // category. isEpicCategory below still drives *presentation*: the section
+  // stays visually secondary on a ticket that is not actually about Epic
+  // access, so an ordinary IT ticket does not shout Epic at the manager who
+  // opens it.
+  const isEpicCategory = detail.category === "EPIC";
+  const showEpicMutations = isOpen;
   const showCommentForm = !isLinked;
   const showCancelOwn = !isLinked;
 
@@ -418,7 +442,7 @@ export async function TicketDetail({
                         YNHH SR#: {r.ticket.serviceRequestNumber ?? "(not set)"}
                       </span>
                     )}
-                    {showEpicMutations && isOpen && (r.status === "PENDING" || r.status === "SUBMITTED") && cancelEpicAction && (
+                    {showEpicMutations && (r.status === "PENDING" || r.status === "SUBMITTED") && cancelEpicAction && (
                       <form action={cancelEpicAction} className="ml-auto">
                         <input type="hidden" name="epicRequestId" value={r.id} />
                         <SubmitButton size="sm" variant="ghost" pendingLabel="Cancelling…">
@@ -429,7 +453,7 @@ export async function TicketDetail({
                   </li>
                 ))}
               </ul>
-            ) : showEpicMutations ? (
+            ) : isEpicCategory ? (
               // Not the neutral empty state, because on an EPIC ticket this is
               // not a neutral fact. The ticket is categorised Epic access and
               // reads as in-hand, but with no request attached it is in no Epic
@@ -447,7 +471,22 @@ export async function TicketDetail({
               <EmptyState inline>No Epic requests attached yet.</EmptyState>
             )}
 
-            {showEpicMutations && isOpen && attachEpicAction && (
+            {showEpicMutations && !isEpicCategory && (
+              // Visually secondary on purpose: this ticket's own category says
+              // it is not Epic access (see isEpicCategory and the
+              // showEpicMutations comment above for why category cannot gate
+              // reachability). An ordinary IT ticket should not shout Epic at
+              // the manager who opens it, but attaching has to stay reachable
+              // -- a mis-typed Intercom ticket-type name is the only way a real
+              // Epic request ends up on a ticket like this, and category can
+              // never be corrected after the fact.
+              <Alert tone="info">
+                This ticket isn&apos;t categorised as Epic access. Attaching a request here is
+                deliberate -- use it if this ticket should have been Epic but was not.
+              </Alert>
+            )}
+
+            {showEpicMutations && attachEpicAction && (
               <form action={attachEpicAction} className="space-y-3 border-t border-border pt-4">
                 <Field label="Request type">
                   <Select name="epicKind" defaultValue="NEW" className="w-48">

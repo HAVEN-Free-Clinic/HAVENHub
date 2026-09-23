@@ -37,6 +37,7 @@
 
 import type { TechRequest, TechRequestComment, TechRequestStatus, Person, EpicRequestKind } from "@prisma/client";
 import { type Db } from "@/platform/db";
+import { recordAudit } from "@/platform/audit";
 import { notify } from "@/platform/notifications/notify";
 import { peopleWithAnyPermission } from "@/platform/rbac/holders";
 import { getSetting } from "@/platform/settings/service";
@@ -207,7 +208,12 @@ export async function notifyIntercomStatusChange(
  * Never throws: an unreachable Intercom, a non-2xx response, and a timeout
  * all resolve through pushTicketState's own fail-closed `false`, logged
  * there; this wrapper only adds which Hub ticket the failure was for, same
- * shape as notifyIntercomStatusChange above.
+ * shape as notifyIntercomStatusChange above. On that failure path the Hub
+ * and the linked Intercom ticket are now out of step on this ticket's
+ * status, so it is also audited as "support.intercom_ticket_state_push_failed"
+ * (carrying the attempted status and the mapped Intercom state, no personal
+ * data) -- the divergence needs to show up on the ticket's own history, not
+ * only in a log line a manager will never grep for.
  */
 export async function pushIntercomTicketState(
   req: Pick<TechRequest, "id" | "number" | "status" | "intercomTicketId">,
@@ -232,6 +238,19 @@ export async function pushIntercomTicketState(
       ticketId: req.id,
       ticketNumber: req.number,
       status: req.status,
+    });
+    // The log line above is only findable in the telemetry backend, but the
+    // Hub and the linked Intercom ticket are now out of step on this
+    // ticket's status, and it is a manager looking at the ticket -- not
+    // someone grepping logs -- who needs to see that. recordAudit is called
+    // with the default (no client) path, which is fire-and-forget and never
+    // throws (see its own doc comment), so this cannot break this function's
+    // own never-throws contract.
+    await recordAudit({
+      action: "support.intercom_ticket_state_push_failed",
+      entityType: "TechRequest",
+      entityId: req.id,
+      after: { status: req.status, intercomState: state },
     });
   }
 }

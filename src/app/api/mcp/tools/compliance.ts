@@ -4,6 +4,9 @@ import { isSatisfied } from "@/modules/onboarding/engine/status";
 import { listMyCertificates } from "@/modules/my-info/services/my-info";
 import { certExpiresAt } from "@/platform/compliance/rules";
 import { formatCalendarDate } from "@/platform/dates";
+import { prisma } from "@/platform/db";
+import { getAccessTerm } from "@/platform/terms/access-term";
+import { epicRequirementFor, strictestEpicRequirement } from "@/modules/recruitment/contract/epic-requirement";
 import type { McpTool } from "./index";
 
 /**
@@ -47,6 +50,64 @@ async function describeOutstandingTask(personId: string, task: OnboardingTask): 
 }
 
 /**
+ * Sentence appended to a "cleared" answer for a member who needs Epic and does
+ * not have an account on file yet. Clinic clearance (getOnboardingStatus:
+ * profile, HIPAA, training, learning, EHS) never covers Epic at all, so
+ * "you are cleared" alone is misleading for anyone who still cannot open a
+ * patient chart. Only ever appended, never the whole answer -- see
+ * myClearanceStatusTool's run() for why this must not touch the `cleared`
+ * boolean or the branch structure.
+ */
+const EPIC_ADVISORY =
+  "Clinic clearance does not cover Epic access, and you do not have an Epic account on file yet. Ask about your Epic status, or check the Hub, for next steps.";
+
+/**
+ * Whether the cleared answer above needs EPIC_ADVISORY appended: the member
+ * is missing an Epic account on file AND their active-term department(s)
+ * definitely require one.
+ *
+ * "Definitely" is the operative word, and it is the whole reason this function
+ * exists rather than inlining a query. epicRequirementFor/strictestEpicRequirement
+ * (reused, not re-derived -- see src/modules/recruitment/contract/epic-requirement.ts)
+ * resolve each department's requirement to ALL, SOME, or NONE. ALL needs Epic
+ * unconditionally, so that alone triggers the advisory. SOME depends on the
+ * person -- resolveEpicNeeded consults a self-reported answer that lives on
+ * the term's onboarding contract, which is outside what this clearance tool
+ * reads -- and NONE never needs it. A SOME department therefore NEVER
+ * triggers the advisory here, even though some SOME-department members
+ * genuinely do need Epic: guessing wrong in either direction is real harm
+ * (a false "you need Epic" sends someone chasing an account they were never
+ * meant to have; the task is explicit that omission beats a guess), and a
+ * missed advisory for a true SOME case is recoverable the member can still
+ * ask my_epic_status or a human, while a fabricated requirement is not.
+ *
+ * Scoped to the access term (getAccessTerm), the same term
+ * computeOnboardingForTerm used to decide `cleared` in the first place, so
+ * the advisory can never disagree with what "cleared" was actually computed
+ * against.
+ */
+async function needsEpicAdvisory(personId: string): Promise<boolean> {
+  const person = await prisma.person.findUnique({ where: { id: personId }, select: { epicId: true } });
+  if (person?.epicId) return false; // already has an account on file; nothing to advise
+
+  const term = await getAccessTerm(personId);
+  // Cannot happen in the caller's cleared branch, which only runs once
+  // hasActiveTerm has already been confirmed true -- getAccessTerm falls back
+  // to the live term itself (see its own doc comment) and so is non-null
+  // whenever a live term exists. Failing toward no advisory rather than
+  // asserting, for the same reason the "cannot happen" branch above does.
+  if (!term) return false;
+
+  const memberships = await prisma.termMembership.findMany({
+    where: { personId, termId: term.id, status: "ACTIVE" },
+    select: { kind: true, department: { select: { requiresEpicDirector: true, requiresEpicVolunteer: true } } },
+  });
+
+  const requirement = strictestEpicRequirement(memberships.map((m) => epicRequirementFor(m.department, m.kind)));
+  return requirement === "ALL";
+}
+
+/**
  * "Am I cleared for the term?" -- the highest-value compliance question a
  * member asks, because it decides whether they can be scheduled at all.
  *
@@ -73,7 +134,13 @@ export const myClearanceStatusTool: McpTool = {
     }
 
     if (status.cleared) {
-      return "You are cleared to work at clinic this term.";
+      const clearedText = "You are cleared to work at clinic this term.";
+      // Appended to the TEXT only -- `cleared` and the branch above are
+      // untouched. See EPIC_ADVISORY and needsEpicAdvisory's doc comments for
+      // why this never fires for the not-cleared branch and never guesses at
+      // a SOME department.
+      const needsAdvisory = await needsEpicAdvisory(ctx.personId);
+      return needsAdvisory ? `${clearedText} ${EPIC_ADVISORY}` : clearedText;
     }
 
     // isSatisfied(state) is COMPLETE or NOT_REQUIRED; anything else is what is

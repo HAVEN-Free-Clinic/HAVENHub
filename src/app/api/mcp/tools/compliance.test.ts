@@ -2,12 +2,39 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 
 vi.mock("@/modules/onboarding/services/onboarding", () => ({ getOnboardingStatus: vi.fn() }));
 vi.mock("@/modules/my-info/services/my-info", () => ({ listMyCertificates: vi.fn() }));
+// Mocked the same way as every other collaborator in this file: the risk under
+// test is the tool's TEXT composition, not Prisma query correctness (that risk
+// lives in epic.test.ts, a real-DB suite, the same way roster/recruitment's
+// direct Prisma use does). Left unconfigured (no mockResolvedValue), both
+// resolve to undefined, which needsEpicAdvisory reads as "no account, no
+// department data, no advisory" -- so every EXISTING test below is unaffected
+// without needing to know these mocks exist at all.
+vi.mock("@/platform/db", () => ({
+  prisma: {
+    person: { findUnique: vi.fn() },
+    termMembership: { findMany: vi.fn() },
+  },
+}));
+vi.mock("@/platform/terms/access-term", () => ({ getAccessTerm: vi.fn() }));
 
 import { getOnboardingStatus } from "@/modules/onboarding/services/onboarding";
 import { listMyCertificates } from "@/modules/my-info/services/my-info";
+import { prisma } from "@/platform/db";
+import { getAccessTerm } from "@/platform/terms/access-term";
 import { myClearanceStatusTool } from "./compliance";
 
 const mocked = (fn: unknown) => fn as unknown as ReturnType<typeof vi.fn>;
+
+type EpicRequirement = "ALL" | "NONE" | "SOME";
+
+/** A TermMembership row shaped exactly as needsEpicAdvisory selects it. */
+function epicMembership(
+  kind: "DIRECTOR" | "VOLUNTEER",
+  requiresEpicDirector: EpicRequirement,
+  requiresEpicVolunteer: EpicRequirement
+) {
+  return { kind, department: { requiresEpicDirector, requiresEpicVolunteer } };
+}
 
 type Task = {
   key: string;
@@ -203,5 +230,105 @@ describe("my_clearance_status", () => {
 
   it("takes no input at all, so nothing about the request is model-chosen", () => {
     expect(Object.keys(myClearanceStatusTool.inputSchema.shape)).toEqual([]);
+  });
+});
+
+describe("my_clearance_status -- Epic advisory", () => {
+  it("tells a cleared member who needs Epic and has no account that clearance does not cover it", async () => {
+    mocked(getOnboardingStatus).mockResolvedValue(status({ cleared: true, tasks: [] }));
+    mocked(prisma.person.findUnique).mockResolvedValue({ epicId: null });
+    mocked(getAccessTerm).mockResolvedValue({ id: "term-1" });
+    mocked(prisma.termMembership.findMany).mockResolvedValue([
+      epicMembership("VOLUNTEER", "NONE", "ALL"),
+    ]);
+
+    const text = await myClearanceStatusTool.run({ personId: "p1" }, {});
+
+    expect(text).toMatch(/you are cleared/i);
+    expect(text).toMatch(/does not cover epic access/i);
+    expect(text).toMatch(/do not have an epic account/i);
+  });
+
+  it("does not add the advisory for a cleared member who already has an Epic account on file", async () => {
+    mocked(getOnboardingStatus).mockResolvedValue(status({ cleared: true, tasks: [] }));
+    mocked(prisma.person.findUnique).mockResolvedValue({ epicId: "e-123" });
+    mocked(getAccessTerm).mockResolvedValue({ id: "term-1" });
+    mocked(prisma.termMembership.findMany).mockResolvedValue([
+      epicMembership("VOLUNTEER", "NONE", "ALL"),
+    ]);
+
+    const text = await myClearanceStatusTool.run({ personId: "p1" }, {});
+
+    expect(text).toBe("You are cleared to work at clinic this term.");
+    // Already having an account is decided before any department is even
+    // looked up -- see needsEpicAdvisory's short-circuit.
+    expect(mocked(getAccessTerm)).not.toHaveBeenCalled();
+  });
+
+  it("does not add the advisory for a cleared member whose department does not need Epic at all", async () => {
+    mocked(getOnboardingStatus).mockResolvedValue(status({ cleared: true, tasks: [] }));
+    mocked(prisma.person.findUnique).mockResolvedValue({ epicId: null });
+    mocked(getAccessTerm).mockResolvedValue({ id: "term-1" });
+    mocked(prisma.termMembership.findMany).mockResolvedValue([
+      epicMembership("VOLUNTEER", "NONE", "NONE"),
+    ]);
+
+    const text = await myClearanceStatusTool.run({ personId: "p1" }, {});
+
+    expect(text).toBe("You are cleared to work at clinic this term.");
+  });
+
+  it("says nothing rather than guessing for a cleared member in a SOME department", async () => {
+    // SOME depends on a self-reported answer this tool has no access to (see
+    // needsEpicAdvisory's doc comment) -- a false "you need Epic" is its own
+    // harm, so SOME must never trigger the advisory, even though some SOME
+    // members genuinely do need Epic.
+    mocked(getOnboardingStatus).mockResolvedValue(status({ cleared: true, tasks: [] }));
+    mocked(prisma.person.findUnique).mockResolvedValue({ epicId: null });
+    mocked(getAccessTerm).mockResolvedValue({ id: "term-1" });
+    mocked(prisma.termMembership.findMany).mockResolvedValue([
+      epicMembership("VOLUNTEER", "NONE", "SOME"),
+    ]);
+
+    const text = await myClearanceStatusTool.run({ personId: "p1" }, {});
+
+    expect(text).toBe("You are cleared to work at clinic this term.");
+  });
+
+  it("takes the strictest requirement across a dual appointment (SOME in one department, ALL in another)", async () => {
+    mocked(getOnboardingStatus).mockResolvedValue(status({ cleared: true, tasks: [] }));
+    mocked(prisma.person.findUnique).mockResolvedValue({ epicId: null });
+    mocked(getAccessTerm).mockResolvedValue({ id: "term-1" });
+    mocked(prisma.termMembership.findMany).mockResolvedValue([
+      epicMembership("VOLUNTEER", "NONE", "SOME"),
+      epicMembership("DIRECTOR", "ALL", "NONE"),
+    ]);
+
+    const text = await myClearanceStatusTool.run({ personId: "p1" }, {});
+
+    expect(text).toMatch(/does not cover epic access/i);
+  });
+
+  it("never appends the advisory to a not-cleared answer, even when Epic is needed and missing", async () => {
+    mocked(getOnboardingStatus).mockResolvedValue(
+      status({
+        cleared: false,
+        tasks: [
+          { key: "training", label: "Volunteer training", description: "Finish training.", state: "INCOMPLETE", blocking: true },
+        ],
+      })
+    );
+    mocked(prisma.person.findUnique).mockResolvedValue({ epicId: null });
+    mocked(getAccessTerm).mockResolvedValue({ id: "term-1" });
+    mocked(prisma.termMembership.findMany).mockResolvedValue([
+      epicMembership("VOLUNTEER", "NONE", "ALL"),
+    ]);
+
+    const text = await myClearanceStatusTool.run({ personId: "p1" }, {});
+
+    expect(text).toMatch(/not yet cleared/i);
+    expect(text).not.toMatch(/epic/i);
+    // The not-cleared branch returns before needsEpicAdvisory is ever reached.
+    expect(mocked(prisma.person.findUnique)).not.toHaveBeenCalled();
   });
 });

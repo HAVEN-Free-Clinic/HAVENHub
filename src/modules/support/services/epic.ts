@@ -759,9 +759,9 @@ export async function linkEpicRequestToTicket(
       await recordAudit({
         actorPersonId,
         action: "epic.link_ticket_sync_failed",
-        entityType: "TechRequest",
-        entityId: ticket.id,
-        after: { epicRequestId, error: err instanceof Error ? err.message : String(err) },
+        entityType: "EpicRequest",
+        entityId: epicRequestId,
+        after: { techRequestId: ticket.id, error: err instanceof Error ? err.message : String(err) },
       });
     }
   }

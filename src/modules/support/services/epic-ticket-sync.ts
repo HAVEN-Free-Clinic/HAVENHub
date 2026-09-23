@@ -62,14 +62,30 @@ import {
  * Called after one or more EpicRequests have been committed as SUBMITTED
  * under `ynhhTicketId` (epic.ts's createTicket, itcm.ts's submitEpicRequests
  * and reconcileDeactivationRequests all call this once their own transaction
- * has committed). Re-reads the ticket's requests rather than taking them as a
- * parameter, so every caller -- whether it batched requestIds directly or
- * adopted pre-existing rows -- gets the same authoritative grouping with no
- * risk of the caller's in-memory list drifting from what actually landed.
+ * has committed; epic.ts's linkEpicRequestToTicket also calls this when the
+ * request it just linked was already SUBMITTED to YNHH). Re-reads the
+ * ticket's requests rather than taking them as a parameter, so every caller
+ * -- whether it batched requestIds directly or adopted pre-existing rows --
+ * gets the same authoritative grouping with no risk of the caller's
+ * in-memory list drifting from what actually landed.
  *
  * Requests with no techRequestId are not attached to any support ticket and
  * are silently skipped -- most Epic requests (a term-wide NEW/MODIFY/RENEW
  * batch, a DEACTIVATE raised at offboard) never came from one.
+ *
+ * The `status: "SUBMITTED"` filter below is load-bearing, not incidental.
+ * createTicket, submitEpicRequests and reconcileDeactivationRequests all call
+ * this immediately after moving a fresh batch of requests to SUBMITTED under
+ * a brand-new YnhhTicket, so every request on that ticket is SUBMITTED and
+ * the filter never excludes anything for them. linkEpicRequestToTicket is
+ * different: it can fire this on a YnhhTicket that already has OTHER
+ * requests attached from before, in any status -- a batched YnhhTicket is
+ * the ITCM norm. Without the filter, one of those other requests being
+ * COMPLETED (its own TechRequest already moved back to IN_PROGRESS by
+ * onEpicResolved) would still get re-grouped here and dragged back to
+ * AWAITING_YNHH -- with a member-facing Intercom post -- for work that is
+ * already finished. Only a request YNHH is still actually holding can make a
+ * TechRequest "waiting on YNHH".
  */
 export async function onEpicSubmitted(actorPersonId: string, ynhhTicketId: string): Promise<void> {
   const ticket = await prisma.ynhhTicket.findUnique({
@@ -79,7 +95,7 @@ export async function onEpicSubmitted(actorPersonId: string, ynhhTicketId: strin
   if (!ticket) return; // defensive: this runs immediately after creating the ticket
 
   const requests = await prisma.epicRequest.findMany({
-    where: { ticketId: ynhhTicketId, techRequestId: { not: null } },
+    where: { ticketId: ynhhTicketId, techRequestId: { not: null }, status: "SUBMITTED" },
     select: { techRequestId: true, kind: true, person: { select: { name: true } } },
   });
 

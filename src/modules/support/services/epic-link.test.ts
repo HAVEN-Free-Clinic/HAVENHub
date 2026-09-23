@@ -21,18 +21,23 @@ import {
 } from "./tech-request";
 
 /**
- * setStatus wrapped in vi.fn DELEGATING to the real implementation, exactly
- * like epic.test.ts wraps updatePersonFields: every test here behaves as
- * before, and the "status advance fails" test below uses
- * mockRejectedValueOnce to stage a single failed setStatus call, which no
- * amount of real database setup can produce on demand.
+ * setStatus and onEpicSubmitted wrapped in vi.fn DELEGATING to the real
+ * implementation, exactly like epic.test.ts wraps updatePersonFields: every
+ * test here behaves as before, and the two "...fails" tests below use
+ * mockRejectedValueOnce to stage a single failed call, which no amount of
+ * real database setup can produce on demand.
  */
 vi.mock("./manage", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./manage")>();
   return { ...actual, setStatus: vi.fn(actual.setStatus) };
 });
+vi.mock("./epic-ticket-sync", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./epic-ticket-sync")>();
+  return { ...actual, onEpicSubmitted: vi.fn(actual.onEpicSubmitted) };
+});
 
 import { cancelOwnRequest, setStatus } from "./manage";
+import { onEpicSubmitted } from "./epic-ticket-sync";
 import { attachEpicRequests } from "./epic-link";
 import { linkEpicRequestToTicket } from "./epic";
 
@@ -64,8 +69,18 @@ async function ynhhTicket(submittedById: string) {
 }
 
 beforeEach(resetDb);
-afterEach(() => {
-  mocked(setStatus).mockClear();
+afterEach(async () => {
+  // mockClear only drains mock.calls; it leaves a staged mockRejectedValueOnce
+  // queued for the NEXT test to consume, which would fail an unrelated test
+  // instead of the one that set it up. mockReset drains that queue too, but it
+  // also wipes the vi.fn(actual.<fn>) passthrough these mocks are built on, so
+  // it has to be reinstalled right after.
+  mocked(setStatus).mockReset();
+  mocked(onEpicSubmitted).mockReset();
+  const manageActual = await vi.importActual<typeof import("./manage")>("./manage");
+  const syncActual = await vi.importActual<typeof import("./epic-ticket-sync")>("./epic-ticket-sync");
+  mocked(setStatus).mockImplementation(manageActual.setStatus);
+  mocked(onEpicSubmitted).mockImplementation(syncActual.onEpicSubmitted);
 });
 
 describe("attachEpicRequests", () => {
@@ -317,5 +332,85 @@ describe("linkEpicRequestToTicket fires the YNHH handoff", () => {
 
     const updated = await prisma.techRequest.findUniqueOrThrow({ where: { id: t.id } });
     expect(updated.status).toBe("IN_PROGRESS");
+  });
+
+  it("does not drag an already-resolved sibling TechRequest back to AWAITING_YNHH on a batched YnhhTicket", async () => {
+    // Regression: onEpicSubmitted re-groups by ynhhTicketId with no status
+    // filter of its own on the callers that fire it on a FRESH batch (every
+    // request there is SUBMITTED, so it never mattered). This caller can fire
+    // on a YnhhTicket that already has OTHER requests from before, in any
+    // status -- a batched YnhhTicket is the ITCM norm -- so the filter lives
+    // in onEpicSubmitted itself (epic-ticket-sync.ts) and is exercised here.
+    const owner1 = await createPerson("Owner1");
+    const owner2 = await createPerson("Owner2");
+    const mgr = await createPerson("Manager");
+    await grantManage(mgr.id);
+
+    const t1 = await epicTicket(owner1.id);
+    await setStatus(mgr.id, t1.id, "IN_PROGRESS");
+    const t2 = await epicTicket(owner2.id);
+    await setStatus(mgr.id, t2.id, "IN_PROGRESS");
+
+    const yt = await ynhhTicket(mgr.id);
+    // R1: already resolved. Its own TechRequest (t1) was already moved back to
+    // IN_PROGRESS by onEpicResolved, as if completeRequest had run on it.
+    await prisma.epicRequest.create({
+      data: {
+        personId: owner1.id,
+        kind: "NEW",
+        status: "COMPLETED",
+        requestedById: mgr.id,
+        ticketId: yt.id,
+        techRequestId: t1.id,
+        completedAt: new Date(),
+      },
+    });
+    // R2: still with YNHH, not yet linked to any ticket -- this is the request
+    // this test actually links.
+    const r2 = await prisma.epicRequest.create({
+      data: { personId: owner2.id, kind: "NEW", status: "SUBMITTED", requestedById: mgr.id, ticketId: yt.id },
+    });
+
+    await linkEpicRequestToTicket(mgr.id, r2.id, t2.number);
+
+    const updatedT1 = await prisma.techRequest.findUniqueOrThrow({ where: { id: t1.id } });
+    expect(updatedT1.status).toBe("IN_PROGRESS"); // NOT dragged back to AWAITING_YNHH
+
+    const updatedT2 = await prisma.techRequest.findUniqueOrThrow({ where: { id: t2.id } });
+    expect(updatedT2.status).toBe("AWAITING_YNHH"); // the actual, intended effect of this link
+  });
+
+  it("still commits the link, and keeps it, when the YNHH handoff fails", async () => {
+    const owner = await createPerson("Owner");
+    const mgr = await createPerson("Manager");
+    await grantManage(mgr.id);
+    const t = await epicTicket(owner.id);
+    const yt = await ynhhTicket(mgr.id);
+    const req = await prisma.epicRequest.create({
+      data: { personId: owner.id, kind: "NEW", status: "SUBMITTED", requestedById: mgr.id, ticketId: yt.id },
+    });
+    mocked(onEpicSubmitted).mockRejectedValueOnce(new Error("Intercom unreachable"));
+
+    await expect(linkEpicRequestToTicket(mgr.id, req.id, t.number)).resolves.toBeUndefined();
+
+    // The link itself, already committed before the handoff was attempted, is
+    // not undone by the failure.
+    const updatedReq = await prisma.epicRequest.findUniqueOrThrow({ where: { id: req.id } });
+    expect(updatedReq.techRequestId).toBe(t.id);
+
+    const linkAudit = await prisma.auditLog.findFirst({
+      where: { action: "epic.link_ticket", entityId: req.id },
+    });
+    expect(linkAudit).not.toBeNull();
+
+    // Same entityType/entityId as the success row it shadows, so a trace on
+    // the EpicRequest finds the failure beside the link that caused it.
+    const failureAudit = await prisma.auditLog.findFirst({
+      where: { action: "epic.link_ticket_sync_failed", entityId: req.id, entityType: "EpicRequest" },
+    });
+    expect(failureAudit).not.toBeNull();
+    const after = failureAudit?.after as Record<string, unknown>;
+    expect(after.techRequestId).toBe(t.id);
+    expect(after.error).toContain("Intercom unreachable");
   });
 });

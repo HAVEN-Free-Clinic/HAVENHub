@@ -13,7 +13,7 @@
  */
 
 import { prisma } from "@/platform/db";
-import { getActiveTerm } from "@/platform/terms/active-term";
+import { getAccessTerm } from "@/platform/terms/access-term";
 import { verifiedLanguagesByPerson } from "@/platform/languages";
 
 export type MemberProfileBasics = {
@@ -31,9 +31,14 @@ export type MemberProfileBasics = {
   photoVersion: number;
   /** ISO 639-1 codes the language reviewers have VERIFIED. Never self-reported. */
   verifiedLanguages: string[];
-  /** ACTIVE memberships in the active term, in department-code order. */
+  /** ACTIVE memberships in the person's access term, in department-code order. */
   memberships: { departmentCode: string; departmentName: string; kind: "DIRECTOR" | "VOLUNTEER" }[];
-  /** The term those memberships are in, for the heading. Null when none is active. */
+  /**
+   * The term those memberships are in, for the heading: the live term, or the
+   * next one for a member only on that roster (see getAccessTerm), so an
+   * incoming member reads as a member of their department rather than as
+   * "No active membership". Null when no term resolves.
+   */
   termName: string | null;
 };
 
@@ -59,11 +64,11 @@ export async function getMemberProfileBasics(
   });
   if (!person) return null;
 
-  const activeTerm = await getActiveTerm();
+  const term = await getAccessTerm(personId);
   const [memberships, languages] = await Promise.all([
-    activeTerm
+    term
       ? prisma.termMembership.findMany({
-          where: { personId, termId: activeTerm.id, status: "ACTIVE" },
+          where: { personId, termId: term.id, status: "ACTIVE" },
           select: { kind: true, department: { select: { code: true, name: true } } },
           orderBy: { department: { code: "asc" } },
         })
@@ -80,6 +85,6 @@ export async function getMemberProfileBasics(
       departmentName: m.department.name,
       kind: m.kind as "DIRECTOR" | "VOLUNTEER",
     })),
-    termName: activeTerm?.name ?? null,
+    termName: term?.name ?? null,
   };
 }

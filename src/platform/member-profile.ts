@@ -11,9 +11,12 @@
  *     volunteers.manage_compliance) and admin.access reach everyone. They
  *     already have the master roster.
  *   - volunteers.view reaches the ACTIVE members of the departments the viewer
- *     directs, plus the departments those manage by delegation. This is the same
- *     set departmentCompliance already shows them on /volunteers, so the profile
- *     is a detail view of a list they can already read, not new access.
+ *     directs, plus the departments those manage by delegation, on the live
+ *     roster OR the next term's. That is the same set the /volunteers roster
+ *     already shows them (its term switcher lists the incoming class before the
+ *     switch), so the profile is a detail view of a list they can already read,
+ *     not new access. Live-only bounced every incoming member's link to
+ *     /no-access, right when their directors were chasing them to clear.
  *   - Everyone else reaches nobody.
  *
  * Lives in platform because both the volunteers module (which owns the page) and
@@ -27,6 +30,7 @@ import { can } from "@/platform/rbac/engine";
 import { canViewAllCompliance } from "@/platform/compliance/access";
 import { manageableDepartmentIds } from "@/platform/departments";
 import { getActiveTerm } from "@/platform/terms/active-term";
+import { getNextTerm } from "@/platform/terms/next-term";
 
 /**
  * How far the viewer's profile access reaches: "all" for a clinic-wide holder,
@@ -68,13 +72,14 @@ export async function viewableMemberIds(
   if (scope === "all") return new Set(personIds);
   if (scope.length === 0) return new Set();
 
-  const activeTerm = await getActiveTerm();
-  if (!activeTerm) return new Set();
+  const [activeTerm, nextTerm] = await Promise.all([getActiveTerm(), getNextTerm()]);
+  const termIds = [activeTerm?.id, nextTerm?.id].filter((id): id is string => Boolean(id));
+  if (termIds.length === 0) return new Set();
 
   const rows = await prisma.termMembership.findMany({
     where: {
       personId: { in: [...new Set(personIds)] },
-      termId: activeTerm.id,
+      termId: { in: termIds },
       status: "ACTIVE",
       departmentId: { in: scope },
     },

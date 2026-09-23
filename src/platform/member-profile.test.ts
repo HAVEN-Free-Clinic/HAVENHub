@@ -25,6 +25,19 @@ async function seedTerm() {
   });
 }
 
+/** The term after seedTerm's: PLANNING, not live yet, with an incoming roster. */
+async function seedNextTerm() {
+  return prisma.term.create({
+    data: {
+      code: `MP-NEXT-${Date.now()}-${Math.random()}`,
+      name: "Member Profile Next Term",
+      startDate: new Date("2026-06-01T12:00:00Z"),
+      endDate: new Date("2026-08-15T12:00:00Z"),
+      status: "PLANNING",
+    },
+  });
+}
+
 async function seedDept(code: string) {
   return prisma.department.upsert({
     where: { code },
@@ -139,6 +152,36 @@ describe("member profile scope", () => {
     await grant(director.id, "volunteers.view");
 
     expect(await canViewMemberProfile(director.id, departed.id)).toBe(false);
+  });
+
+  // The incoming class is on the next term's roster before the switch, and the
+  // /volunteers roster lists them (its term switcher) with a link to this page.
+  // Gating on the live roster alone bounced every one of those links.
+  it("reaches a member who is only on the next term's roster in the director's department", async () => {
+    const term = await seedTerm();
+    const next = await seedNextTerm();
+    const dept = await seedDept("MPA");
+    const director = await prisma.person.create({ data: { name: "Director" } });
+    const incoming = await prisma.person.create({ data: { name: "Incoming" } });
+    await member(director.id, term.id, dept.id, "DIRECTOR");
+    await member(incoming.id, next.id, dept.id);
+    await grant(director.id, "volunteers.view");
+
+    expect(await canViewMemberProfile(director.id, incoming.id)).toBe(true);
+  });
+
+  it("still stops at the department edge on the next term's roster", async () => {
+    const term = await seedTerm();
+    const next = await seedNextTerm();
+    const mine = await seedDept("MPA");
+    const theirs = await seedDept("MPB");
+    const director = await prisma.person.create({ data: { name: "Director" } });
+    const incoming = await prisma.person.create({ data: { name: "Incoming elsewhere" } });
+    await member(director.id, term.id, mine.id, "DIRECTOR");
+    await member(incoming.id, next.id, theirs.id);
+    await grant(director.id, "volunteers.view");
+
+    expect(await canViewMemberProfile(director.id, incoming.id)).toBe(false);
   });
 
   it("viewableMemberIds returns exactly the in-scope subset of a roster", async () => {

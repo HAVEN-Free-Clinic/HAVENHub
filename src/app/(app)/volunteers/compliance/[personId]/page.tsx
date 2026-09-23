@@ -7,7 +7,8 @@
  * standing in clinic could see that one of their volunteers was not cleared but
  * had no way to find out WHY. It is now scoped -- compliance managers and admins
  * reach everyone, a director reaches the ACTIVE members of the departments they
- * direct or manage by delegation, and nobody else reaches anyone. See
+ * direct or manage by delegation (on the live roster or the incoming one), and
+ * nobody else reaches anyone. See
  * platform/member-profile for that rule.
  *
  * The identity half is a deliberate subset of /admin/people: enough to contact
@@ -27,7 +28,7 @@ import { Card } from "@/platform/ui/card";
 import { PersonPhoto } from "@/platform/ui/person-photo";
 import { can } from "@/platform/rbac/engine";
 import { canViewMemberProfile } from "@/platform/member-profile";
-import { getActiveTerm } from "@/platform/terms/active-term";
+import { getAccessTerm } from "@/platform/terms/access-term";
 import {
   SPANISH,
   formatSpanishScore,
@@ -88,11 +89,17 @@ export default async function PersonCompliancePage({ params }: PageProps) {
   // appears nowhere on /my-info.
   const spanishAssessment = await latestSpanishAssessment(personId);
 
-  const activeTerm = await getActiveTerm();
+  // The term this member's clearance is judged against: the live one, or the
+  // next one for an incoming member only on that roster. The same resolution
+  // getOnboardingStatus and /get-started use, so the checklist, EHS panel, and
+  // cert status here match what the member sees on their own page. Resolving
+  // the live term instead read an incoming member as having no EHS
+  // requirements under a Summer heading.
+  const accessTerm = await getAccessTerm(personId);
   const [onboarding, certificates, ehsItems, courses, isManager, isAdmin] = await Promise.all([
     getOnboardingStatus(personId),
     listMyCertificates(personId),
-    getMyEhsStatus(personId),
+    getMyEhsStatus(personId, accessTerm?.id),
     getMyCourses(personId),
     can(viewer.personId, "volunteers.manage_compliance"),
     can(viewer.personId, "admin.access"),
@@ -104,7 +111,7 @@ export default async function PersonCompliancePage({ params }: PageProps) {
   // verified-fallback) so it matches the onboarding.cleared banner, same as
   // /my-info. complianceStatus(newest) made the row read PENDING_VERIFICATION
   // during an early renewal while the clearance beside it read cleared.
-  const status = effectiveComplianceStatus(certificates, activeTerm?.endDate ?? null);
+  const status = effectiveComplianceStatus(certificates, accessTerm?.endDate ?? null);
 
   // Drive the checklist from the same source as /my-info: onboarding tasks, with the
   // HIPAA row rendered from the live compliance status.
@@ -306,7 +313,7 @@ export default async function PersonCompliancePage({ params }: PageProps) {
           <ClearanceCard
             requirements={requirements}
             cleared={onboarding.cleared}
-            termName={activeTerm?.name ?? null}
+            termName={accessTerm?.name ?? null}
           />
         </section>
 

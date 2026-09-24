@@ -929,7 +929,7 @@ export async function searchAudiencePeople(
  * Refused outright rather than silently truncated: a sender who pasted a
  * thousand addresses and got five hundred would have no way to tell.
  */
-export const MAX_PASTED_EMAILS = 500;
+export const MAX_PASTED_EMAILS = 600;
 
 /** One edit to a campaign's manual include / exclude / pasted lists. */
 export type ManualListEdit =

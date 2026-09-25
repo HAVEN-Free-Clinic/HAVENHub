@@ -88,12 +88,39 @@ export function AutoAssignPanel({
     }
   }
 
+  const [confirming, setConfirming] = useState(false);
+
   return (
-    <>
-      <Button type="button" variant="outline" size="sm" onClick={generate} disabled={busy}>
-        {busy && !preview ? <Spinner /> : null}
-        Generate schedule
-      </Button>
+    <details className="rounded-xl border border-border">
+      <summary className="cursor-pointer px-4 py-2 text-sm font-medium text-muted-foreground select-none">
+        Advanced tools
+      </summary>
+      <div className="px-4 pb-4 pt-2 space-y-2">
+      {!confirming ? (
+        <Button type="button" variant="outline" size="sm" onClick={() => setConfirming(true)} disabled={busy}>
+          Generate schedule
+        </Button>
+      ) : (
+        <div className="rounded-xl border border-warning bg-warning/10 p-3 space-y-2">
+          <p className="text-sm font-medium text-foreground">Before you continue, here is what this does and does not do:</p>
+          <ul className="text-sm text-muted-foreground space-y-1 list-disc list-inside">
+            <li>Looks at your volunteers listed availability and suggests people for <strong>empty seats only</strong></li>
+            <li>Does <strong>not</strong> move, remove, or replace anyone already on the schedule</li>
+            <li>Nothing is written until you review the suggestions and press <strong>Place</strong></li>
+            <li>You can deselect any suggestion before placing</li>
+          </ul>
+          <p className="text-sm text-muted-foreground">Ready to see the suggestions?</p>
+          <div className="flex gap-2">
+            <Button type="button" variant="primary" size="sm" onClick={() => { setConfirming(false); generate(); }} disabled={busy}>
+              {busy ? <Spinner /> : null}
+              Yes, generate suggestions
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={() => setConfirming(false)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
 
       {error && !preview ? (
         <Alert tone="error" className="mt-2">
@@ -116,7 +143,8 @@ export function AutoAssignPanel({
           onPlace={place}
         />
       ) : null}
-    </>
+      </div>
+    </details>
   );
 }
 
@@ -176,10 +204,7 @@ function ProposalReview({
       ) : null}
 
       <div className="space-y-4">
-        <div className="text-sm text-foreground-soft">
-          Existing assignments are never moved or removed: this only fills empty seats, and
-          nothing is written until you press Place.
-        </div>
+          
 
         {preview.dateKeys.map((dateKey) => {
           const report = preview.proposal.dates.find((d) => d.dateKey === dateKey);

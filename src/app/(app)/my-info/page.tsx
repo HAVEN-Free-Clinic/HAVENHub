@@ -21,6 +21,7 @@ import { HipaaPanel } from "@/modules/my-info/components/hipaa-panel";
 import { EhsPanel } from "@/modules/my-info/components/ehs-panel";
 import { ClearanceCard, certRequirement, taskRequirement } from "@/modules/my-info/components/clearance-card";
 import { getMyEhsStatus } from "@/platform/ehs/services/my-ehs";
+import { getAccessTerm } from "@/platform/terms/access-term";
 import { effectiveCompliance } from "@/platform/compliance/rules";
 import { getOnboardingStatus } from "@/modules/onboarding/services/onboarding";
 import { getSetting } from "@/platform/settings/service";
@@ -51,13 +52,20 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
   const person = await requireModuleAccess("my-info");
   const sp = await searchParams;
 
+  // The term this member's clearance is judged against: the live term, or the
+  // next term for a new member on only its roster (getAccessTerm). The clearance
+  // card's checklist (getOnboardingStatus) already resolves this way, so the EHS
+  // list, HIPAA status, and term label below must too. Reading the live term here
+  // showed an incoming member "No EHS trainings are required for you" while the
+  // card above it listed EHS as outstanding.
+  const accessTerm = await getAccessTerm(person.personId);
+
   // Fetch all data in parallel where possible.
-  // getMyInfo already loads the active term; reuse it to avoid a second query.
   const [myInfo, certificates, ehsItems, brandColor, orgName, existingCredential, baseUrl, maxMb, myStrikes, myLanguages] =
     await Promise.all([
       getMyInfo(person.personId),
       listMyCertificates(person.personId),
-      getMyEhsStatus(person.personId),
+      getMyEhsStatus(person.personId, accessTerm?.id),
       getSetting<string>("branding.brandColor"),
       getSetting<string>("branding.orgName"),
       getCredential(person.personId),
@@ -68,7 +76,6 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
       listMyStrikes(person.personId),
       languagesForPerson(person.personId),
     ]);
-  const { activeTerm } = myInfo;
 
   // Resolved on the server so the card can omit the wallet section entirely
   // when no vendor key is configured, rather than rendering a button that
@@ -251,7 +258,7 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
   // real coverage ran out next month (audit 14, L3).
   const { status, cert: statusCert } = effectiveCompliance(
     certificates,
-    activeTerm?.endDate ?? null
+    accessTerm?.endDate ?? null
   );
 
   // Onboarding status drives the clearance card (includes EHS as a non-blocking item).
@@ -341,7 +348,7 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
           <ClearanceCard
             requirements={requirements}
             cleared={onboarding.cleared}
-            termName={activeTerm?.name ?? null}
+            termName={accessTerm?.name ?? null}
             // Only offer the /get-started CTA if going there would do something. An
             // already-onboarded member (the usual case here) has only non-blocking,
             // coordinator-recorded items left, and /get-started just redirects home.

@@ -195,14 +195,19 @@ export function BuilderDayView({
     );
   }
 
-  /** The tag toggle row shared by the director and volunteer cards. */
-  function tagToggles(pid: string): ReactNode {
+  /**
+   * The tag toggle row shared by every assigned card. `only` narrows it: a
+   * shadow is never on triage or covering a post, but whether they shadow in
+   * person or remotely is theirs to have, and it is what waives the check-in
+   * geofence and drops the clinic address from their calendar.
+   */
+  function tagToggles(pid: string, only?: ShiftTag[]): ReactNode {
     const tags = assignmentsOnDate[pid]?.tags;
     if (!tags) return null;
     const busy = board.isBusy(dateKey, pid);
     return (
       <div className="mt-2 flex flex-wrap gap-1">
-        {tagsForDept(dept.code).map((tag) => (
+        {(only ?? tagsForDept(dept.code)).map((tag) => (
           <Button
             key={tag}
             type="button"
@@ -459,19 +464,22 @@ export function BuilderDayView({
               {assignedShadows.map((pid) => {
                 const { name, flagPerson } = assigneeInfo(pid);
                 return (
-                  <Card key={pid} pad={false} className="px-3 py-2 flex items-center justify-between">
-                    <span className="flex flex-wrap items-center gap-2">
+                  <Card key={pid} pad={false} className="px-3 py-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       {profileLink(pid, <span className="text-sm font-medium text-foreground-soft">{name}</span>)}
                       {flagPerson && flagBadges(flagPerson)}
                       {incomingBadge(pid)}
-                    </span>
+                    </div>
+                    {editable && tagToggles(pid, ["remote"])}
                     {editable && (
-                      <ConfirmButton
-                        label="Remove"
-                        confirmLabel="Remove this shadow?"
-                        busy={board.isBusy(dateKey, pid)}
-                        onConfirm={() => board.unassign(dateKey, pid)}
-                      />
+                      <div className="mt-2 flex items-center justify-end gap-2">
+                        <ConfirmButton
+                          label="Remove"
+                          confirmLabel="Remove this shadow?"
+                          busy={board.isBusy(dateKey, pid)}
+                          onConfirm={() => board.unassign(dateKey, pid)}
+                        />
+                      </div>
                     )}
                   </Card>
                 );

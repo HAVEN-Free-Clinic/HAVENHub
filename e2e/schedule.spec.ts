@@ -854,13 +854,22 @@ test("Auto-assign: Jack generates a VADM schedule, reviews it, then places it", 
     await page.waitForURL((url) => url.pathname === "/schedule/builder");
     await goToDept(page, await selectDeptByCode(page, "VADM"));
 
+    // The generate button is inside the "Advanced tools" disclosure -- expand it first.
+    await page.getByText("Advanced tools").click();
+
     const generate = page.getByRole("button", { name: "Generate schedule" });
     await expect(generate).toBeVisible();
+
+    // Clicking Generate now shows a confirmation dialog before firing the request.
+    await generate.click();
 
     const isAutoAssign = (r: import("@playwright/test").Response) =>
       r.url().includes("/api/schedule/auto-assign") && r.request().method() === "POST";
 
-    const [previewRes] = await Promise.all([page.waitForResponse(isAutoAssign), generate.click()]);
+    const [previewRes] = await Promise.all([
+      page.waitForResponse(isAutoAssign),
+      page.getByRole("button", { name: "Yes, generate suggestions" }).click(),
+    ]);
     expect(previewRes.status()).toBe(200);
 
     // Nothing is written by a preview.

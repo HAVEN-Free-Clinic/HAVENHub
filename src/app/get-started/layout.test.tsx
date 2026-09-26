@@ -7,9 +7,14 @@
 import { Fragment, isValidElement, type ReactElement, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@/platform/posthog/session-identify", () => ({
+  SessionPostHogIdentify: () => null,
+}));
+
 import GetStartedLayout from "./layout";
 import { IntercomMessenger } from "@/platform/intercom/messenger";
 import { BlockerGate } from "@/platform/intercom/blocker-gate";
+import { SessionPostHogIdentify } from "@/platform/posthog/session-identify";
 
 function findElements(node: ReactNode, type: unknown, found: ReactElement[] = []): ReactElement[] {
   if (node === null || node === undefined || typeof node === "boolean") return found;
@@ -52,5 +57,14 @@ describe("/get-started layout Messenger wiring", () => {
     vi.stubEnv("INTERCOM_MESSENGER_SECRET", "shh");
     const tree = GetStartedLayout({ children: null }) as ReactElement;
     expect(findElements(tree, IntercomMessenger)).toHaveLength(0);
+  });
+});
+
+describe("/get-started layout PostHog wiring", () => {
+  // A member held at the onboarding gate never reaches (app), so without this
+  // every browser event here stays on an anonymous posthog-js id.
+  it("identifies the signed-in person", () => {
+    const tree = GetStartedLayout({ children: null }) as ReactElement;
+    expect(findElements(tree, SessionPostHogIdentify)).toHaveLength(1);
   });
 });

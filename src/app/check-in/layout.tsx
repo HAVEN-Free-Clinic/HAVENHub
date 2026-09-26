@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { SessionPostHogIdentify } from "@/platform/posthog/session-identify";
 
 /**
  * The door.
@@ -21,5 +22,10 @@ import type { ReactNode } from "react";
  * onboarding gate). Authority to record attendance is checked in the page too.
  */
 export default function CheckInLayout({ children }: { children: ReactNode }) {
-  return <div className="min-h-screen bg-canvas">{children}</div>;
+  return (
+    <div className="min-h-screen bg-canvas">
+      <SessionPostHogIdentify />
+      {children}
+    </div>
+  );
 }

@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { CopyrightNotice } from "@/platform/ui/app-footer";
 import { resolveSupportAppId } from "@/platform/intercom/config";
 import { IntercomMessenger } from "@/platform/intercom/messenger";
+import { SessionPostHogIdentify } from "@/platform/posthog/session-identify";
 
 /**
  * Carries the copyright notice across the whole onboarding flow: the checklist
@@ -23,6 +24,7 @@ export default function GetStartedLayout({ children }: { children: ReactNode }) 
           Person always exists here. No BlockerGate -- that stays (app)-only
           by design, see blocker-gate.tsx. */}
       {supportAppId ? <IntercomMessenger appId={supportAppId} mode="identified" /> : null}
+      <SessionPostHogIdentify />
       {children}
       <div className="bg-canvas px-6 pb-8">
         <CopyrightNotice />

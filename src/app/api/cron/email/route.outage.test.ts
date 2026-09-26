@@ -24,6 +24,8 @@ vi.mock("@/platform/email/transport", () => ({
   // check throws. The stub is never matched here (the fake transport throws a plain
   // Error), so a generic outage still increments attempts exactly once per tick.
   TransientEmailError: class TransientEmailError extends Error {},
+  // Same reason: drainEmailQueue also checks `instanceof InvalidRecipientError`.
+  InvalidRecipientError: class InvalidRecipientError extends Error {},
 }));
 vi.mock("@/platform/notifications/teams-transport", () => ({
   resolveTeamsTransport: vi.fn(),

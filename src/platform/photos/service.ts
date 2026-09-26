@@ -11,7 +11,7 @@ import { log, errorAttrs } from "@/platform/logging";
 import { deleteObject, getObject, putObject } from "@/platform/storage";
 import { getSetting } from "@/platform/settings/service";
 import { normalizePhoto } from "./normalize";
-import { PHOTO_CONTENT_TYPE, PhotoError } from "./shared";
+import { HEIC_UNSUPPORTED_MESSAGE, isHeic, PHOTO_CONTENT_TYPE, PhotoError } from "./shared";
 import { shouldAttemptYaliesPull, type PhotoState } from "./policy";
 import { fetchYaliesPhoto, isPersonSpecificMiss, isYaliesEnabled } from "./yalies";
 import { capturePhotoPull, capturePhotoRemoved, capturePhotoUploaded } from "./analytics";
@@ -337,6 +337,7 @@ export async function setPhotoFromUpload(
   maxMb: number,
   actorId: string
 ): Promise<void> {
+  if (isHeic({ type: file.type, name: "" })) throw new PhotoError(HEIC_UNSUPPORTED_MESSAGE);
   if (!ACCEPTED_UPLOAD_TYPES.has(file.type)) {
     throw new PhotoError(`Unsupported image type "${file.type}". Use PNG, JPEG, or WebP.`);
   }

@@ -3,7 +3,7 @@ import sharp from "sharp";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import { deleteObject, getObject, putObject } from "@/platform/storage";
-import { PhotoError } from "./shared";
+import { HEIC_UNSUPPORTED_MESSAGE, PhotoError } from "./shared";
 import { removePhoto, resolvePhoto, setPhotoFromUpload } from "./service";
 
 // Storage stays REAL here: these tests assert that bytes actually round-trip
@@ -371,6 +371,19 @@ describe("setPhotoFromUpload", () => {
         person.id
       )
     ).rejects.toBeInstanceOf(PhotoError);
+  });
+
+  it("rejects a HEIC upload with the specific JPG-or-PNG message", async () => {
+    const person = await seedPerson();
+
+    await expect(
+      setPhotoFromUpload(
+        person.id,
+        { type: "image/heic", size: 100, bytes: Buffer.from("x") },
+        4,
+        person.id
+      )
+    ).rejects.toThrow(HEIC_UNSUPPORTED_MESSAGE);
   });
 
   it("rejects a file over the size limit", async () => {

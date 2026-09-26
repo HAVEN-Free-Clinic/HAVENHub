@@ -29,6 +29,7 @@ import { resetDb } from "@/platform/test/db";
 import {
   mySchedule,
   fullSchedule,
+  clinicDayEmails,
 } from "./schedule";
 import { publishSchedule } from "./publication";
 import { isoDateKey } from "../engine/map";
@@ -1147,5 +1148,95 @@ describe("fullSchedule", () => {
     } finally {
       findMany.mockRestore();
     }
+  });
+});
+
+describe("clinicDayEmails", () => {
+  it("lists every department's scheduled members for the date, and nobody else's date", async () => {
+    const dates = saturdays("2026-05-30", 2);
+    const term = await createTerm("ACTIVE", "SU26", dates);
+    const itcm = await createDepartment("ITCM");
+    const pcar = await createDepartment("PCAR");
+    const director = await prisma.person.create({ data: { name: "Dir", netId: "abc12" } });
+    const volunteer = await prisma.person.create({
+      data: { name: "Vol", netId: "def34", contactEmail: "vol@example.com" },
+    });
+    const shadow = await prisma.person.create({ data: { name: "Sha", contactEmail: "sha@example.com" } });
+    const otherDay = await prisma.person.create({ data: { name: "Other", contactEmail: "other@example.com" } });
+    await createMembership(director.id, term.id, itcm.id, "DIRECTOR");
+    await createMembership(volunteer.id, term.id, pcar.id, "VOLUNTEER");
+    await createMembership(shadow.id, term.id, pcar.id, "VOLUNTEER");
+    await createMembership(otherDay.id, term.id, pcar.id, "VOLUNTEER");
+    await createShift(term.id, itcm.id, director.id, dates[0], "DIRECTOR");
+    await createShift(term.id, pcar.id, volunteer.id, dates[0], "VOLUNTEER");
+    await createShift(term.id, pcar.id, shadow.id, dates[0], "SHADOW");
+    await createShift(term.id, pcar.id, otherDay.id, dates[1], "VOLUNTEER");
+
+    const { members } = await clinicDayEmails(term.id, dates[0]);
+
+    // Contact email wins; a NetID-only member still gets their Yale address.
+    expect(members).toEqual(["abc12@yale.edu", "sha@example.com", "vol@example.com"]);
+  });
+
+  // Matches the roster the page renders: a departed member's leftover
+  // assignment is not someone working the date.
+  it("drops a member whose membership in that department is no longer ACTIVE", async () => {
+    const dates = saturdays("2026-05-30", 1);
+    const term = await createTerm("ACTIVE", "SU26", dates);
+    const dept = await createDepartment("PCAR");
+    const gone = await prisma.person.create({ data: { name: "Gone", contactEmail: "gone@example.com" } });
+    await createMembership(gone.id, term.id, dept.id, "VOLUNTEER", { status: "REMOVED" });
+    await createShift(term.id, dept.id, gone.id, dates[0], "VOLUNTEER");
+
+    expect((await clinicDayEmails(term.id, dates[0])).members).toEqual([]);
+  });
+
+  it("lists one address per person working two departments", async () => {
+    const dates = saturdays("2026-05-30", 1);
+    const term = await createTerm("ACTIVE", "SU26", dates);
+    const a = await createDepartment("PCAR");
+    const b = await createDepartment("TRGE");
+    const both = await prisma.person.create({ data: { name: "Both", contactEmail: "both@example.com" } });
+    await createMembership(both.id, term.id, a.id, "VOLUNTEER");
+    await createMembership(both.id, term.id, b.id, "VOLUNTEER");
+    await createShift(term.id, a.id, both.id, dates[0], "VOLUNTEER");
+    await createShift(term.id, b.id, both.id, dates[0], "VOLUNTEER");
+
+    expect((await clinicDayEmails(term.id, dates[0])).members).toEqual(["both@example.com"]);
+  });
+
+  it("includes the day's active attendings, not a deactivated one or a closed date's", async () => {
+    const dates = saturdays("2026-05-30", 2);
+    const term = await createTerm("ACTIVE", "SU26", dates);
+    const slot = await prisma.clinicSlot.create({
+      data: { label: "9am-12pm", startTime: "09:00", endTime: "12:00", order: 0, allowsMultiple: true },
+    });
+    const on = await prisma.attending.create({
+      data: { scheduleName: "Dr On", fullName: "Dr On", email: "on@example.com" },
+    });
+    const off = await prisma.attending.create({
+      data: { scheduleName: "Dr Off", fullName: "Dr Off", email: "off@example.com", isActive: false },
+    });
+    const closed = await prisma.attending.create({
+      data: { scheduleName: "Dr Closed", fullName: "Dr Closed", email: "closed@example.com" },
+    });
+    await prisma.clinicDay.create({
+      data: {
+        termId: term.id,
+        clinicDate: dates[0],
+        attendings: { create: [{ slotId: slot.id, attendingId: on.id }, { slotId: slot.id, attendingId: off.id }] },
+      },
+    });
+    await prisma.clinicDay.create({
+      data: {
+        termId: term.id,
+        clinicDate: dates[1],
+        isClosed: true,
+        attendings: { create: [{ slotId: slot.id, attendingId: closed.id }] },
+      },
+    });
+
+    expect((await clinicDayEmails(term.id, dates[0])).attendings).toEqual(["on@example.com"]);
+    expect((await clinicDayEmails(term.id, dates[1])).attendings).toEqual([]);
   });
 });

@@ -1,4 +1,6 @@
 import posthog from "posthog-js";
+import { initBotId } from "botid/client/core";
+import { BOTID_PROTECTED_ROUTES } from "@/platform/botid/protected-routes";
 import { isNextControlFlowEvent } from "@/platform/posthog/next-control-flow";
 import { isServerRenderEchoEvent } from "@/platform/posthog/server-render-echo";
 import { isBrowserExtensionEvent } from "@/platform/posthog/browser-extension";
@@ -53,3 +55,7 @@ posthog.init(process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN!, {
   // a replayable credential to PostHog. Redact before anything is sent.
   sanitize_properties: scrubProperties,
 });
+
+// Attaches Vercel BotID's classification headers to the magic-link sign-in
+// submits. The server side (isBotRequest) refuses to send a link without them.
+initBotId({ protect: [...BOTID_PROTECTED_ROUTES] });

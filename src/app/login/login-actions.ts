@@ -5,6 +5,7 @@ import { signIn } from "@/platform/auth/auth";
 import { requestMemberLoginLink } from "@/platform/auth/member-magic-link";
 import { safeLoginPath } from "@/platform/auth/safe-next";
 import { captureEvent } from "@/platform/posthog/capture";
+import { isBotRequest } from "@/platform/botid/check";
 
 export type MemberLinkActionResult = { status: "sent" | "invalid" | "use-yale" };
 
@@ -55,6 +56,11 @@ export async function requestMemberLoginLinkAction(formData: FormData): Promise<
   // dev-credentials form's input[name="email"] on the same /login page.
   const email = String(formData.get("memberEmail") ?? "").trim();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return { status: "invalid" };
+  // Same neutral answer as a real send; see requestMagicLinkAction.
+  if (await isBotRequest()) {
+    await captureEvent({ distinctId: email, event: "magic_link_bot_blocked", properties: { form: "login" } });
+    return { status: "sent" };
+  }
   const next = String(formData.get("callbackUrl") ?? "").trim() || null;
   const result = await requestMemberLoginLink(email, next);
   await captureEvent({

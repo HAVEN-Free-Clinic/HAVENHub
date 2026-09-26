@@ -1,8 +1,10 @@
 import { z } from "zod";
-import { myNextShiftTool } from "./scheduling";
+import { myNextShiftTool, myUpcomingShiftsTool } from "./scheduling";
+import { myProfileTool } from "./profile";
 import { myClearanceStatusTool } from "./compliance";
+import { myEpicStatusTool } from "./epic";
 import { myOutstandingTrainingTool } from "./training";
-import { departmentRosterTool, memberStatusTool } from "./roster";
+import { departmentRosterTool, memberStatusTool, volunteerClearanceTool } from "./roster";
 import { recruitmentCycleStatusTool, myApplicationStatusTool } from "./recruitment";
 
 /** The verified caller. Populated by the route from resolveIntercomIdentity, never from tool input. */
@@ -255,11 +257,15 @@ export function assertSafeToolOutput(text: string): void {
  * only be composed where both are legal imports.
  */
 export const MCP_TOOLS: McpTool[] = [
+  myProfileTool,
   myNextShiftTool,
+  myUpcomingShiftsTool,
   myClearanceStatusTool,
+  myEpicStatusTool,
   myOutstandingTrainingTool,
   departmentRosterTool,
   memberStatusTool,
+  volunteerClearanceTool,
   recruitmentCycleStatusTool,
   myApplicationStatusTool,
 ];

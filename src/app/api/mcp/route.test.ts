@@ -99,6 +99,20 @@ afterEach(() => {
 });
 
 describe("POST /api/mcp", () => {
+  it("sends server instructions that point Fin at its tools and at the directory for email lists", async () => {
+    // No conversation id: the fake handler still invokes the tool, and this
+    // keeps that invocation on the unverified path, which needs no identity stub.
+    shared.toolArgs = {};
+    const { createMcpHandler } = await import("mcp-handler");
+    const { POST } = await import("./route");
+    await POST(req(AUTHED));
+
+    const options = mocked(createMcpHandler).mock.calls.at(-1)?.[1] as { instructions?: string } | undefined;
+    expect(options?.instructions).toMatch(/never ask them for an id/i);
+    expect(options?.instructions).toContain("my_profile");
+    expect(options?.instructions).toContain("People directory");
+  });
+
   it("404s when the MCP server is not configured", async () => {
     vi.stubEnv("INTERCOM_MCP_BEARER_TOKEN", "");
     const { POST } = await import("./route");

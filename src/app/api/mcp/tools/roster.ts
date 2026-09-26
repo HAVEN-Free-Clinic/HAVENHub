@@ -3,7 +3,15 @@ import { prisma } from "@/platform/db";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { can, hasPlatformScope, permissionDepartmentIds } from "@/platform/rbac/engine";
 import { splitPersonName, comparePersonName } from "@/platform/person-name";
+import { memberProfileScope, canViewMemberProfile } from "@/platform/member-profile";
+import { getAccessTerm } from "@/platform/terms/access-term";
+import { getNextTerm } from "@/platform/terms/next-term";
+import { getMyEhsStatus } from "@/platform/ehs/services/my-ehs";
+import { OUTSTANDING_ITEM_SHORT, type OutstandingItemKey } from "@/platform/compliance/outstanding-items";
+import { getOnboardingStatus, type OnboardingTask } from "@/modules/onboarding/services/onboarding";
+import { isSatisfied } from "@/modules/onboarding/engine/status";
 import type { McpTool } from "./index";
+import { hubLink } from "./links";
 
 /**
  * Phase 3: the first Fin tools that answer questions about someone OTHER than
@@ -176,7 +184,7 @@ export const departmentRosterTool: McpTool = {
   name: "department_roster",
   title: "Department roster",
   description:
-    "The active directors and volunteers in one department this term. Use for questions like 'who is on the Nursing team?', 'who directs Triage?', or 'how many volunteers does SCTP have?'. Only works for a department the caller has departmental visibility into (typically one they direct); it is not a general clinic-wide directory.",
+    "The active directors and volunteers in one department this term. Use for questions like 'who is on the Nursing team?', 'who directs Triage?', or 'how many volunteers does SCTP have?'. Also use when a director asks for their department's email addresses or an email list: this tool never returns email addresses, but its answer links the People directory, where directors can copy their department's addresses. Only works for a department the caller has departmental visibility into (typically one they direct); it is not a general clinic-wide directory.",
   inputSchema: z.object({
     department: z
       .string()
@@ -234,7 +242,14 @@ export const departmentRosterTool: McpTool = {
       return `${department.name} has no active members this term.`;
     }
 
-    return `${department.name} this term -- ${directors.length} director(s): ${boundedNames(directors)}. ${volunteers.length} volunteer(s): ${boundedNames(volunteers)}.`;
+    // The pointer, never the addresses. Directors asked Fin for their
+    // department's email list three times in September 2026 and each turned
+    // into a ticket; the answer they needed already exists as a page (the
+    // People directory's copyable address list, scoped by directoryScopeFor to
+    // exactly what they may see). Linking it keeps the no-bulk-PII rule in the
+    // file-level comment intact while still ending the conversation usefully.
+    const directory = `For email addresses, use the People directory: ${await hubLink("/volunteers/directory")}`;
+    return `${department.name} this term -- ${directors.length} director(s): ${boundedNames(directors)}. ${volunteers.length} volunteer(s): ${boundedNames(volunteers)}. ${directory}`;
   },
 };
 
@@ -301,5 +316,125 @@ export const memberStatusTool: McpTool = {
     }
 
     return answer;
+  },
+};
+
+/**
+ * Returned for every negative outcome of volunteerClearanceTool that could
+ * otherwise tell the caller something about a person they cannot see: no
+ * compliance reach at all, no match, an ambiguous match, or a real person
+ * outside the caller's reach. Collapsed into one string for the same
+ * enumeration reason as CANNOT_CONFIRM_MEMBERSHIP.
+ */
+const CANNOT_CONFIRM_CLEARANCE =
+  "I could not find a member by that name whose compliance record you have access to.";
+
+/**
+ * How one of SOMEONE ELSE'S onboarding tasks reads to a director, or null when
+ * it is not outstanding.
+ *
+ * Third-person and short, from the same OUTSTANDING_ITEM_SHORT labels the
+ * check-in door screen uses, rather than the member-facing task copy ("Upload
+ * your current HIPAA certificate..."), which is written to the member and
+ * reads wrongly about them. IN_PROGRESS is spelled out because it is the
+ * state a director most needs distinguished: an uploaded certificate waiting
+ * on a compliance manager is not something the volunteer can fix.
+ */
+function describeOthersTask(task: OnboardingTask, ehsMissing: string[]): string | null {
+  if (isSatisfied(task.state)) return null;
+  const label = OUTSTANDING_ITEM_SHORT[task.key as OutstandingItemKey] ?? task.label;
+
+  if (task.key === "ehs") {
+    return ehsMissing.length > 0 ? `${label} not yet recorded: ${ehsMissing.join(", ")}` : `${label} not yet recorded`;
+  }
+  if (task.state === "IN_PROGRESS") {
+    return task.key === "hipaa"
+      ? `${label} uploaded and waiting for a compliance manager to verify it`
+      : `${label} started but not finished`;
+  }
+  return task.key === "hipaa" ? `${label} missing, expired, or not accepted` : `${label} not done`;
+}
+
+/**
+ * "Why does my volunteer show as not cleared?" -- the director-side twin of
+ * my_clearance_status, and the question behind the "shows non-compliant but
+ * is up to date" tickets escalated out of Intercom in 2026.
+ *
+ * Authorization is canViewMemberProfile, the exact gate on
+ * /volunteers/compliance/[personId], which shows this same breakdown: the
+ * clinic-wide compliance read and admin.access reach everyone; volunteers.view
+ * reaches the ACTIVE members (live or next term) of the departments the caller
+ * directs or manages by delegation; nobody else reaches anyone. Reusing the
+ * page's gate means Fin can never tell a director more than the Hub already
+ * shows them one click away -- and never less, which was the other failure.
+ *
+ * The answer comes from getOnboardingStatus, the same computation that page
+ * and the member's own checklist read, for the same (access) term.
+ */
+export const volunteerClearanceTool: McpTool = {
+  name: "volunteer_clearance",
+  title: "Volunteer clearance",
+  description:
+    "For directors and compliance staff: whether a named member of a department the caller oversees is cleared for the term, and exactly which items (profile, HIPAA certificate, training, courses, EHS trainings) are outstanding, with a link to their compliance record. Use for questions like 'why is Jane Doe not cleared?', 'is jdoe23 compliant?', or 'my volunteer shows BBP missing but says they did it'. Never use this for the caller's own status; use my_clearance_status for that.",
+  inputSchema: z.object({
+    name: z.string().describe("The person's full name or Yale NetID to look up -- never an internal id."),
+  }),
+  run: async (ctx, args) => {
+    const { name: query } = args as { name: string };
+
+    // Cheap deny-first, before touching the name, so a caller with no reach at
+    // all cannot learn whether the name resolves (same shape as memberStatusTool).
+    const scope = await memberProfileScope(ctx.personId);
+    if (scope !== "all" && scope.length === 0) return CANNOT_CONFIRM_CLEARANCE;
+
+    const candidate = await resolvePerson(query);
+    if (!candidate) return CANNOT_CONFIRM_CLEARANCE;
+    if (!(await canViewMemberProfile(ctx.personId, candidate.id))) return CANNOT_CONFIRM_CLEARANCE;
+
+    // canViewMemberProfile only lets a scoped caller reach someone ACTIVE on
+    // the live or next roster, but a clinic-wide caller reaches everyone,
+    // alumni included. Clearance is defined for roster members only (an alum
+    // with no requirements would otherwise read as "cleared" -- see
+    // loadClearedSet), so say so plainly. Only a clinic-wide caller can get
+    // here, and they can already see the whole master roster, so this reply
+    // tells them nothing new about who exists.
+    const [live, next] = await Promise.all([getActiveTerm(), getNextTerm()]);
+    const termIds = [live?.id, next?.id].filter((id): id is string => Boolean(id));
+    const onRoster =
+      termIds.length > 0 &&
+      (await prisma.termMembership.count({
+        where: { personId: candidate.id, termId: { in: termIds }, status: "ACTIVE" },
+      })) > 0;
+    if (!onRoster) {
+      return `${candidate.name} is not on the roster for the current or upcoming term, so clearance does not apply to them.`;
+    }
+
+    const [status, term] = await Promise.all([getOnboardingStatus(candidate.id), getAccessTerm(candidate.id)]);
+    if (!status.hasActiveTerm) {
+      return "There is no active clinic term right now, so clearance does not apply.";
+    }
+
+    const record = `Compliance record: ${await hubLink(`/volunteers/compliance/${candidate.id}`)}`;
+    const termName = term?.name ?? "this term";
+    if (status.cleared) return `${candidate.name} is cleared for ${termName}. ${record}`;
+
+    const ehsOutstanding = status.tasks.some((t) => t.key === "ehs" && !isSatisfied(t.state));
+    const ehsMissing = ehsOutstanding
+      ? (await getMyEhsStatus(candidate.id, term?.id)).filter((i) => !i.complete).map((i) => i.name)
+      : [];
+    const outstanding = status.tasks
+      .map((t) => describeOthersTask(t, ehsMissing))
+      .filter((line): line is string => line !== null);
+
+    const parts = [`${candidate.name} is not yet cleared for ${termName}. Outstanding: ${outstanding.join("; ")}.`];
+    if (ehsOutstanding) {
+      // What a director can actually do about it: they cannot mark EHS
+      // themselves (it is managed centrally under volunteers.manage_compliance).
+      parts.push(
+        "EHS trainings are recorded in the Hub by the compliance team, not synced from Yale, so a volunteer who finished one still shows it missing until it is recorded; ask the compliance team to record it, with the volunteer's Yale completion record."
+      );
+    }
+    parts.push(record);
+    return parts.join(" ");
   },
 };

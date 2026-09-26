@@ -28,7 +28,7 @@
  * standalone build by hand -- see outputFileTracingIncludes in next.config.ts.
  */
 import sharp from "sharp";
-import { PHOTO_SIZE, PhotoError } from "./shared";
+import { HEIC_UNSUPPORTED_MESSAGE, looksLikeHeif, PHOTO_SIZE, PhotoError } from "./shared";
 import { log, errorAttrs } from "@/platform/logging";
 
 /**
@@ -46,6 +46,16 @@ export async function normalizePhoto(input: Buffer): Promise<Buffer> {
       .webp({ quality: 82 })
       .toBuffer();
   } catch (err) {
+    // HEIC is the one decode failure with a known cause and a one-line fix: the
+    // prebuilt sharp on Vercel has no HEVC decoder, so an iPhone photo fails
+    // with "heif: bad seek" or "unsupported image format". Checked by content,
+    // since it can arrive named .jpg. A warning, not an error: nothing is broken,
+    // and the person is told exactly what to do.
+    const message = err instanceof Error ? err.message : String(err);
+    if (looksLikeHeif(input) || /\bheif\b/i.test(message)) {
+      log.warn("[photos] normalizePhoto refused a HEIC image", errorAttrs(err));
+      throw new PhotoError(HEIC_UNSUPPORTED_MESSAGE);
+    }
     // sharp's own message (e.g. "Input buffer contains unsupported image
     // format") is a decode-library internal, not something a member on the
     // my-info upload form can act on. Log the real detail for developers and

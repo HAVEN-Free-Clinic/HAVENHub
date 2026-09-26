@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import { queueEmail, drainEmailQueue } from "./send";
-import { MailerooTransport, type EmailTransport } from "./transport";
+import { InvalidRecipientError, MailerooTransport, type EmailTransport } from "./transport";
 import { saveSenderRule } from "./sender-rules";
 import { setSetting } from "@/platform/settings/service";
 
@@ -460,5 +460,31 @@ describe("drainEmailQueue on a Maileroo domain rejection", () => {
 
     const row = await prisma.emailLog.findFirstOrThrow();
     expect(row.attempts).toBe(0);
+  });
+});
+
+describe("drainEmailQueue on an invalid recipient", () => {
+  it("fails the row on the FIRST attempt instead of retrying 8 times", async () => {
+    await queueEmail(prisma, { ...BASE_EMAIL, to: "first..last@yale.edu" });
+    let sends = 0;
+    const transport: EmailTransport = {
+      async send() {
+        sends += 1;
+        throw new InvalidRecipientError("Invalid recipient address first..last@yale.edu");
+      },
+    };
+
+    await drainEmailQueue(transport);
+
+    const row = await prisma.emailLog.findFirstOrThrow();
+    expect(sends).toBe(1);
+    expect(row.status).toBe("FAILED");
+    expect(row.attempts).toBe(1);
+    expect(row.lockedAt).toBeNull();
+    expect(row.lastError).toContain("Invalid recipient address");
+
+    // A second drain does not touch it again.
+    await drainEmailQueue(transport);
+    expect(sends).toBe(1);
   });
 });

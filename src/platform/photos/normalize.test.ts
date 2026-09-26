@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import sharp from "sharp";
 import { normalizePhoto } from "./normalize";
-import { PHOTO_SIZE, PhotoError } from "./shared";
+import { HEIC_UNSUPPORTED_MESSAGE, PHOTO_SIZE, PhotoError } from "./shared";
 
 /** A solid-colour test image of the given dimensions. */
 async function image(width: number, height: number): Promise<Buffer> {
@@ -86,9 +86,29 @@ describe("normalizePhoto", () => {
     expect(outMeta.orientation).toBeUndefined();
   });
 
+  it("tells the person to use a JPG or PNG when the bytes are HEIC, whatever the name", async () => {
+    const err = await normalizePhoto(ftyp("heic", ["mif1", "heic"])).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(PhotoError);
+    expect((err as Error).message).toBe(HEIC_UNSUPPORTED_MESSAGE);
+  });
+
+  it("keeps the generic message for bytes that are not an image at all", async () => {
+    const err = await normalizePhoto(Buffer.from("this is not an image")).catch((e: unknown) => e);
+    expect((err as Error).message).not.toBe(HEIC_UNSUPPORTED_MESSAGE);
+  });
+
   it("throws PhotoError on bytes that are not an image", async () => {
     await expect(normalizePhoto(Buffer.from("this is not an image"))).rejects.toBeInstanceOf(
       PhotoError
     );
   });
 });
+
+/** An ISO-BMFF `ftyp` box with these brands, followed by undecodable junk. */
+function ftyp(major: string, compatible: string[]): Buffer {
+  const brands = [major, "\0\0\0\0", ...compatible].join("");
+  const size = 8 + brands.length;
+  const head = Buffer.alloc(4);
+  head.writeUInt32BE(size);
+  return Buffer.concat([head, Buffer.from("ftyp" + brands, "latin1"), Buffer.from("junk-after-the-box")]);
+}

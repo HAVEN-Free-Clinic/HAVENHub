@@ -10,11 +10,13 @@ import { withdrawApplication, discardDraft, WithdrawError } from "@/modules/recr
 import { captureEvent } from "@/platform/posthog/capture";
 import { termGroupForCycleSlug } from "@/platform/posthog/groups";
 import { isBotRequest } from "@/platform/botid/check";
+import { isDeliverableAddress } from "@/platform/email/address";
 
 export async function requestMagicLinkAction(formData: FormData): Promise<{ ok: boolean }> {
   const email = String(formData.get("email") ?? "").trim();
-  // Basic shape check; the email service normalizes + rate-limits.
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return { ok: false };
+  // Shape check, including the dot rules mail servers enforce ("a..b@x.org" is
+  // refused by Graph); the email service normalizes + rate-limits.
+  if (!isDeliverableAddress(email)) return { ok: false };
   // A bot gets the same "check your email" as a person, so it learns nothing
   // about whether the check fired. The event is how a false positive on a real
   // applicant would show up.

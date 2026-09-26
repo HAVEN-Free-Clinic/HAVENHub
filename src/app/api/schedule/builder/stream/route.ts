@@ -33,6 +33,7 @@ import { auth } from "@/platform/auth/auth";
 import { getActivePerson } from "@/platform/auth/match-person";
 import { isDbUnreachableError } from "@/platform/db";
 import { log, errorAttrs } from "@/platform/logging";
+import { createUnreachableBackoff } from "@/platform/db-unreachable-backoff";
 import {
   assertBoardReadable,
   assignmentsFor,
@@ -52,6 +53,8 @@ export const maxDuration = 300;
 
 /** How often the board is checked for changes. */
 const TICK_MS = 2_000;
+/** Longest poll interval while the database is unreachable. */
+const UNREACHABLE_MAX_MS = 10_000;
 /** Comment frames keep intermediaries from closing an idle connection. */
 const HEARTBEAT_MS = 15_000;
 /** Stop this far short of maxDuration so the close is ours, not a timeout. */
@@ -126,6 +129,9 @@ export async function GET(request: Request): Promise<Response> {
       request.signal.addEventListener("abort", abort);
 
       let lastHeartbeat = Date.now();
+      // One warning when the database drops, one line when it returns, and a
+      // stretched poll in between (capped, so recovery is still prompt).
+      const outage = createUnreachableBackoff({ scope: "[schedule/builder]", baseMs: TICK_MS, maxMs: UNREACHABLE_MAX_MS });
 
       try {
         while (!closed && !request.signal.aborted) {
@@ -138,6 +144,7 @@ export async function GET(request: Request): Promise<Response> {
 
           try {
             const revision = await boardRevision(termId, departmentId);
+            outage.succeeded();
             if (revision !== known) {
               const assignments = await assignmentsFor(termId, departmentId);
               known = revision;
@@ -153,10 +160,10 @@ export async function GET(request: Request): Promise<Response> {
             if (!isDbUnreachableError(err)) throw err;
             // Ride out a Neon blip: the board on screen is still the last known
             // good one, and the next tick picks up wherever the database landed.
-            log.warn("[schedule/builder] database unreachable on a stream tick", errorAttrs(err));
+            outage.failed(err);
           }
 
-          await new Promise((resolve) => setTimeout(resolve, TICK_MS));
+          await new Promise((resolve) => setTimeout(resolve, outage.nextDelayMs()));
         }
       } catch (err) {
         log.error("[schedule/builder] change stream failed", errorAttrs(err));

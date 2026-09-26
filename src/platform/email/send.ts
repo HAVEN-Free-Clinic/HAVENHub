@@ -1,7 +1,12 @@
 import type { EmailLog } from "@prisma/client";
 import { prisma, type Db } from "@/platform/db";
 import { log } from "@/platform/logging";
-import { resolveEmailTransport, TransientEmailError, type EmailTransport } from "./transport";
+import {
+  InvalidRecipientError,
+  resolveEmailTransport,
+  TransientEmailError,
+  type EmailTransport,
+} from "./transport";
 import { resolveSenderForTemplate, type ResolvedSender } from "./sender-rules";
 import { createEnqueueFlusher } from "@/platform/flush-on-enqueue";
 
@@ -210,8 +215,12 @@ export async function drainEmailQueue(
         // throttled tail to FAILED. Re-queue unchanged; it retries next drain once the
         // stale-lock window passes and self-heals when throttling clears.
         const transient = error instanceof TransientEmailError;
+        // The provider refused the recipient address itself. No retry can change
+        // the address, so the row fails on this attempt rather than re-sending to
+        // it 7 more times against the shared mailbox's submission cap.
+        const badRecipient = error instanceof InvalidRecipientError;
         const attempts = transient ? row.attempts : row.attempts + 1;
-        const failed = attempts >= MAX_ATTEMPTS;
+        const failed = badRecipient || attempts >= MAX_ATTEMPTS;
         const message = error instanceof Error ? error.message.slice(0, 500) : String(error);
         await prisma.emailLog.update({
           where: { id: row.id },
@@ -230,7 +239,17 @@ export async function drainEmailQueue(
             lockedAt: failed ? null : claimedAt,
           },
         });
-        if (failed) {
+        if (badRecipient) {
+          // A warning, not an error: an undeliverable address typed into a public
+          // form (usually by a bot) says nothing is wrong with the mailer.
+          log.warn("[email] Recipient address rejected, failed without retry", {
+            emailLogId: row.id,
+            to: row.toEmail,
+            template: row.template,
+            attempts,
+            lastError: message,
+          });
+        } else if (failed) {
           // Surface permanent send failures to server logs/alerting. A broken mailer
           // (e.g. expired Graph OAuth) otherwise flips every row to FAILED silently,
           // with no signal beyond a passive count on the admin page.

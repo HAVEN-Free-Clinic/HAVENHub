@@ -35,6 +35,32 @@ export function domainOf(address: string | null | undefined): string | null {
  */
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/**
+ * EMAIL_RE plus the dot rules every mail server enforces: no two dots in a row
+ * anywhere, and no dot at either end of the local part or of the domain.
+ *
+ * For RECIPIENTS typed into a public form. Bots submit addresses like
+ * "first..last@yale.edu" to the magic-link forms; EMAIL_RE accepts them, the
+ * queue stores them, and Graph refuses them with 400 ErrorInvalidRecipients.
+ * Refusing them at the form keeps them out of the queue entirely. Kept separate
+ * from EMAIL_RE on purpose: that pattern gates sender addresses and config
+ * values, and tightening it would change what those accept.
+ *
+ * Still not an RFC 5322 parser. A quoted local part ("a..b"@x.org) is legal and
+ * is refused here; no real applicant or member uses one.
+ */
+export function isDeliverableAddress(address: string | null | undefined): boolean {
+  const trimmed = address?.trim() ?? "";
+  if (!EMAIL_RE.test(trimmed)) return false;
+  if (trimmed.includes("..")) return false;
+  const at = trimmed.lastIndexOf("@");
+  const local = trimmed.slice(0, at);
+  const domain = trimmed.slice(at + 1);
+  if (local.startsWith(".") || local.endsWith(".")) return false;
+  if (domain.startsWith(".") || domain.endsWith(".")) return false;
+  return true;
+}
+
 /** The transports that can hold a From's DKIM signature. */
 export type SigningTransport = "maileroo" | "graph";
 

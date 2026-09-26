@@ -2,6 +2,7 @@ import { prisma, isDbUnreachableError } from "@/platform/db";
 import { resolveFeedToken, touchFeedToken } from "@/modules/schedule/calendar/feed-token";
 import { renderFeedForPerson, renderEmptyFeed } from "@/modules/schedule/calendar/feed";
 import { log, errorAttrs } from "@/platform/logging";
+import { runAfterResponse } from "@/platform/after-response";
 
 type RouteContext = { params: Promise<{ token: string }> };
 
@@ -87,10 +88,15 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
     // Best effort: the fetch-timestamp bookkeeping must never block or fail the
     // response. A subscriber's calendar client polls this unattended, and a
     // transient write blip here is not their problem -- their shifts already
-    // rendered successfully above.
-    void touchFeedToken(match.personId).catch((err: unknown) => {
-      log.warn("[calendar-feed] failed to record feed fetch", errorAttrs(err, { personId: match.personId }));
-    });
+    // rendered successfully above. Runs via after() so the write is not cut off
+    // when the function is frozen after the response (a bare `void` here lost
+    // the write with "Server has closed the connection").
+    const personId = match.personId;
+    runAfterResponse(() =>
+      touchFeedToken(personId).catch((err: unknown) => {
+        log.warn("[calendar-feed] failed to record feed fetch", errorAttrs(err, { personId }));
+      }),
+    );
 
     return new Response(body, { status: 200, headers: CALENDAR_HEADERS });
   } catch (err) {

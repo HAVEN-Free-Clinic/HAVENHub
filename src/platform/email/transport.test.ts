@@ -72,6 +72,7 @@ import {
   MailerooTransport,
   SigningDomainRouter,
   TransientEmailError,
+  InvalidRecipientError,
   resolveEmailTransport,
   type EmailMessage,
 } from "./transport";
@@ -1531,5 +1532,87 @@ describe("resolveEmailTransport", () => {
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+});
+
+describe("invalid recipient classification", () => {
+  const GRAPH_INVALID_400 = JSON.stringify({
+    error: {
+      code: "ErrorInvalidRecipients",
+      message:
+        "At least one recipient is not valid., Recipient 'first..last@yale.edu' is not resolved. All recipients must be resolved before a message can be submitted.",
+    },
+  });
+
+  const graphReturning = (status: number, text: string) =>
+    new GraphTransport({
+      getAccessToken: fakeGetAccessToken,
+      sender: "hfc.it@yale.edu",
+      fetchImpl: (async () => new Response(text, { status })) as typeof fetch,
+    });
+
+  const mailerooReturning = (status: number, text: string) =>
+    new MailerooTransport({
+      apiKey: "test-key",
+      sender: PINNED_SENDER,
+      fetchImpl: (async () => new Response(text, { status })) as typeof fetch,
+    });
+
+  it("throws InvalidRecipientError for Graph 400 ErrorInvalidRecipients, naming the address", async () => {
+    const err = await graphReturning(400, GRAPH_INVALID_400)
+      .send({ ...msg, to: "first..last@yale.edu" })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(InvalidRecipientError);
+    expect((err as Error).message).toContain("Invalid recipient address first..last@yale.edu");
+  });
+
+  it("keeps any other Graph 400 a plain permanent Error", async () => {
+    const err = await graphReturning(400, '{"error":{"code":"ErrorInvalidRequest"}}')
+      .send(msg)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(InvalidRecipientError);
+    expect(err).not.toBeInstanceOf(TransientEmailError);
+  });
+
+  it("keeps a Graph 429/503 transient even if the body names the recipient code", async () => {
+    for (const status of [429, 503]) {
+      const err = await graphReturning(status, GRAPH_INVALID_400).send(msg).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(TransientEmailError);
+    }
+  });
+
+  it("throws InvalidRecipientError for a Maileroo 4xx refusing the recipient", async () => {
+    const err = await mailerooReturning(
+      422,
+      '{"success":false,"message":"The to address must be a valid email address."}',
+    )
+      .send(msg)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(InvalidRecipientError);
+  });
+
+  it("throws InvalidRecipientError for a Maileroo success:false refusing the recipient", async () => {
+    const err = await mailerooReturning(200, '{"success":false,"message":"Invalid recipient address."}')
+      .send(msg)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(InvalidRecipientError);
+  });
+
+  it("does not read a Maileroo From validation error as a bad recipient", async () => {
+    const err = await mailerooReturning(
+      400,
+      '{"success":false,"message":"The from field must be a valid email address."}',
+    )
+      .send(msg)
+      .catch((e: unknown) => e);
+    expect(err).not.toBeInstanceOf(InvalidRecipientError);
+  });
+
+  it("keeps a Maileroo 503 transient", async () => {
+    const err = await mailerooReturning(503, "Invalid recipient address.")
+      .send(msg)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(TransientEmailError);
   });
 });

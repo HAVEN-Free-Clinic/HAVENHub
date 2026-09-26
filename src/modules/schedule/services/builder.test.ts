@@ -3093,6 +3093,32 @@ describe("incoming members", () => {
       expect(view.shiftEmails).toEqual([]);
     });
 
+    // No Person means nothing in the member-side language and RN lookups, so the
+    // row used to show a first-timer with no badges at all, even an assessed
+    // interpreter who ticked "I am a licensed RN" on their contract.
+    it("shows their contract RN answer and application Spanish verdict on the row and the board", async () => {
+      const { dates, next, dept, director, acceptance, application, rowId } = await newcomerFixture();
+      const dk = isoDateKey(dates[0]);
+      await prisma.onboardingContract.create({
+        data: {
+          acceptanceId: acceptance.id, token: `t-${acceptance.id}`, status: "SUBMITTED",
+          firstName: "Nora", lastName: "Newcomer", email: "nora@yale.edu", licensedRN: true,
+        },
+      });
+      await prisma.applicationLanguageAssessment.create({
+        data: { applicationId: application.id, language: "es", verified: true, verifiedById: director.id, score: 3 },
+      });
+      await setAssignment(director.id, {
+        termId: next.id, departmentId: dept.id, dateKey: dk, personId: rowId, role: "VOLUNTEER",
+      });
+
+      const view = await builderView(director.id, { departmentId: dept.id, termId: next.id, dateKey: dk, now: dates[0] });
+      const expected = { verifiedLanguages: ["es"], spanishScore: 3, licensedRN: true };
+      expect(view.members.find((m) => m.person.id === rowId)?.person).toMatchObject(expected);
+      expect(view.assignmentsByDate[dk]?.[rowId]?.person).toMatchObject(expected);
+      expect((await assignmentsFor(next.id, dept.id))[dk]?.[rowId]?.person).toMatchObject(expected);
+    });
+
     // A second director's screen learns about changes through boardRevision and
     // assignmentsFor. Watching ShiftAssignment alone would leave it blind here.
     it("serves the draft to the live board and moves its revision", async () => {

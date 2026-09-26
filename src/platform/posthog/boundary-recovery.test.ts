@@ -122,6 +122,25 @@ describe("isBoundaryRecoverableError", () => {
     expect(isBoundaryRecoverableError(error)).toBe(true);
   });
 
+  /**
+   * A dropped request is left to the boundary's `retry()`, which re-fetches.
+   * Reloading into the same outage would trade the page for the browser's
+   * offline screen. See the "Transient network failure" note in
+   * boundary-recovery.ts. The messages are the four the browsers throw from
+   * fetch; the first two are the exact values Error Tracking recorded.
+   */
+  it.each([
+    "Load failed",
+    "Error in input stream",
+    "Failed to fetch",
+    "NetworkError when attempting to fetch resource.",
+  ])("leaves the network failure %j to retry() rather than reloading", (message) => {
+    const error = new TypeError(message);
+    expect(isBoundaryRecoverableError(error)).toBe(false);
+    expect(recoverBoundaryError(error)).toBe(false);
+    expect(reload).not.toHaveBeenCalled();
+  });
+
   it("does not claim an ordinary application error", () => {
     expect(isBoundaryRecoverableError(new Error("You no longer hold this permission."))).toBe(false);
   });

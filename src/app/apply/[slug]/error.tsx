@@ -3,7 +3,7 @@ import { Button } from "@/platform/ui/button";
 import { CaptureException } from "@/platform/posthog/capture-exception";
 import { PortalNotice } from "../portal-notice";
 
-export default function ApplyError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
+export default function ApplyError({ error, retry }: { error: Error & { digest?: string }; retry: () => void }) {
   return (
     <div className="flex min-h-screen flex-col bg-canvas">
       <CaptureException error={error} />
@@ -12,7 +12,7 @@ export default function ApplyError({ error, reset }: { error: Error & { digest?:
         <PortalNotice
           tone="error"
           title="Something went wrong"
-          action={<Button size="lg" onClick={() => reset()}>Try again</Button>}
+          action={<Button size="lg" onClick={() => retry()}>Try again</Button>}
         >
           <p>Please try again. If the problem persists, contact support.</p>
         </PortalNotice>

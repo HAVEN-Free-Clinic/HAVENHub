@@ -14,7 +14,18 @@ import { useBoundaryRecovery } from "@/platform/posthog/capture-exception";
  * place of the failed page body but stays inside AppShell, so the toolbar and
  * navigation survive a thrown server component (a transient DB/Graph error, an
  * unexpected null) instead of falling through to Next's bare error screen.
- * `reset()` re-renders the segment to retry; the link is a guaranteed way back.
+ * `retry()` re-fetches the segment from the server and re-renders it; the link
+ * is a guaranteed way back.
+ *
+ * `retry`, not `reset`. In this Next version `reset()` only clears the error
+ * state and re-renders what the client already holds, so an error that came
+ * from a failed fetch is thrown again from the same failed result without a new
+ * request. Error Tracking caught exactly that on 2026-09-17: a network drop
+ * ("TypeError: Load failed", Mobile Safari) on the applicants roster, then two
+ * "Try again" presses, each re-logging the identical error ~45ms later with no
+ * request in between. `retry()` refreshes the route before clearing the error,
+ * so a transient network failure is the one case it reliably fixes. See
+ * node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/error.md.
  *
  * Some errors arrive here that no amount of retrying clears -- a Server Action
  * whose response came back unreadable (issue 01a017d1, seen on `/my-info`), a
@@ -23,7 +34,7 @@ import { useBoundaryRecovery } from "@/platform/posthog/capture-exception";
  * the member is not handed the one instruction that cannot work. See
  * `boundary-recovery.ts`.
  */
-export default function AppError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
+export default function AppError({ error, retry }: { error: Error & { digest?: string }; retry: () => void }) {
   const recovering = useBoundaryRecovery(error);
 
   return (
@@ -49,7 +60,7 @@ export default function AppError({ error, reset }: { error: Error & { digest?: s
             tab that has already spent its automatic reload (see
             isBoundaryRecoverableError) is never left without a way out. */}
         <div className="mt-6 flex flex-wrap items-center justify-center gap-2.5">
-          {!recovering && <Button onClick={() => reset()}>Try again</Button>}
+          {!recovering && <Button onClick={() => retry()}>Try again</Button>}
           {/* "Back to Hub" names the same destination the breadcrumb root
               does, so the app has one name for /. Outline, not primary: "Try
               again" is the action here. On the three screens where going back

@@ -84,6 +84,77 @@ describe("isBrowserExtensionEvent", () => {
     ).toBe(false);
   });
 
+  // A Safari APP extension runs from a file:// path inside a macOS .app bundle,
+  // so no *-extension:// scheme matches. posthog-js keeps that path only under
+  // junk_drawer.raw_frame.filename. Reproduced from the real UnavailableError
+  // capture on /my-info in Safari 27.
+  it("drops a Safari app-extension exception whose path is under junk_drawer.raw_frame", () => {
+    expect(
+      isBrowserExtensionEvent(
+        exceptionEvent([
+          {
+            type: "UnavailableError",
+            value: "UnavailableError",
+            stacktrace: {
+              frames: [
+                {
+                  function: "v",
+                  line: 135,
+                  column: 840407,
+                  in_app: true,
+                  junk_drawer: {
+                    raw_frame: {
+                      filename:
+                        "file:///Applications/Coupons.app/Contents/PlugIns/Extension.appex/Resources/h0.js",
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        ]),
+      ),
+    ).toBe(true);
+  });
+
+  it.each([
+    ["a file:// path", "file:///Applications/Some.app/Contents/PlugIns/E.appex/x.js"],
+    ["an .appex/ bundle path", "https://example.test/Foo.appex/bundle.js"],
+    ["a legacy .safariextension/ path", "file:///Users/x/E.safariextension/global.js"],
+  ])("drops an exception whose only frame is %s", (_label, filename) => {
+    expect(
+      isBrowserExtensionEvent(
+        exceptionEvent([
+          { type: "Error", value: "boom", stacktrace: { frames: [frame(filename)] } },
+        ]),
+      ),
+    ).toBe(true);
+  });
+
+  // The mixed-stack rule must hold for the new shapes too: one first-party frame
+  // keeps the event even when another frame is a Safari app extension.
+  it("keeps an exception whose stack mixes our code with a Safari app-extension frame", () => {
+    expect(
+      isBrowserExtensionEvent(
+        exceptionEvent([
+          {
+            type: "TypeError",
+            value: "boom",
+            stacktrace: {
+              frames: [
+                frame("https://hub.havenfreeclinic.org/_next/static/chunk.js"),
+                {
+                  function: "v",
+                  junk_drawer: { raw_frame: { filename: "file:///Applications/x.appex/h0.js" } },
+                },
+              ],
+            },
+          },
+        ]),
+      ),
+    ).toBe(false);
+  });
+
   // --- Everything below must be KEPT ---
 
   it("keeps an ordinary application exception", () => {
@@ -95,6 +166,18 @@ describe("isBrowserExtensionEvent", () => {
             value: "Cannot read properties of undefined (reading 'id')",
             stacktrace: { frames: [frame("https://hub.havenfreeclinic.org/_next/static/chunk.js")] },
           },
+        ]),
+      ),
+    ).toBe(false);
+  });
+
+  // A frame carrying a junk_drawer that is not the expected shape must not throw
+  // and must keep the event, since nothing identifies it as extension code.
+  it("keeps a frame whose junk_drawer is malformed", () => {
+    expect(
+      isBrowserExtensionEvent(
+        exceptionEvent([
+          { type: "Error", value: "boom", stacktrace: { frames: [{ function: "v", junk_drawer: "nope" }] } },
         ]),
       ),
     ).toBe(false);

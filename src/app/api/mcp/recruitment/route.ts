@@ -3,10 +3,10 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import { Prisma } from "@prisma/client";
 import { recordAudit } from "@/platform/audit";
 import { getActivePerson } from "@/platform/auth/match-person";
-import { can } from "@/platform/rbac/engine";
 import { log, errorAttrs } from "@/platform/logging";
 import { RECRUITMENT_RESOURCE, protectedResourceMetadataUrl, resourceUrl } from "@/platform/oauth/config";
 import { publicOrigin } from "@/platform/oauth/origin";
+import { mayConnect } from "@/platform/oauth/permission";
 import { verifyAccessToken } from "@/platform/oauth/tokens";
 import { RECRUITMENT_TOOLS } from "./tools";
 
@@ -106,7 +106,7 @@ async function handle(request: Request): Promise<Response> {
   const person = await getActivePerson(access.personId);
   if (!person) return unauthorized(origin, "This Hub account is no longer active");
 
-  if (!(await can(access.personId, RECRUITMENT_RESOURCE.permission))) {
+  if (!(await mayConnect(access.personId, RECRUITMENT_RESOURCE))) {
     // A plain 403, deliberately without insufficient_scope: re-consenting
     // cannot fix a missing permission, so Claude should show an error rather
     // than loop through sign-in.

@@ -206,6 +206,7 @@ route whose caller is a machine:
 | `/api/calendar/[token]` | Google / Apple / Outlook, polling from their own servers | No | Yes |
 | `/api/public/clinic-days` | `havenfreeclinic.org` visitors' browsers, cross-origin `fetch()` | No | **No -- needs one** |
 | `/api/cron/*` | cron-job.org | No | Not from an arbitrary client (see below) |
+| `/api/mobile/*` | The HAVEN Hub iOS/Android app (`mobile/`) | No | **No -- needs one** |
 
 The cross-origin case is the least obvious of the three. The *visitor* is in a real
 browser, so it feels like it should pass -- but the `fetch()` is issued by
@@ -244,6 +245,14 @@ that invisible way -- the job never runs, and nothing anywhere records that it
 did not. The `cron.lastSuccess.<job>` heartbeat on `/admin` is the cheapest check:
 if those timestamps are current, the scheduler is reaching the app and there is
 nothing to fix here.
+
+The mobile app's API is in the table because a native app is not a browser: it
+cannot run the challenge script either. Its sign-in half needs nothing new --
+`/api/oauth/*` already reaches the app (the Claude connector uses it), and the
+consent page opens in the phone's real browser. Until `/api/mobile/*` has a bypass,
+the app signs in and then shows "The Hub sent an unexpected response" on every
+screen. Every route under it requires a Hub-issued bearer token bound to that
+resource and re-checks the person is active on each call.
 
 A bypassed path is exposed to the open internet with no challenge in front of it,
 so it must carry its own protection. Both current bypasses do: the calendar feed

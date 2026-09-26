@@ -35,9 +35,15 @@ export const REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
 export type McpResource = {
   path: string;
   scope: string;
-  permission: string;
-  /** Shown on the consent screen: "<client> wants to read <title> as you". */
+  /** Null when any active member may connect (the resource re-checks each call). */
+  permission: string | null;
+  /** Shown on the consent screen: "<client> wants to <verb> <title> as you". */
   title: string;
+  /**
+   * What the consent screen promises about changes. Read-only resources say the
+   * app "could not change anything"; a resource that writes says exactly what.
+   */
+  writes: string | null;
 };
 
 export const RECRUITMENT_RESOURCE: McpResource = {
@@ -45,9 +51,27 @@ export const RECRUITMENT_RESOURCE: McpResource = {
   scope: "recruitment:read",
   permission: "recruitment.api_access",
   title: "recruitment data (cycles, applications, scores, interviews)",
+  writes: null,
 };
 
-export const MCP_RESOURCES: readonly McpResource[] = [RECRUITMENT_RESOURCE];
+/**
+ * The HAVEN Hub mobile app's API (src/app/api/mobile). Not an MCP server, but
+ * the same OAuth flow: the app registers with its native redirect scheme,
+ * signs the person in through /oauth/authorize, and calls the API with a
+ * bearer token bound to this resource.
+ *
+ * No connect permission: every member uses the app. Each endpoint applies the
+ * same module and permission checks the matching Hub page does.
+ */
+export const MOBILE_RESOURCE: McpResource = {
+  path: "/api/mobile",
+  scope: "mobile",
+  permission: null,
+  title: "your Hub account (profile, schedule, notifications)",
+  writes: "marking your notifications as read",
+};
+
+export const MCP_RESOURCES: readonly McpResource[] = [RECRUITMENT_RESOURCE, MOBILE_RESOURCE];
 
 /** Paths the discovery documents are served at (rewritten to API routes in next.config.ts). */
 export const AS_METADATA_PATH = "/.well-known/oauth-authorization-server";

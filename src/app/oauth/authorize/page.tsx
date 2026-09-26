@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { auth } from "@/platform/auth/auth";
 import { requirePersonSession } from "@/platform/auth/session";
 import { loginRedirectPath } from "@/platform/auth/safe-next";
-import { can } from "@/platform/rbac/engine";
+import { mayConnect } from "@/platform/oauth/permission";
 import { clientRedirect, validateAuthorizeRequest, type AuthorizeParams } from "@/platform/oauth/authorize";
 import { isLoopback, type ResolvedClient } from "@/platform/oauth/client";
 import { publicOrigin } from "@/platform/oauth/origin";
@@ -81,7 +81,7 @@ export default async function AuthorizePage({ searchParams }: { searchParams: Pr
 
   const appLabel = describeApp(outcome.client);
 
-  if (!(await can(person.personId, outcome.resource.permission))) {
+  if (!(await mayConnect(person.personId, outcome.resource))) {
     const back = clientRedirect(outcome.redirectUri, { error: "access_denied", state: outcome.state }, origin);
     return (
       <Frame>
@@ -108,8 +108,9 @@ export default async function AuthorizePage({ searchParams }: { searchParams: Pr
 
       <div className="mt-6 space-y-3 text-sm text-foreground-soft">
         <p>
-          {appLabel} wants to read {outcome.resource.title} as you. It would see exactly what you can see in the
-          Hub, and could not change anything.
+          {appLabel} wants to {outcome.resource.writes ? "use" : "read"} {outcome.resource.title} as you. It would
+          see exactly what you can see in the Hub, and could not change anything
+          {outcome.resource.writes ? ` except ${outcome.resource.writes}` : ""}.
         </p>
         <p>
           Access is sent to <strong className="text-foreground">{outcome.redirectHost}</strong>.{" "}

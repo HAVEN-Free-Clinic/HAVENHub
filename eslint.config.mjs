@@ -141,6 +141,8 @@ const eslintConfig = [
       "playwright-report/**",
       "test-results/**",
       ".claude/**",
+      // The Expo app has its own package.json, tsconfig and lint (mobile/README.md).
+      "mobile/**",
       // Gitignored local design-system scratch. It is not part of the app and
       // does not exist in a CI checkout, but `eslint .` walks it anyway (flat
       // config does not read .gitignore), reporting ~20 errors that can never

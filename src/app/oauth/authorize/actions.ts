@@ -3,7 +3,7 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { requirePersonSession } from "@/platform/auth/session";
-import { can } from "@/platform/rbac/engine";
+import { mayConnect } from "@/platform/oauth/permission";
 import { clientRedirect, validateAuthorizeRequest, type AuthorizeParams } from "@/platform/oauth/authorize";
 import { publicOrigin } from "@/platform/oauth/origin";
 import { markClientUsed } from "@/platform/oauth/registration";
@@ -62,7 +62,7 @@ export async function approveAuthorizationAction(formData: FormData): Promise<vo
   const person = await requirePersonSession();
   // Re-checked here, not just on render: the permission could have been
   // removed between the page loading and the button being pressed.
-  if (!(await can(person.personId, outcome.resource.permission))) {
+  if (!(await mayConnect(person.personId, outcome.resource))) {
     redirect(clientRedirect(outcome.redirectUri, { error: "access_denied", state: outcome.state }, origin));
   }
   const { code } = await createAuthorization({

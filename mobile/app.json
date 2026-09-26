@@ -1,0 +1,44 @@
+{
+  "expo": {
+    "name": "HAVEN Hub",
+    "slug": "havenhub",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "org.havenfreeclinic.hub",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "bundleIdentifier": "org.havenfreeclinic.hub",
+      "supportsTablet": true,
+      "config": {
+        "usesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "org.havenfreeclinic.hub",
+      "adaptiveIcon": {
+        "backgroundColor": "#00356B",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "bundler": "metro",
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-web-browser",
+      "expo-font"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "hubUrl": "https://hub.havenfreeclinic.org"
+    }
+  }
+}

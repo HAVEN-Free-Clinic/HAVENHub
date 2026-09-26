@@ -32,6 +32,15 @@ describe("OAuth discovery documents", () => {
     });
   });
 
+  it("advertises the mobile app's API as its own resource and scope", async () => {
+    const as = await (await asMetadata(req("/x"))).json();
+    expect(as.scopes_supported).toEqual(["recruitment:read", "mobile"]);
+    const res = await prMetadata(req("/.well-known/oauth-protected-resource/api/mobile"), {
+      params: Promise.resolve({ path: ["api", "mobile"] }),
+    });
+    expect(await res.json()).toMatchObject({ resource: "https://hub.havenfreeclinic.org/api/mobile", scopes_supported: ["mobile"] });
+  });
+
   it("builds URLs from the forwarded host, so a preview deployment advertises itself", async () => {
     const body = await (
       await asMetadata(req("/x", { host: "internal", "x-forwarded-host": "havenhub-pr-9.vercel.app", "x-forwarded-proto": "https" }))

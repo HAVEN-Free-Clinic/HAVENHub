@@ -10,7 +10,8 @@ import { Button, buttonClasses } from "@/platform/ui/button";
 import { cardClasses } from "@/platform/ui/card";
 import { PageHeader } from "@/platform/ui/page-header";
 import { SectionHeader } from "@/platform/ui/section-header";
-import { fullSchedule, type ShiftTags } from "@/modules/schedule/services/schedule";
+import { clinicDayEmails, fullSchedule, type ShiftTags } from "@/modules/schedule/services/schedule";
+import { EmailList } from "@/platform/ui/email-list";
 import { markPresent, undoAttendance } from "@/modules/schedule/services/attendance";
 import { displayTodayKey } from "@/platform/dates/today";
 import { isSelectedDateToday } from "@/modules/schedule/engine/attendance-window";
@@ -39,7 +40,16 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
   // is a button here for the people who can create them.
   const canTriageChats = await can(session.personId, "schedule.manage_triage_chats");
 
+  // The clinic-day address list is the Executive Director's: the same
+  // clinic-wide contact grant that opens the people directory. Directors hold
+  // only the own-department half, and already have their own day's list in the
+  // builder, so this does not widen what anyone can reach.
+  const canEmailClinicDay = await can(session.personId, "volunteers.view_directory");
+
   const { term, clinicDates, closedDates, selectedDate, departments, attendance } = await fullSchedule(sp.date);
+  // Skipped entirely, not computed and hidden, for everyone without the grant.
+  const dayEmails =
+    canEmailClinicDay && term && selectedDate ? await clinicDayEmails(term.id, selectedDate) : null;
   const selectedKey = selectedDate ? isoDateKey(selectedDate) : null;
 
   // Verified badges, resolved ONCE for every person on the page rather than per
@@ -234,6 +244,19 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
               {closedDates.get(selectedKey) ?? "No reason was recorded."} Anyone listed below
               is scheduled anyway; there is no clinic-day check-in.
             </Alert>
+          )}
+
+          {/* Everyone working the selected date, in one paste. */}
+          {dayEmails && (
+            <div className={`${cardClasses()} mb-4`}>
+              <EmailList
+                emails={[...new Set([...dayEmails.members, ...dayEmails.attendings])]}
+                label="Everyone working this date"
+                rows={4}
+                hint={`${dayEmails.members.length} scheduled member${dayEmails.members.length === 1 ? "" : "s"} across every department, plus ${dayEmails.attendings.length} attending${dayEmails.attendings.length === 1 ? "" : "s"} on the coverage schedule.`}
+                emptyLabel="Nobody is scheduled this date."
+              />
+            </div>
           )}
 
           {/* Department cards */}

@@ -1,9 +1,10 @@
 /**
  * Schedule service for HAVEN Hub.
  *
- * Exposes two read operations:
+ * Exposes three read operations:
  *   - mySchedule: the caller's shifts, availability (read-only), and term context.
  *   - fullSchedule: the clinic-wide schedule view for a selected date.
+ *   - clinicDayEmails: every address working a selected date, for the EDs.
  *
  * Members do not edit their own availability here: a change is a request, and a
  * director applies it from the schedule builder.
@@ -27,6 +28,7 @@ import { departmentAttendingsForDates } from "@/platform/attendings/coverage";
 import { closedClinicDates } from "@/platform/attendings/open-clinic-date";
 import { attendanceForDate, type AttendanceRow } from "./attendance";
 import { comparePersonName } from "@/platform/person-name";
+import { mailingEmailForPerson } from "@/platform/auth/match-person";
 
 /** A pending ShiftRequest with the swap target's name included (null for drops). */
 export type PendingRequest = ShiftRequest & { target: { name: string } | null };
@@ -601,5 +603,67 @@ export async function fullSchedule(
   });
 
   return { term, clinicDates, closedDates, selectedDate, departments, attendance };
+}
+
+/**
+ * Every address working one clinic date, clinic-wide: the executive directors'
+ * "mail everyone on Saturday" list.
+ *
+ * `members` is the same roster fullSchedule renders for the date -- directors,
+ * volunteers and shadows across every department, dropping anyone whose
+ * membership in that department is no longer ACTIVE -- so the list never
+ * disagrees with the page it sits on. `attendings` is the day's attending
+ * coverage, skipped on a closed date and for a deactivated attending, the same
+ * silence the coverage grid keeps. Returned apart so the page can say how many
+ * of each it is mailing; each list is de-duplicated and sorted.
+ *
+ * Addresses resolve through mailingEmailForPerson, as the builder's shift list
+ * and the people directory do, so a member with only a NetID still gets their
+ * Yale address rather than silently falling off the list.
+ *
+ * Trusts the caller for permissions: this is contact data for the whole clinic,
+ * and the page gates it on volunteers.view_directory.
+ */
+export async function clinicDayEmails(
+  termId: string,
+  clinicDate: Date,
+): Promise<{ members: string[]; attendings: string[] }> {
+  // A UTC-day range for the same reason fullSchedule uses one: an imported
+  // assignment can carry any time on the day, not only the noon anchor.
+  const dayStart = new Date(`${isoDateKey(clinicDate)}T00:00:00.000Z`);
+  const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+
+  const [assignments, activeMemberships, days] = await Promise.all([
+    prisma.shiftAssignment.findMany({
+      where: { termId, clinicDate: { gte: dayStart, lt: dayEnd } },
+      select: {
+        personId: true,
+        departmentId: true,
+        person: { select: { netId: true, contactEmail: true } },
+      },
+    }),
+    prisma.termMembership.findMany({
+      where: { termId, status: "ACTIVE" },
+      select: { personId: true, departmentId: true },
+    }),
+    prisma.clinicDay.findMany({
+      where: { termId, clinicDate: { gte: dayStart, lt: dayEnd }, isClosed: false },
+      select: {
+        attendings: {
+          where: { attending: { isActive: true } },
+          select: { attending: { select: { email: true } } },
+        },
+      },
+    }),
+  ]);
+
+  const activePairs = new Set(activeMemberships.map((m) => `${m.personId}|${m.departmentId}`));
+  const members = assignments
+    .filter((a) => activePairs.has(`${a.personId}|${a.departmentId}`))
+    .map((a) => mailingEmailForPerson(a.person));
+  const attendings = days.flatMap((d) => d.attendings.map((a) => a.attending.email?.trim() ?? ""));
+
+  const clean = (emails: string[]) => [...new Set(emails.filter((e) => e !== ""))].sort();
+  return { members: clean(members), attendings: clean(attendings) };
 }
 

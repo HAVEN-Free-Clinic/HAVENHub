@@ -30,9 +30,26 @@ the job below silently stops running with no in-repo error.
 > route. The in-app heartbeat is unaffected -- `recordCronHeartbeat` writes a
 > `Setting` row and `/admin` reads it back -- so use that, or the dashboard.
 >
-> Times below are UTC and are what the schedules *should* be. Two currently
-> differ in the dashboard: `schedule-reminders` fires at 12:00 UTC (not 15:00)
-> and `wallet-passes` at 04:00 UTC (not 05:00). Reconcile before launch.
+> Times below are UTC and are what the schedules *should* be. The runs that
+> did land in PostHog logs between 2026-09-12 and 2026-09-26 show seven jobs
+> firing at a different hour (the timestamps of lines that arrived are reliable
+> even though the stream drops some):
+>
+> | Job | Documented (UTC) | Observed (UTC) |
+> |---|---|---|
+> | `reminders` | 13:00 | 17:00 |
+> | `shift-reminders` | Mon 13:00 | Mon 12:00 |
+> | `recruitment-drafts` | 04:00 | 13:00 |
+> | `recruitment-review-digest` | 14:00 | 18:00 |
+> | `schedule-reminders` | 15:00 | 12:00 |
+> | `wallet-passes` | 05:00 | 04:00 |
+> | `intercom-reconcile` | 02:00 | 12:00 |
+>
+> `reminders` and `recruitment-review-digest` are exactly four hours late, which
+> is what a job gets when the documented UTC hour is entered with the job's
+> timezone left on US Eastern. Check each job's timezone setting first when
+> reconciling. `email` and `clinic-checkin-invites` match. `attending-reminders`
+> is deliberately inactive and logged no runs.
 
 ## The jobs
 

@@ -16,6 +16,7 @@ import {
   builderReadOnlyPillClass,
 } from "./availability-pill";
 import { PROVISIONAL_BADGE_LABEL, PROVISIONAL_STAGE_LABEL } from "./provisional-labels";
+import { NewcomerBadge } from "./newcomer-badge";
 
 // ---------------------------------------------------------------------------
 // Availability mode sub-view
@@ -106,6 +107,7 @@ export function BuilderAvailabilityView({
               ) : (
                 <Badge tone={tierTone}>{tierLabel}</Badge>
               )}
+              <NewcomerBadge newcomer={member.newcomer} />
               {member.acknowledgePending && <Badge tone="warning">Availability updated</Badge>}
             </div>
             {member.legacyNote && (

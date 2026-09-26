@@ -39,6 +39,7 @@ import { compareBuilderMembers } from "@/modules/schedule/engine/member-order";
 import type { BuilderMember, BuilderAssignmentEntry } from "@/modules/schedule/services/builder";
 import { sortClinicDates } from "./clinic-date-order";
 import { PROVISIONAL_BADGE_LABEL, PROVISIONAL_BADGE_TITLE } from "./provisional-labels";
+import { NewcomerBadge } from "./newcomer-badge";
 import { EmptyState } from "@/platform/ui/empty-state";
 import { useBuilderBoard, type BoardApi } from "./builder-board";
 import {
@@ -90,6 +91,8 @@ type GridRow = {
   /** Membership kind, or null for a former-member assignee. */
   kind: "DIRECTOR" | "VOLUNTEER" | null;
   status: "member" | "incoming" | "former";
+  /** New or transferring in this term; null for a renewal or a former member. */
+  newcomer: BuilderMember["newcomer"];
   /**
    * Whether an EMPTY cell on this row offers to assign. False only for a former
    * member: their leftover shifts are still actionable, but they hold no place to
@@ -598,6 +601,7 @@ export function BuilderGrid({
       lastName: m.person.lastName,
       kind: m.kind,
       status: m.provisional ? ("incoming" as const) : ("member" as const),
+      newcomer: m.newcomer,
       // Members and incoming people alike, first-time applicants included: the
       // service keeps their drafts against the acceptance until roster build.
       assignable: true,
@@ -618,6 +622,7 @@ export function BuilderGrid({
         lastName: entry.person.lastName,
         kind: null,
         status: "former",
+        newcomer: null,
         assignable: false,
         availabilityDates: [],
       });
@@ -737,6 +742,7 @@ export function BuilderGrid({
                           {PROVISIONAL_BADGE_LABEL}
                         </Badge>
                       )}
+                      <NewcomerBadge newcomer={row.newcomer} />
                       {row.status === "former" && (
                         // Former member (offboarded) who still holds a live
                         // assignment. Flagged so directors can clear the leftover

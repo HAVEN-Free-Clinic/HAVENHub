@@ -132,6 +132,28 @@ function schedulingNotesOf(
 /** How far along the onboarding pipeline an incoming member is. */
 export type IncomingStage = "ACCEPTED" | "ONBOARDING" | "SUBMITTED";
 
+/**
+ * Whether someone is new to the department this term, and how. Null for a
+ * RENEWAL, who is coming back to the department they were already in.
+ *
+ * NEW is new to HAVEN; TRANSFER is a returning member moving departments, and
+ * `transferFrom` is the snapshot of the department codes they were in at submit.
+ */
+export type Newcomer = { type: "NEW" | "TRANSFER"; transferFrom: string[] };
+
+function newcomerOf(application: {
+  applicantType: "NEW" | "RENEWAL" | "TRANSFER";
+  transferFromDepartments: string[];
+}): Newcomer | null {
+  if (application.applicantType === "RENEWAL") return null;
+  return {
+    type: application.applicantType,
+    transferFrom: application.applicantType === "TRANSFER" ? application.transferFromDepartments : [],
+  };
+}
+
+const NEWCOMER_COLUMNS = { applicantType: true, transferFromDepartments: true } as const;
+
 export type IncomingMember = {
   acceptanceId: string;
   applicationId: string;
@@ -161,6 +183,8 @@ export type IncomingMember = {
   availabilityDates: Date[];
   /** Their onboarding contract's scheduling answers; blank until it is submitted. */
   onboardingNotes: OnboardingSchedulingNotes;
+  /** New or transferring into this department; null for a renewal. */
+  newcomer: Newcomer | null;
 };
 
 /** ContractStatus -> the stage label the builder shows. */
@@ -247,6 +271,7 @@ export async function listIncomingMembers(opts: {
         select: {
           id: true,
           answers: true,
+          ...NEWCOMER_COLUMNS,
           // A dual appointment's second acceptance has no contract of its own;
           // the one the person filled in hangs off the other acceptance.
           acceptances: { select: { contract: { select: { status: true, ...SCHEDULING_NOTE_COLUMNS } } } },
@@ -282,6 +307,7 @@ export async function listIncomingMembers(opts: {
         stage: stageFor(contract?.status),
         availabilityDates: applicationAvailabilityDates(application.answers, opts.clinicDates),
         onboardingNotes: schedulingNotesOf(contract),
+        newcomer: newcomerOf(application),
       };
     })
     .sort(comparePersonName);
@@ -334,6 +360,54 @@ export async function onboardingNotesByMember(opts: {
     notes.set(`${row.promotedPersonId}:${kind}`, schedulingNotesOf(row));
   }
   return notes;
+}
+
+/**
+ * Which people already ON the roster of one (term, department) came in new or
+ * as a transfer, keyed `${personId}:${kind}` like {@link onboardingNotesByMember}.
+ *
+ * The incoming list carries this until roster build; this read keeps the answer
+ * on the row afterwards, which is when a director actually schedules the term.
+ * Read back through the promoted contract for the same reason as the notes: a
+ * member whose membership came another way (the Airtable import, a manual add)
+ * has no application to ask and is simply absent, as is every renewal.
+ */
+export async function newcomersByMember(opts: {
+  termId: string;
+  departmentCode: string;
+  personIds: string[];
+}): Promise<Map<string, Newcomer>> {
+  if (opts.personIds.length === 0) return new Map();
+  const rows = await prisma.onboardingContract.findMany({
+    where: {
+      status: "PROMOTED",
+      promotedPersonId: { in: opts.personIds },
+      acceptance: {
+        application: {
+          cycle: { termId: opts.termId },
+          acceptances: { some: { departmentCode: opts.departmentCode } },
+        },
+      },
+    },
+    select: {
+      promotedPersonId: true,
+      acceptance: {
+        select: { application: { select: { ...NEWCOMER_COLUMNS, cycle: { select: { track: true } } } } },
+      },
+    },
+    orderBy: { promotedAt: "asc" },
+  });
+  const out = new Map<string, Newcomer>();
+  for (const row of rows) {
+    if (!row.promotedPersonId) continue;
+    const { application } = row.acceptance;
+    const key = `${row.promotedPersonId}:${kindFor(application.cycle.track)}`;
+    const newcomer = newcomerOf(application);
+    // Latest promotion wins, as in onboardingNotesByMember.
+    if (newcomer) out.set(key, newcomer);
+    else out.delete(key);
+  }
+  return out;
 }
 
 /**

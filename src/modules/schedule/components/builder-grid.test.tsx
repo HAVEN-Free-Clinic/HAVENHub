@@ -22,6 +22,7 @@ const member: BuilderMember = {
   legacyNote: null,
   intake: { preferredShifts: null, feedback: null },
   provisional: null,
+  newcomer: null,
 };
 
 const NO_TAGS = {
@@ -645,5 +646,26 @@ describe("BuilderGrid running totals", () => {
     expect(out).toContain("sticky bottom-0");
     // The footer's own corner cell outranks both the column and the row.
     expect(out).toContain("sticky bottom-0 left-0 z-30");
+  });
+});
+
+describe("BuilderGrid new and transfer rows", () => {
+  const dates = [d(2026, 9, 5)];
+
+  it("marks a new member and a transfer, and not a returning one", () => {
+    const out = renderGrid(dates, [], {
+      members: [
+        { ...member, person: { ...member.person, id: "p-new", name: "Nia New" }, newcomer: { type: "NEW", transferFrom: [] } },
+        {
+          ...incomingMember({ id: "p-tr", name: "Tom Transfer" }),
+          newcomer: { type: "TRANSFER", transferFrom: ["PCAR"] },
+        },
+        { ...member, person: { ...member.person, id: "p-ret", name: "Rae Returning" } },
+      ],
+    });
+    expect(out).toContain('title="New to HAVEN this term"');
+    expect(out).toContain('title="Transferring in from PCAR"');
+    expect(out.match(/>New</g)).toHaveLength(1);
+    expect(out.match(/>Transfer</g)).toHaveLength(1);
   });
 });

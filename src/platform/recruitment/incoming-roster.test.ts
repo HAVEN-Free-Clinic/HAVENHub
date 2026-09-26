@@ -14,6 +14,7 @@ import {
   applicationAvailabilityDates,
   findIncomingMember,
   listIncomingMembers,
+  newcomersByMember,
   onboardingNotesByMember,
   parseAvailabilityDates,
 } from "./incoming-roster";
@@ -111,6 +112,8 @@ type ApplicantOpts = {
   contractNotes?: { shiftsWanted?: string; availabilityChangeNeeded?: boolean; availabilityChangeRequest?: string };
   promotedPersonId?: string;
   accepted?: boolean;
+  applicantType?: "NEW" | "RENEWAL" | "TRANSFER";
+  transferFrom?: string[];
 };
 
 async function seedApplicant(opts: ApplicantOpts) {
@@ -133,6 +136,8 @@ async function seedApplicant(opts: ApplicantOpts) {
       answers: opts.availability ? { availability: opts.availability } : {},
       departmentChoices: [opts.departmentCode ?? "SRHD"],
       status: opts.applicationStatus ?? "SUBMITTED",
+      applicantType: opts.applicantType ?? "NEW",
+      transferFromDepartments: opts.transferFrom ?? [],
     },
   });
   if (opts.accepted === false) return { applicant, application, acceptance: null };
@@ -435,5 +440,48 @@ describe("onboardingNotesByMember", () => {
 
     expect(await onboardingNotesByMember({ termId: term.id, departmentCode: "SRHD", personIds: [elsewhere.id] })).toEqual(new Map());
     expect(await onboardingNotesByMember({ termId: term.id, departmentCode: "SRHD", personIds: [] })).toEqual(new Map());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// New / transfer
+// ---------------------------------------------------------------------------
+
+describe("newcomer", () => {
+  it("marks an incoming NEW or TRANSFER applicant and leaves a renewal unmarked", async () => {
+    const { term, srr, cycle } = await seed();
+    await seedApplicant({ cycleId: cycle.id, approvedById: srr.id, name: "Nia New" });
+    await seedApplicant({
+      cycleId: cycle.id, approvedById: srr.id, name: "Tom Transfer", applicantType: "TRANSFER", transferFrom: ["PCAR"],
+    });
+    await seedApplicant({ cycleId: cycle.id, approvedById: srr.id, name: "Rae Renewal", applicantType: "RENEWAL" });
+
+    const rows = await listIncomingMembers({ termId: term.id, departmentCode: "SRHD", clinicDates: CLINIC_DATES });
+    const byName = new Map(rows.map((r) => [r.name, r.newcomer]));
+    expect(byName.get("Nia New")).toEqual({ type: "NEW", transferFrom: [] });
+    expect(byName.get("Tom Transfer")).toEqual({ type: "TRANSFER", transferFrom: ["PCAR"] });
+    expect(byName.get("Rae Renewal")).toBeNull();
+  });
+
+  // After roster build the incoming list stops returning them, which is exactly
+  // when the schedule starts to count; the mark has to survive promotion.
+  it("reads a promoted member's application back, keyed by kind, and omits renewals", async () => {
+    const { term, srr, cycle } = await seed();
+    const transfer = await prisma.person.create({ data: { name: "Tom Transfer", status: "ACTIVE" } });
+    const renewal = await prisma.person.create({ data: { name: "Rae Renewal", status: "ACTIVE" } });
+    await seedApplicant({
+      cycleId: cycle.id, approvedById: srr.id, name: "Tom Transfer", applicantType: "TRANSFER", transferFrom: ["PCAR"],
+      contractStatus: "PROMOTED", promotedPersonId: transfer.id,
+    });
+    await seedApplicant({
+      cycleId: cycle.id, approvedById: srr.id, name: "Rae Renewal", applicantType: "RENEWAL",
+      contractStatus: "PROMOTED", promotedPersonId: renewal.id,
+    });
+
+    const out = await newcomersByMember({
+      termId: term.id, departmentCode: "SRHD", personIds: [transfer.id, renewal.id],
+    });
+    expect(out).toEqual(new Map([[`${transfer.id}:VOLUNTEER`, { type: "TRANSFER", transferFrom: ["PCAR"] }]]));
+    expect(await newcomersByMember({ termId: term.id, departmentCode: "PCAR", personIds: [transfer.id] })).toEqual(new Map());
   });
 });

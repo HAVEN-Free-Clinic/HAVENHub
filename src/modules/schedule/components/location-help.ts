@@ -27,13 +27,15 @@ export function detectLocationPlatform(userAgent: string, maxTouchPoints: number
 }
 
 const LOCATION_SERVICES = "Open Settings > Privacy & Security > Location Services and make sure it is on.";
-const RELOAD = "Then reload this page and tap Check in again.";
+// This page notices the change on its own where the browser reports it, but
+// not every browser does (iOS in particular), so reloading stays the fallback.
+const RELOAD = "Come back here and tap Check in. If this still says blocked, reload the page.";
 
 const STEPS: Record<LocationPlatform, string[]> = {
   "ios-safari": [
     LOCATION_SERVICES,
     "On that same screen, tap Safari Websites and choose While Using the App.",
-    "Back in Safari, open the page menu beside the address, tap Website Settings, and set Location to Allow.",
+    "Back in Safari, tap the aA (page menu) button beside the address, then Website Settings, and set Location to Allow.",
     RELOAD,
   ],
   "ios-chrome": [LOCATION_SERVICES, "Open Settings > Chrome > Location and choose While Using the App.", RELOAD],
@@ -44,7 +46,7 @@ const STEPS: Record<LocationPlatform, string[]> = {
   ],
   android: [
     "Swipe down from the top of the screen and make sure Location is on.",
-    "In Chrome, tap the icon to the left of the address, then Permissions, and set Location to Allow.",
+    "In Chrome, tap the lock or tune icon to the left of the address, then Permissions, and set Location to Allow.",
     RELOAD,
   ],
   desktop: [

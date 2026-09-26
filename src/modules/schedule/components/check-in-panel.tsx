@@ -28,8 +28,6 @@ export type CheckInActionResult =
  * promising an override.
  */
 const FAILURE_COPY: Record<string, string> = {
-  PERMISSION_DENIED:
-    "Your device would not share its location. Turn on location for this site and try again, or ask a director to check you in.",
   POSITION_UNAVAILABLE:
     "Your device could not work out where it is. Try again near a window, or ask a director to check you in.",
   TIMEOUT: "Finding your location took too long. Try again, or ask a director to check you in.",
@@ -47,8 +45,26 @@ const FAILURE_COPY: Record<string, string> = {
   UNAVAILABLE: "Check-in could not be recorded right now. Ask a director to check you in.",
 };
 
-const BLOCKED_ON_ARRIVAL =
-  "Location is turned off for this site on this device. Check-in uses it to confirm you are at the clinic, so turn it on first, or ask a director to check you in.";
+/**
+ * PERMISSION_DENIED gets its own state rather than a FAILURE_COPY line. A
+ * browser that has been told "Don't Allow" never asks again: every later tap
+ * is refused instantly, so "try again" copy sent people tapping. In production
+ * (Sep 2026) every one of 17 rage clicks on Check in came from a denied device,
+ * and about half of each week's denied volunteers never checked themselves in.
+ * So the copy says outright that tapping will not help, lists the steps for
+ * this device, and still ends at a director (markPresent), per the rule above.
+ */
+const BLOCKED =
+  "Location is blocked for this site, so check-in cannot confirm you are at the clinic. Tapping Check in will not work until you allow it:";
+const BLOCKED_FALLBACK = "Or ask a director to check you in.";
+const UNBLOCKED = "Location is allowed now. Tap Check in.";
+
+/**
+ * `taps` counts denied attempts: 0 when the browser said "denied" before any
+ * tap. Each denied tap bumps it, which remounts the alert (so a screen reader
+ * announces it again) and changes its first line, so a retry never looks dead.
+ */
+type Blocked = { platform: LocationPlatform; taps: number };
 
 function currentPlatform(): LocationPlatform {
   return detectLocationPlatform(navigator.userAgent, navigator.maxTouchPoints ?? 0);
@@ -78,22 +94,50 @@ export function CheckInPanel({
   const [accuracy, setAccuracy] = useState<number | null>(null);
   // Set while location is blocked: the steps for this device render under the
   // message, because a blocked browser never asks again on its own.
-  const [unblock, setUnblock] = useState<LocationPlatform | null>(null);
+  const [blocked, setBlocked] = useState<Blocked | null>(null);
+  // Set when a block this page showed has since been lifted in settings.
+  const [unblocked, setUnblocked] = useState(false);
 
   // A volunteer who blocked location on an earlier visit would otherwise learn
   // it only by tapping. Where the browser can say so up front, show the steps
-  // before they try. Nothing is reported: no attempt has been made yet.
+  // before they try, and follow later changes so allowing location in settings
+  // clears the block without a reload. Nothing is reported: no attempt has
+  // been made yet. Older Safari has no Permissions API or rejects the
+  // geolocation query; both fall through to finding out on the first tap.
   useEffect(() => {
     if (mode !== "geo" || !("permissions" in navigator)) return;
     let live = true;
+    let status: PermissionStatus | null = null;
+    let last: PermissionState | null = null;
+
+    function onState(state: PermissionState) {
+      if (state === "denied") {
+        setBlocked((prev) => prev ?? { platform: currentPlatform(), taps: 0 });
+        setUnblocked(false);
+      } else if (last === "denied") {
+        // Only a move OUT of denied counts: prompt -> granted also fires while
+        // someone answers the first prompt, mid check-in.
+        setBlocked(null);
+        setUnblocked(true);
+      }
+      last = state;
+    }
+    const onChange = () => {
+      if (live && status) onState(status.state);
+    };
+
     navigator.permissions
       .query({ name: "geolocation" })
-      .then((status) => {
-        if (live && status.state === "denied") setUnblock(currentPlatform());
+      .then((result) => {
+        if (!live) return;
+        status = result;
+        onState(result.state);
+        result.addEventListener?.("change", onChange);
       })
       .catch(() => {});
     return () => {
       live = false;
+      status?.removeEventListener?.("change", onChange);
     };
   }, [mode]);
 
@@ -105,7 +149,10 @@ export function CheckInPanel({
   }
 
   function onClick() {
+    // `blocked` is left up: a denied browser refuses within milliseconds, and
+    // clearing it here would only make it blink back identically.
     setError(null);
+    setUnblocked(false);
 
     if (mode === "remote") {
       submit(null);
@@ -128,14 +175,18 @@ export function CheckInPanel({
         fail(outcome.reason);
         return;
       }
-      setUnblock(null);
+      setBlocked(null);
       submit(outcome.fix);
     });
   }
 
   function fail(reason: ClientDetectedFailureReason) {
-    setError(FAILURE_COPY[reason]);
-    setUnblock(reason === "PERMISSION_DENIED" ? currentPlatform() : null);
+    if (reason === "PERMISSION_DENIED") {
+      setBlocked((prev) => ({ platform: currentPlatform(), taps: (prev?.taps ?? 0) + 1 }));
+    } else {
+      setError(FAILURE_COPY[reason]);
+      setBlocked(null);
+    }
     report(reason);
   }
 
@@ -146,22 +197,25 @@ export function CheckInPanel({
   }
 
   const busy = pending || locating;
-  const steps = unblock ? locationUnblockSteps(unblock) : null;
 
   return (
     <div className="flex flex-col gap-4">
-      {(error || steps) && (
-        <Alert tone="warning">
-          <p>{error ?? BLOCKED_ON_ARRIVAL}</p>
-          {steps && (
-            <ol className="mt-2 list-decimal space-y-1 pl-5">
-              {steps.map((step) => (
-                <li key={step}>{step}</li>
-              ))}
-            </ol>
+      {error && <Alert tone="warning">{error}</Alert>}
+      {blocked && !error && (
+        <Alert tone="warning" key={`blocked-${blocked.taps}`} data-testid="check-in-blocked">
+          {blocked.taps > 1 && (
+            <p className="font-semibold">Still blocked after {blocked.taps} tries.</p>
           )}
+          <p>{BLOCKED}</p>
+          <ol className="mt-2 list-decimal space-y-1 pl-5">
+            {locationUnblockSteps(blocked.platform).map((step) => (
+              <li key={step}>{step}</li>
+            ))}
+          </ol>
+          <p className="mt-2">{BLOCKED_FALLBACK}</p>
         </Alert>
       )}
+      {unblocked && !blocked && !error && <Alert tone="success">{UNBLOCKED}</Alert>}
       <Button onClick={onClick} disabled={busy}>
         {locating
           ? accuracy === null

@@ -85,10 +85,17 @@ test.describe("clinic check-in", () => {
         await page.getByRole("button", { name: "Check in", exact: true }).click();
 
         const status = page.getByRole("status");
-        await expect(status).toContainText("Your device would not share its location", { timeout: 10_000 });
+        await expect(status).toContainText("Location is blocked for this site", { timeout: 10_000 });
+        await expect(status).toContainText("will not work until you allow it");
         // The steps for this device render inside the same alert, ending with
-        // the reload a blocked browser needs before it will ask again.
-        await expect(status.getByRole("listitem").last()).toContainText("reload this page");
+        // the reload fallback for browsers that do not report the change.
+        await expect(status.getByRole("listitem").last()).toContainText("reload the page");
+        await expect(status).toContainText("ask a director to check you in");
+
+        // A denied browser refuses a retry instantly; the tap must still
+        // visibly register rather than restore identical copy.
+        await page.getByRole("button", { name: "Check in", exact: true }).click();
+        await expect(status).toContainText("Still blocked after 2 tries", { timeout: 10_000 });
         await expect(page.getByRole("heading", { name: "You are checked in", exact: true })).toHaveCount(0);
       } finally {
         await volunteer.cleanup();

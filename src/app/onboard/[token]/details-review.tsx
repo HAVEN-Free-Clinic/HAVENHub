@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
+import posthog from "posthog-js";
 import { Button } from "@/platform/ui/button";
 import type { ContractBlock, SystemFieldBlock } from "@/modules/recruitment/contract/layout";
 import { systemFieldOptions, isSystemFieldRequired } from "@/modules/recruitment/contract/system-fields";
@@ -130,16 +131,58 @@ export function DetailsReview({
   const hasError = summarized.some((b) => (INPUT_NAMES[b.systemKey] ?? []).some((name) => err(name)));
   const [editing, setEditing] = useState(false);
   const open = editing || hasError;
+  const hasSummary = summarized.length > 0;
 
   // The button that opened the inputs disappears, so move focus to the first of
   // them rather than dropping it on the page.
   const inputsRef = useRef<HTMLDivElement>(null);
   const focusOnOpen = useRef(false);
+  // Set when the browser refused a submit over one of the hidden inputs: the
+  // control to focus and explain once the wrapper is open.
+  const refusedControl = useRef<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | null>(null);
   useEffect(() => {
-    if (!open || !focusOnOpen.current) return;
+    if (!open) return;
+    const refused = refusedControl.current;
+    if (refused) {
+      refusedControl.current = null;
+      refused.focus();
+      refused.reportValidity();
+      return;
+    }
+    if (!focusOnOpen.current) return;
     focusOnOpen.current = false;
     inputsRef.current?.querySelector<HTMLElement>("input, select, textarea")?.focus();
   }, [open]);
+
+  // A net under the silent dead end #910 removed. If a control the browser
+  // cannot focus -- one inside the collapsed wrapper -- ever fails constraint
+  // validation again, the browser aborts "Submit onboarding" with no message and
+  // never runs onSubmit, so the applicant presses a button that does nothing and
+  // nothing is recorded. Instead: open the wrapper, focus the refused control,
+  // let the browser say what is wrong, and record it so a regression is visible.
+  // `invalid` does not bubble, so this listens in the capture phase.
+  useEffect(() => {
+    const wrapper = inputsRef.current;
+    if (!wrapper) return;
+    const onInvalid = (e: Event) => {
+      if (!wrapper.hidden) return;
+      const control = e.target;
+      if (
+        !(control instanceof HTMLInputElement ||
+          control instanceof HTMLSelectElement ||
+          control instanceof HTMLTextAreaElement)
+      ) return;
+      e.preventDefault();
+      // Every refusal of one submit fires synchronously; keep the first, which
+      // is the one the browser would have focused.
+      if (refusedControl.current) return;
+      refusedControl.current = control;
+      posthog.capture("onboarding_submit_blocked", { field: control.name || "(unnamed)", hidden: true });
+      setEditing(true);
+    };
+    wrapper.addEventListener("invalid", onInvalid, true);
+    return () => wrapper.removeEventListener("invalid", onInvalid, true);
+  }, [hasSummary]);
 
   return (
     <div className="space-y-6">

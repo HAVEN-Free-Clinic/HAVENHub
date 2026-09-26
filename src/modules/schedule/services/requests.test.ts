@@ -9,7 +9,8 @@
  * and ShiftAssignment rows created directly via Prisma.
  */
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { log } from "@/platform/logging";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import {
@@ -1780,6 +1781,45 @@ describe("createRequest approver notifications (L1)", () => {
     });
     expect(notice).not.toBeNull();
     expect(notice?.toEmail).toBe("dir@example.org");
+  });
+
+  it("supplies every variable the director template references (no availabilityCount warning)", async () => {
+    const dates = sixSaturdays();
+    const term = await createTerm("ACTIVE", dates);
+    const dept = await createDepartment("NOTV");
+    const requester = await createPerson("Requester");
+    const director = await createPersonWithEmail("Dir", "dir-vars@example.org");
+    await createMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await createMembership(requester.id, term.id, dept.id, "VOLUNTEER");
+    await createShift(term.id, dept.id, requester.id, dates[0], "VOLUNTEER");
+    const warn = vi.spyOn(log, "warn");
+
+    try {
+      const req = await createRequest(requester.id, {
+        termId: term.id,
+        requesterDateKey: isoDateKey(dates[0]),
+        departmentId: dept.id,
+      });
+      // Age the request past the 5-day reminder gate, and clear the submission
+      // notice so the reminder path (the second render site) is not throttled.
+      await prisma.shiftRequest.update({
+        where: { id: req.id },
+        data: { createdAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000) },
+      });
+      await prisma.emailLog.deleteMany({});
+      await remindDirectors(requester.id, req.id);
+
+      const missing = warn.mock.calls.filter(([msg]) => String(msg).includes("did not supply"));
+      expect(missing).toEqual([]);
+      const notice = await prisma.emailLog.findFirst({
+        where: { template: "schedule-request-submitted-director", personId: director.id },
+      });
+      expect(notice).not.toBeNull();
+      // The {{#if}} guard drops the line when the count is blank.
+      expect(notice?.html).not.toContain("availability change request");
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("notifies a one-hop delegated director (PCAR director for an SCTP request)", async () => {

@@ -571,6 +571,10 @@ export async function createRequest(
             partnerName: partner?.name ?? "",
             partnerDate: partnerDateStr,
             departmentName: deptName,
+            // The template guards this with {{#if}}. The pending availability
+            // count per approver is only assembled by the daily reminder cron;
+            // blank here means "say nothing" instead of a missing-variable warning.
+            availabilityCount: "",
           },
         )
       )
@@ -1272,6 +1276,8 @@ export async function remindDirectors(
         partnerName: req.target?.name ?? "",
         partnerDate: partnerDateStr,
         departmentName: req.department.name,
+        // Blank: see createRequest. The {{#if}} guard then omits the line.
+        availabilityCount: "",
       });
       await queueEmail(prisma, {
         to: approver.contactEmail,

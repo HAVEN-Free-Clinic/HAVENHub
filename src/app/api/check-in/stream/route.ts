@@ -25,6 +25,7 @@ import { auth } from "@/platform/auth/auth";
 import { getActivePerson } from "@/platform/auth/match-person";
 import { isDbUnreachableError } from "@/platform/db";
 import { log, errorAttrs } from "@/platform/logging";
+import { createUnreachableBackoff } from "@/platform/db-unreachable-backoff";
 import {
   attendanceRevision,
   doorSnapshot,
@@ -43,6 +44,8 @@ export const maxDuration = 300;
 
 /** How often the event is checked for new attendance. */
 const TICK_MS = 2_000;
+/** Longest poll interval while the database is unreachable. */
+const UNREACHABLE_MAX_MS = 10_000;
 /** Comment frames keep intermediaries from closing an idle connection. */
 const HEARTBEAT_MS = 15_000;
 /** Stop this far short of maxDuration so the close is ours, not a timeout. */
@@ -117,6 +120,9 @@ export async function GET(request: Request): Promise<Response> {
       request.signal.addEventListener("abort", abort);
 
       let lastHeartbeat = Date.now();
+      // One warning when the database drops, one line when it returns, and a
+      // stretched poll in between (capped, so recovery is still prompt).
+      const outage = createUnreachableBackoff({ scope: "[check-in]", baseMs: TICK_MS, maxMs: UNREACHABLE_MAX_MS });
 
       try {
         while (!closed && !request.signal.aborted) {
@@ -129,6 +135,7 @@ export async function GET(request: Request): Promise<Response> {
 
           try {
             const revision = await attendanceRevision(eventId);
+            outage.succeeded();
             if (revision !== known) {
               const snapshot = await doorSnapshot(eventId);
               known = snapshot.revision;
@@ -144,10 +151,10 @@ export async function GET(request: Request): Promise<Response> {
             if (!isDbUnreachableError(err)) throw err;
             // Ride out a Neon blip: the names on screen are still the last known
             // good ones, and the next tick picks up wherever the database landed.
-            log.warn("[check-in] database unreachable on a stream tick", errorAttrs(err));
+            outage.failed(err);
           }
 
-          await new Promise((resolve) => setTimeout(resolve, TICK_MS));
+          await new Promise((resolve) => setTimeout(resolve, outage.nextDelayMs()));
         }
       } catch (err) {
         log.error("[check-in] change stream failed", errorAttrs(err));

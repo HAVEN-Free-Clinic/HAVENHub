@@ -43,6 +43,8 @@
     "//backfill:names": "One-time, after 20260909120000_person_name_parts deploys. Splits the free-text Person.name into legalFirstName/lastName/preferredFirstName. Safe to re-run.",
     "backfill:names:dry": "tsx --env-file=.env scripts/backfill-person-names.ts",
     "backfill:names:apply": "tsx --env-file=.env scripts/backfill-person-names.ts --apply",
+    "backfill:posthog-email:dry": "tsx --env-file=.env scripts/backfill-posthog-person-email.ts",
+    "backfill:posthog-email:apply": "tsx --env-file=.env scripts/backfill-posthog-person-email.ts --apply",
     "//credentials:names": "Re-issues service credentials whose frozen name predates the name split. Safe to re-run.",
     "credentials:names:dry": "tsx --env-file=.env scripts/refresh-credential-names.ts",
     "credentials:names:apply": "tsx --env-file=.env scripts/refresh-credential-names.ts --apply",

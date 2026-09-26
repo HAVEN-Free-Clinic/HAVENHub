@@ -1,7 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const dns = vi.hoisted(() => ({ lookup: vi.fn() }));
-vi.mock("node:dns/promises", () => ({ lookup: dns.lookup }));
+const fetchMock = vi.hoisted(() => vi.fn());
+// The network half (and its connect-time SSRF check) has its own suite in
+// safe-fetch.test.ts; here only what the validator does with a document matters.
+vi.mock("./safe-fetch", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./safe-fetch")>()),
+  getPublicJson: fetchMock,
+}));
 
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
@@ -11,19 +16,14 @@ const ORIGIN = "https://hub.test";
 const CLIENT = "https://claude.ai/oauth/claude-code-client-metadata";
 const CHALLENGE = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
 
-const fetchMock = vi.fn();
-
 beforeEach(() => {
-  dns.lookup.mockResolvedValue([{ address: "160.79.104.10", family: 4 }]);
-  vi.stubGlobal("fetch", fetchMock);
-  fetchMock.mockResolvedValue(
-    new Response(
-      JSON.stringify({ client_id: CLIENT, client_name: "Claude Code", redirect_uris: ["http://localhost/callback", "https://claude.ai/api/mcp/auth_callback"] }),
-    ),
-  );
+  fetchMock.mockResolvedValue({
+    client_id: CLIENT,
+    client_name: "Claude Code",
+    redirect_uris: ["http://localhost/callback", "https://claude.ai/api/mcp/auth_callback"],
+  });
 });
 afterEach(() => {
-  vi.unstubAllGlobals();
   fetchMock.mockReset();
 });
 
@@ -56,16 +56,20 @@ describe("validateAuthorizeRequest", () => {
 
   it("accepts a metadata document from any public host, not just claude.ai", async () => {
     const other = "https://vscode.dev/oauth/client-metadata.json";
-    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ client_id: other, redirect_uris: ["https://vscode.dev/redirect"] })));
+    fetchMock.mockResolvedValueOnce({ client_id: other, redirect_uris: ["https://vscode.dev/redirect"] });
     const out = await validateAuthorizeRequest(params({ client_id: other, redirect_uri: "https://vscode.dev/redirect" }), ORIGIN);
     expect(out).toMatchObject({ kind: "ok", client: { documentHost: "vscode.dev" } });
   });
 
-  it("never fetches a metadata URL whose host resolves to a private address", async () => {
-    dns.lookup.mockResolvedValueOnce([{ address: "10.0.0.5", family: 4 }]);
-    const out = await validateAuthorizeRequest(params({ client_id: "https://internal.example/meta" }), ORIGIN);
+  it("never requests an IP-literal client id, and fails without redirecting", async () => {
+    const out = await validateAuthorizeRequest(params({ client_id: "https://169.254.169.254/latest/meta-data" }), ORIGIN);
     expect(out.kind).toBe("fatal");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("fails without redirecting when the fetch is refused (e.g. the host resolved privately)", async () => {
+    fetchMock.mockRejectedValueOnce(Object.assign(new Error("private"), { code: "EPRIVATE" }));
+    expect((await validateAuthorizeRequest(params({ client_id: "https://internal.example/meta" }), ORIGIN)).kind).toBe("fatal");
   });
 
   it("fails without redirecting for an unknown registered client id", async () => {
@@ -115,10 +119,6 @@ describe("validateAuthorizeRequest", () => {
     expect(await validateAuthorizeRequest(params({ resource: null }), ORIGIN)).toMatchObject({ kind: "ok" });
   });
 
-  it("refuses redirects when the metadata fetch would follow one", async () => {
-    await validateAuthorizeRequest(params(), ORIGIN);
-    expect(fetchMock.mock.calls[0][1]).toMatchObject({ redirect: "error" });
-  });
 });
 
 describe("clientRedirect", () => {

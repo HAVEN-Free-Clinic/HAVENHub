@@ -302,7 +302,13 @@ export function BuilderDayView({
         <div className="flex flex-wrap items-center gap-2 mb-2">
           {profileLink(
             member.person.id,
-            <PersonName name={member.person.name} cleared={clearedIds.has(member.person.id)} className="text-sm font-semibold text-foreground" />,
+            <PersonName
+              name={member.person.name}
+              cleared={clearedIds.has(member.person.id)}
+              photo={member.person.photoVersion !== null ? { id: member.person.id, photoVersion: member.person.photoVersion } : undefined}
+              photoSize={24}
+              className="text-sm font-semibold text-foreground"
+            />,
           )}
           <MembershipKindBadge kind={member.kind} />
           {incoming && (

@@ -247,7 +247,7 @@ export default async function IncidentReportDetailPage({ params }: PageProps) {
               <ul className="space-y-1">
                 {report.subjects.map((s) => (
                   <li key={s.id} className="flex items-center gap-2">
-                    <PersonName name={s.person.name} cleared={clearedIds.has(s.person.id)} />
+                    <PersonName name={s.person.name} cleared={clearedIds.has(s.person.id)} photo={s.person} photoSize={24} />
                     {s.strikeDecision && (
                       <Badge tone={STRIKE_TONES[s.strikeDecision]}>{STRIKE_LABELS[s.strikeDecision]}</Badge>
                     )}

@@ -1,6 +1,7 @@
 import { TD } from "@/platform/ui/table";
 import { TextLink } from "@/platform/ui/text-link";
 import { formatPhone } from "@/platform/phone";
+import { PersonPhoto } from "@/platform/ui/person-photo";
 
 /**
  * The name cell shared by the three staff rosters that list people.
@@ -26,7 +27,9 @@ export function PersonNameCell({
   href,
 }: {
   person: {
+    id: string;
     name: string;
+    photoVersion: number;
     netId: string | null;
     contactEmail: string | null;
     phone: string | null;
@@ -42,10 +45,15 @@ export function PersonNameCell({
   const contact = [person.netId, person.contactEmail, formatPhone(person.phone)].filter(Boolean).join(" · ");
   return (
     <TD className="font-medium">
-      {href ? <TextLink href={href}>{person.name}</TextLink> : person.name}
-      <span className="block text-xs font-normal text-subtle-foreground break-words [overflow-wrap:anywhere]">
-        {contact || "No contact details on file"}
-      </span>
+      <div className="flex items-center gap-2.5">
+        <PersonPhoto person={person} size={32} alt="" className="shrink-0 rounded-full object-cover" />
+        <div className="min-w-0">
+          {href ? <TextLink href={href}>{person.name}</TextLink> : person.name}
+          <span className="block text-xs font-normal text-subtle-foreground break-words [overflow-wrap:anywhere]">
+            {contact || "No contact details on file"}
+          </span>
+        </div>
+      </div>
     </TD>
   );
 }

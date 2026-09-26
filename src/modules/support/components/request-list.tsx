@@ -137,7 +137,7 @@ export function RequestList({
             {showRequester && (
               <TD className="text-muted-foreground">
                 {row.requester.name ? (
-                  <PersonName name={row.requester.name} cleared={clearedIds.has(row.requester.id)} />
+                  <PersonName name={row.requester.name} cleared={clearedIds.has(row.requester.id)} photo={row.requester} />
                 ) : (
                   <span className="text-subtle-foreground">-</span>
                 )}

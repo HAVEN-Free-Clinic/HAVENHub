@@ -13,7 +13,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { PersonNameCell } from "./person-name-cell";
 
 const person = {
+  id: "p1",
   name: "Ada Lovelace",
+  photoVersion: 3,
   netId: "al123",
   contactEmail: "ada@example.edu",
   phone: "203-555-0100",
@@ -29,13 +31,19 @@ const render = (node: React.ReactElement) =>
   );
 
 describe("PersonNameCell", () => {
+  it("shows the person's photo beside the name, silent to screen readers", () => {
+    const out = render(<PersonNameCell person={person} />);
+    expect(out).toContain('src="/api/people/p1/photo?v=3"');
+    expect(out).toContain('alt=""');
+  });
+
   it("says so when there is nothing to reach the person on", () => {
     // RED before this commit against ComplianceNameCell, which rendered an
     // empty span here. A blank line under a name reads as a broken render, not
     // as "we hold no contact details for this person".
     const out = render(
       <PersonNameCell
-        person={{ name: "Ada Lovelace", netId: null, contactEmail: null, phone: null }}
+        person={{ id: "p1", name: "Ada Lovelace", photoVersion: 0, netId: null, contactEmail: null, phone: null }}
         href="/volunteers/compliance/p1"
       />,
     );

@@ -6,6 +6,7 @@ import { Input } from "@/platform/ui/input";
 import { Badge } from "@/platform/ui/badge";
 import { Alert } from "@/platform/ui/alert";
 import { Card } from "@/platform/ui/card";
+import { PersonPhoto } from "@/platform/ui/person-photo";
 import { EmptyState } from "@/platform/ui/empty-state";
 import { outstandingShortLabels } from "@/platform/compliance/outstanding-items";
 import { useEventStream } from "@/platform/ui/use-event-stream";
@@ -130,7 +131,7 @@ export function CheckInKiosk({
     searchRef.current?.focus();
   }
 
-  function submit(target: CheckInTarget, fallbackName: string, candidateId?: string) {
+  function submit(target: CheckInTarget, fallbackName: string, candidate?: CheckInCandidate) {
     setError(null);
     startTransition(async () => {
       const result = await action(target);
@@ -142,9 +143,10 @@ export function CheckInKiosk({
         setError(result.message);
         return;
       }
-      if (candidateId) setJustCheckedIn((prev) => new Set(prev).add(candidateId));
+      if (candidate) setJustCheckedIn((prev) => new Set(prev).add(candidate.id));
       setLastResult({
         name: result.name || fallbackName,
+        photo: candidatePhoto(candidate),
         alreadyCheckedIn: result.alreadyCheckedIn,
         needs: outstandingShortLabels(result.blockerKeys),
         notOnAcceptedList: result.notOnAcceptedList,
@@ -160,7 +162,7 @@ export function CheckInKiosk({
   }
 
   function submitCandidate(c: CheckInCandidate) {
-    submit(candidateTarget(c), c.name, c.id);
+    submit(candidateTarget(c), c.name, c);
   }
 
   /**
@@ -366,29 +368,32 @@ function CandidateList({
       <ul className="divide-y divide-border">
         {rows.map((c) => (
           <li key={c.id} className="flex items-center justify-between gap-3 py-3">
-            <div className="min-w-0">
-              <div className="truncate text-base font-medium text-foreground">{c.name}</div>
-              <div className="flex flex-wrap items-center gap-2 text-xs text-subtle-foreground">
-                {c.netId && <span className="font-mono">{c.netId}</span>}
-                {c.email && <span className="truncate">{c.email}</span>}
-                {c.departmentCodes.length > 0 && <span>{c.departmentCodes.join(", ")}</span>}
-                {/* Surfaced at the door, not hidden in a report: this is the
-                    person whose attendance will not count until they finish
-                    onboarding, and the operator can tell them so in person. An
-                    accepted applicant is off-roster by definition, so saying
-                    both would be noise -- "Accepted, not onboarded" is the
-                    whole story for them. */}
-                {c.kind === "applicant" ? (
-                  <Badge tone="warning">Accepted, not onboarded</Badge>
-                ) : c.kind === "waitlisted" ? (
-                  // Not "not onboarded", which they cannot fix, and not "not on
-                  // the roster", which is true of half this screen. The one
-                  // thing the operator may need to know before they say
-                  // something encouraging is that no decision has been made.
-                  <Badge tone="warning">Waitlisted</Badge>
-                ) : (
-                  c.offRoster && <Badge tone="warning">Not on the roster</Badge>
-                )}
+            <div className="flex min-w-0 items-center gap-3">
+              <CandidatePhoto candidate={c} size={40} />
+              <div className="min-w-0">
+                <div className="truncate text-base font-medium text-foreground">{c.name}</div>
+                <div className="flex flex-wrap items-center gap-2 text-xs text-subtle-foreground">
+                  {c.netId && <span className="font-mono">{c.netId}</span>}
+                  {c.email && <span className="truncate">{c.email}</span>}
+                  {c.departmentCodes.length > 0 && <span>{c.departmentCodes.join(", ")}</span>}
+                  {/* Surfaced at the door, not hidden in a report: this is the
+                      person whose attendance will not count until they finish
+                      onboarding, and the operator can tell them so in person. An
+                      accepted applicant is off-roster by definition, so saying
+                      both would be noise -- "Accepted, not onboarded" is the
+                      whole story for them. */}
+                  {c.kind === "applicant" ? (
+                    <Badge tone="warning">Accepted, not onboarded</Badge>
+                  ) : c.kind === "waitlisted" ? (
+                    // Not "not onboarded", which they cannot fix, and not "not on
+                    // the roster", which is true of half this screen. The one
+                    // thing the operator may need to know before they say
+                    // something encouraging is that no decision has been made.
+                    <Badge tone="warning">Waitlisted</Badge>
+                  ) : (
+                    c.offRoster && <Badge tone="warning">Not on the roster</Badge>
+                  )}
+                </div>
               </div>
             </div>
             {isDone(c) ? (
@@ -402,6 +407,32 @@ function CandidateList({
         ))}
       </ul>
     </div>
+  );
+}
+
+/** A `person` row's photo reference; the other shapes have no Person yet. */
+function candidatePhoto(c: CheckInCandidate | undefined): { id: string; photoVersion: number } | null {
+  if (!c || c.kind !== "person" || c.photoVersion === null) return null;
+  return { id: c.id, photoVersion: c.photoVersion };
+}
+
+/**
+ * The face at the door, so the operator can tell two people with the same name
+ * apart. An applicant or waitlisted row has no Person and so no photo; it gets
+ * an empty circle the same size, which keeps the names lined up.
+ */
+function CandidatePhoto({ candidate, size }: { candidate: CheckInCandidate; size: number }) {
+  const photo = candidatePhoto(candidate);
+  if (!photo) {
+    return <span aria-hidden className="shrink-0 rounded-full bg-muted" style={{ width: size, height: size }} />;
+  }
+  return (
+    <PersonPhoto
+      person={{ ...photo, name: candidate.name }}
+      size={size}
+      alt=""
+      className="shrink-0 rounded-full object-cover"
+    />
   );
 }
 
@@ -422,6 +453,8 @@ function candidateTarget(c: CheckInCandidate): CheckInTarget {
 /** What the panel renders. Assembled on the client from the server's outcome. */
 type DoorResult = {
   name: string;
+  /** Null for a walk-up, an applicant, or a waitlisted row: no Person, no photo. */
+  photo: { id: string; photoVersion: number } | null;
   alreadyCheckedIn: boolean;
   /** Short labels for what is outstanding. Empty means fully cleared -- unless
    *  `waitlisted`, where it means there is nothing for them to do yet. */
@@ -468,8 +501,18 @@ function ResultPanel({ result }: { result: DoorResult | null }) {
         cleared || result.waitlisted ? "border-border bg-surface" : "border-warning bg-surface"
       }`}
     >
-      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <span className="text-2xl font-semibold text-foreground">{result.name}</span>
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+        <span className="flex items-center gap-3">
+          {result.photo && (
+            <PersonPhoto
+              person={{ ...result.photo, name: result.name }}
+              size={56}
+              alt=""
+              className="shrink-0 rounded-full object-cover"
+            />
+          )}
+          <span className="text-2xl font-semibold text-foreground">{result.name}</span>
+        </span>
         <span
           className={`text-sm font-semibold ${
             result.alreadyCheckedIn ? "text-warning-foreground" : "text-success-foreground"

@@ -271,7 +271,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
                         <ul className="flex flex-col gap-1">
                           {directors.map((p) => (
                             <li key={p.id} className="flex flex-wrap items-center gap-1.5">
-                              {profileLink(p.id, <PersonName name={p.name} cleared={clearedIds.has(p.id)} className="text-sm font-bold text-foreground" />)}
+                              {profileLink(p.id, <PersonName name={p.name} cleared={clearedIds.has(p.id)} photo={p} className="text-sm font-bold text-foreground" />)}
                               {shiftTags(p.tags)}
                               <CapabilityBadges person={p} department={department} />
                               {(conflicts.get(p.id) ?? []).length > 0 && (
@@ -293,7 +293,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
                         <ul className="flex flex-col gap-1">
                           {volunteers.map((v) => (
                             <li key={v.id} className="flex flex-wrap items-center gap-1.5">
-                              {profileLink(v.id, <PersonName name={v.name} cleared={clearedIds.has(v.id)} className="text-sm text-foreground-soft" />)}
+                              {profileLink(v.id, <PersonName name={v.name} cleared={clearedIds.has(v.id)} photo={v} className="text-sm text-foreground-soft" />)}
                               {shiftTags(v.tags)}
                               <CapabilityBadges person={v} department={department} />
                               {(conflicts.get(v.id) ?? []).length > 0 && (
@@ -315,7 +315,7 @@ export default async function FullSchedulePage({ searchParams }: PageProps) {
                         <ul className="flex flex-col gap-1">
                           {shadows.map((p) => (
                             <li key={p.id} className="flex flex-wrap items-center gap-1.5">
-                              {profileLink(p.id, <PersonName name={p.name} cleared={clearedIds.has(p.id)} className="text-sm text-subtle-foreground italic" />)}
+                              {profileLink(p.id, <PersonName name={p.name} cleared={clearedIds.has(p.id)} photo={p} className="text-sm text-subtle-foreground italic" />)}
                               {shiftTags(p.tags)}
                               <CapabilityBadges person={p} department={department} />
                               {(conflicts.get(p.id) ?? []).length > 0 && (

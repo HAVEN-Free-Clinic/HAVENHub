@@ -123,6 +123,7 @@ export type DirectoryPerson = {
   netId: string | null;
   contactEmail: string | null;
   phone: string | null;
+  photoVersion: number;
   /** The seats that MATCHED the filters, department code ascending. With no
    *  department or role filter that is every seat this person holds. */
   seats: DirectorySeat[];
@@ -353,6 +354,7 @@ function toDirectoryPerson(
     netId: string | null;
     contactEmail: string | null;
     phone: string | null;
+    photoVersion: number;
     memberships: { kind: string; departmentId: string; department: { code: string } }[];
   },
   filters: DirectoryFilters,
@@ -375,6 +377,7 @@ function toDirectoryPerson(
     netId: row.netId,
     contactEmail: row.contactEmail,
     phone: row.phone,
+    photoVersion: row.photoVersion,
     seats: row.memberships.filter(isMatch).map(toSeat),
     otherSeats: row.memberships.filter((m) => !isMatch(m)).map(toSeat),
   };
@@ -400,6 +403,7 @@ export async function directoryPeople(
         netId: true,
         contactEmail: true,
         phone: true,
+        photoVersion: true,
         memberships: seatSelect(termId, scope),
       },
       orderBy: PERSON_NAME_ORDER,
@@ -431,6 +435,7 @@ export async function directoryPeopleAll(
       netId: true,
       contactEmail: true,
       phone: true,
+      photoVersion: true,
       memberships: seatSelect(termId, scope),
     },
     orderBy: PERSON_NAME_ORDER,

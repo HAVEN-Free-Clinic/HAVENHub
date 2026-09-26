@@ -22,22 +22,47 @@
  */
 
 import { cx } from "./cx";
+import { PersonPhoto } from "./person-photo";
 
 type PersonNameProps = {
   /** Person.name, which is nullable in the schema. */
   name: string | null;
   /** Whether this person is cleared. Omit when the viewer may not see clearance. */
   cleared?: boolean;
+  /**
+   * Pass the person's id and photoVersion to show a small photo (or initials)
+   * before the name. Like `cleared`, it is data the caller already loaded; the
+   * <img> fetches its own bytes, so a long roster costs no extra queries here.
+   */
+  photo?: { id: string; photoVersion: number };
+  /** Photo edge length in pixels. */
+  photoSize?: number;
   className?: string;
 };
 
-export function PersonName({ name, cleared = false, className }: PersonNameProps) {
+export function PersonName({ name, cleared = false, photo, photoSize = 20, className }: PersonNameProps) {
   const label = name?.trim() || "Unknown";
-  if (!cleared) return <span className={className}>{label}</span>;
+  if (!cleared && !photo) return <span className={className}>{label}</span>;
 
   return (
-    <span className={cx("inline-flex items-center gap-1", className)}>
+    <span className={cx("inline-flex items-center", photo ? "gap-1.5" : "gap-1", className)}>
+      {photo && (
+        <PersonPhoto
+          person={{ ...photo, name }}
+          size={photoSize}
+          alt=""
+          className="shrink-0 rounded-full object-cover"
+        />
+      )}
       {label}
+      {cleared && <ClearedBadge />}
+    </span>
+  );
+}
+
+function ClearedBadge() {
+  return (
+    <>
       {/* role="img" + <title>: the badge carries meaning, so it needs an
           accessible name. Without one a screen reader announces the name and
           silently drops the status the sighted user can see.
@@ -66,6 +91,6 @@ export function PersonName({ name, cleared = false, className }: PersonNameProps
           d="M12 1.45Q14.79 -0.21 16.58 2.5Q19.81 2.21 20.24 5.43Q23.28 6.57 22.28 9.65Q24.52 12 22.28 14.35Q23.28 17.43 20.24 18.57Q19.81 21.79 16.58 21.5Q14.79 24.21 12 22.55Q9.21 24.21 7.42 21.5Q4.19 21.79 3.76 18.57Q0.72 17.43 1.72 14.35Q-0.52 12 1.72 9.65Q0.72 6.57 3.76 5.43Q4.19 2.21 7.42 2.5Q9.21 -0.21 12 1.45ZM6.27 12.2L10.6 16.53L17.93 9.2L16.3 7.57L10.6 13.27L7.9 10.57Z"
         />
       </svg>
-    </span>
+    </>
   );
 }

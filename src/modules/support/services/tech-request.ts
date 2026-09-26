@@ -437,7 +437,7 @@ const LIST_SELECT = {
   // (continue in the Messenger, or deep-link into the agent inbox) without a
   // second query -- see RequestList's intercomAction prop.
   intercomConversationId: true,
-  requester: { select: { id: true, name: true } },
+  requester: { select: { id: true, name: true, photoVersion: true } },
   assignedTo: { select: { id: true, name: true } },
 } as const;
 
@@ -453,7 +453,7 @@ export type TechRequestListRow = {
   createdAt: Date;
   updatedAt: Date;
   intercomConversationId: string | null;
-  requester: { id: string; name: string | null };
+  requester: { id: string; name: string | null; photoVersion: number };
   assignedTo: { id: string; name: string | null } | null;
 };
 

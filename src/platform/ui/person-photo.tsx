@@ -12,13 +12,18 @@ type PersonPhotoProps = {
   /** Rendered edge length in pixels. */
   size: number;
   className?: string;
+  /**
+   * Beside a visible name the photo adds nothing for a screen reader, and an alt
+   * of the same name would announce it twice. Pass "" there.
+   */
+  alt?: string;
 };
 
-export function PersonPhoto({ person, size, className }: PersonPhotoProps) {
+export function PersonPhoto({ person, size, className, alt }: PersonPhotoProps) {
   return (
     <img
       src={photoUrl(person)}
-      alt={person.name ?? "Member"}
+      alt={alt ?? person.name ?? "Member"}
       width={size}
       height={size}
       loading="lazy"

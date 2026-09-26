@@ -1,6 +1,11 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { Prisma } from "@prisma/client";
 
+// after() throws outside a request scope, exactly as calling GET() directly
+// does for real; one test swaps in a capturing implementation to prove the
+// bookkeeping is deferred past the response inside one.
+const { afterMock } = vi.hoisted(() => ({ afterMock: vi.fn() }));
+vi.mock("next/server", () => ({ after: afterMock }));
 vi.mock("@/modules/schedule/calendar/feed-token", () => ({
   resolveFeedToken: vi.fn(),
   touchFeedToken: vi.fn(),
@@ -41,6 +46,9 @@ describe("GET /api/calendar/[token]", () => {
     vi.mocked(renderFeedForPerson).mockReset().mockResolvedValue("BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n");
     vi.mocked(renderEmptyFeed).mockReset().mockResolvedValue("BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n");
     vi.mocked(prisma.person.findUnique).mockReset();
+    afterMock.mockReset().mockImplementation(() => {
+      throw new Error("`after` was called outside a request scope");
+    });
   });
 
   it("404s an unknown token without rendering anything", async () => {
@@ -87,6 +95,24 @@ describe("GET /api/calendar/[token]", () => {
 
     await GET(...request("abc123"));
 
+    expect(touchFeedToken).toHaveBeenCalledWith("p1");
+  });
+
+  it("defers the fetch bookkeeping to after() inside a request scope", async () => {
+    vi.mocked(resolveFeedToken).mockResolvedValue({ personId: "p1" });
+    vi.mocked(prisma.person.findUnique).mockResolvedValue({ status: "ACTIVE" } as never);
+    const deferred: Array<() => Promise<void>> = [];
+    afterMock.mockImplementation((task: () => Promise<void>) => {
+      deferred.push(task);
+    });
+
+    const res = await GET(...request("abc123"));
+
+    expect(res.status).toBe(200);
+    // Not started before the response: a write racing the freeze is what lost it.
+    expect(touchFeedToken).not.toHaveBeenCalled();
+    expect(deferred).toHaveLength(1);
+    await deferred[0]!();
     expect(touchFeedToken).toHaveBeenCalledWith("p1");
   });
 

@@ -299,7 +299,25 @@ describe("list_interviews and list_waitlist", () => {
     await prisma.application.update({ where: { id: f.routedMdic.id }, data: { decision: "WAITLIST" } });
     const out = JSON.parse(await run("list_waitlist", f.manager.id, { cycle_id: f.cycle.id }));
     expect(out.total).toBe(1);
-    expect(out.rows[0]).toMatchObject({ applicationId: f.routedMdic.id, departmentCode: "MDIC" });
+    expect(out.rows[0]).toMatchObject({ applicationId: f.routedMdic.id, departmentCode: "MDIC", acceptedElsewhere: null });
+    expect(out).toMatchObject({ applications: 1, acceptedElsewhere: 0 });
+  });
+
+  it("flags an applicant waitlisted by one department but accepted by another, which cycle_summary counts as accepted", async () => {
+    // The Fall 2026 shape: routed to and waitlisted by one department, accepted
+    // into another through a dual appointment. Both tools are right by their own
+    // page's definition; the flag is what lets a reader reconcile them.
+    const f = await seed();
+    await prisma.application.update({ where: { id: f.routedMdic.id }, data: { decision: "WAITLIST" } });
+    await prisma.acceptance.create({ data: { applicationId: f.routedMdic.id, departmentCode: "SRHD", approvedById: f.lead.id } });
+
+    const waitlist = JSON.parse(await run("list_waitlist", f.manager.id, { cycle_id: f.cycle.id }));
+    expect(waitlist).toMatchObject({ total: 1, applications: 1, acceptedElsewhere: 1 });
+    expect(waitlist.rows[0]).toMatchObject({ departmentCode: "MDIC", acceptedElsewhere: ["SRHD"] });
+
+    const summary = JSON.parse(await run("cycle_summary", f.manager.id, { cycle_id: f.cycle.id }));
+    expect(summary.byDecision.WAITLIST ?? 0).toBe(0);
+    expect(summary.byDecision.ACCEPTED).toBe(1);
   });
 
   it("lists interviews with evaluations but never the Zoom link or internal notes", async () => {

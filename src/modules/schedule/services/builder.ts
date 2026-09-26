@@ -24,10 +24,11 @@ import {
   findIncomingAcceptance,
   findIncomingMember,
   listIncomingMembers,
+  newcomersByMember,
   onboardingNotesByMember,
   listIncomingShiftDrafts,
 } from "@/platform/recruitment/incoming-roster";
-import type { IncomingShiftDraft, IncomingStage } from "@/platform/recruitment/incoming-roster";
+import type { IncomingShiftDraft, IncomingStage, Newcomer } from "@/platform/recruitment/incoming-roster";
 import { resolveAvailability } from "../engine/availability";
 import type { ResolvedAvailability } from "../engine/availability";
 import { toScheduleEntries } from "../engine/map";
@@ -1373,6 +1374,12 @@ export type BuilderMember = {
   intake: BuilderMemberIntake;
   /** Null for a confirmed roster member. See {@link BuilderProvisional}. */
   provisional: BuilderProvisional | null;
+  /**
+   * New to HAVEN or transferring in from another department this term, so a
+   * director can pair them with experienced people. Null for a renewal, and for
+   * a member with no application behind their membership (an import, a manual add).
+   */
+  newcomer: Newcomer | null;
 };
 
 /**
@@ -1926,11 +1933,23 @@ export async function builderView(
   const intakeByKey = new Map(trainingRows.map((t) => [`${t.personId}:${t.track}`, t]));
   // The onboarding contract's scheduling answers for the same members, keyed the
   // same way.
-  const onboardingNotes = await onboardingNotesByMember({
-    termId: term.id,
-    departmentCode: selectedDept.code,
-    personIds: memberPersonIds,
-  });
+  const [onboardingNotes, promotedNewcomers] = await Promise.all([
+    onboardingNotesByMember({
+      termId: term.id,
+      departmentCode: selectedDept.code,
+      personIds: memberPersonIds,
+    }),
+    newcomersByMember({
+      termId: term.id,
+      departmentCode: selectedDept.code,
+      personIds: memberPersonIds,
+    }),
+  ]);
+  // A roster member whose acceptance is still unpromoted (their membership came
+  // down another path, see the filter above) answers from that acceptance.
+  const unpromotedNewcomers = new Map(
+    incomingAll.flatMap((i) => (i.personId && i.newcomer ? [[`${i.personId}:${i.kind}`, i.newcomer] as const] : [])),
+  );
 
   // Build members list.
   const builderMembers: BuilderMember[] = members.map((m) => {
@@ -1967,6 +1986,10 @@ export async function builderView(
         feedback: intakeRow?.feedback ?? null,
       },
       provisional: null,
+      newcomer:
+        promotedNewcomers.get(`${m.person.id}:${m.kind}`) ??
+        unpromotedNewcomers.get(`${m.person.id}:${m.kind}`) ??
+        null,
     };
   });
 
@@ -2014,6 +2037,7 @@ export async function builderView(
       acceptanceId: i.acceptanceId,
       stage: i.stage,
     },
+    newcomer: i.newcomer,
   }));
 
   const allBuilderMembers = [...builderMembers, ...incomingMembers];

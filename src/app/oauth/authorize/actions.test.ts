@@ -8,7 +8,10 @@ vi.mock("next/navigation", () => ({
     throw Object.assign(new Error("NEXT_REDIRECT"), { url });
   },
 }));
-vi.mock("node:dns/promises", () => ({ lookup: async () => [{ address: "160.79.104.10", family: 4 }] }));
+vi.mock("@/platform/oauth/safe-fetch", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/platform/oauth/safe-fetch")>()),
+  getPublicJson: async () => ({ client_id: "https://claude.ai/oauth/claude-code-client-metadata", redirect_uris: ["https://claude.ai/api/mcp/auth_callback"] }),
+}));
 vi.mock("@/platform/auth/session", () => ({ requirePersonSession: async () => ({ personId: session.personId }) }));
 
 import { prisma } from "@/platform/db";
@@ -20,10 +23,6 @@ const CALLBACK = "https://claude.ai/api/mcp/auth_callback";
 
 beforeEach(async () => {
   await resetDb();
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async () => new Response(JSON.stringify({ client_id: CLIENT, redirect_uris: [CALLBACK] }))),
-  );
 });
 
 function fields(overrides: Record<string, string> = {}) {

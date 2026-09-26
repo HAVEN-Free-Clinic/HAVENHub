@@ -1451,6 +1451,12 @@ type AssignmentRow = {
   remote: boolean;
   specialty: boolean;
   person: { name: string; legalFirstName: string; lastName: string; licensedRN: boolean };
+  /**
+   * Capabilities carried on the row itself, for a first-time applicant's draft:
+   * with no Person there is nothing in the language maps to look up, so their
+   * application's verdicts ride along instead. See applicantCapabilities.
+   */
+  capabilities?: { verifiedLanguages: string[]; spanishScore: number | null };
 };
 
 /**
@@ -1477,8 +1483,8 @@ function buildAssignmentsByDate(
         name: a.person.name,
         legalFirstName: a.person.legalFirstName,
         lastName: a.person.lastName,
-        verifiedLanguages: languageMap.get(a.personId) ?? [],
-        spanishScore: spanishScores.get(a.personId) ?? null,
+        verifiedLanguages: languageMap.get(a.personId) ?? a.capabilities?.verifiedLanguages ?? [],
+        spanishScore: spanishScores.get(a.personId) ?? a.capabilities?.spanishScore ?? null,
         licensedRN: a.person.licensedRN,
       },
     };
@@ -1504,6 +1510,7 @@ function draftAssignmentRow(d: IncomingShiftDraft) {
     cc: d.cc,
     remote: d.remote,
     specialty: d.specialty,
+    capabilities: { verifiedLanguages: d.verifiedLanguages, spanishScore: d.spanishScore },
     person: {
       id: rowId,
       name: d.name,
@@ -1552,7 +1559,7 @@ export async function assignmentsFor(
   // The score rides with the languages, not separately: the badge that reads it
   // is the SAME badge the read-only Full Schedule renders, and loading one
   // without the other is what made the two pages disagree about the same
-  // interpreter. Drafts have no Person, so nothing to look up for them.
+  // interpreter. Drafts have no Person, so theirs ride on the row instead.
   const personIds = [...new Set(rows.map((r) => r.personId))];
   const [languageMap, spanishScores] = await Promise.all([
     verifiedLanguagesByPerson(personIds),
@@ -2004,11 +2011,14 @@ export async function builderView(
       name: i.name,
       legalFirstName: i.legalFirstName,
       lastName: i.lastName,
-      verifiedLanguages: i.personId ? languageMap.get(i.personId) ?? [] : [],
-      // A provisional row has no personId yet, so it has no score to look up.
-      // The badge degrades to a plain verified one, which is correct: nothing
-      // is being claimed about a number nobody has recorded.
-      spanishScore: i.personId ? spanishScores.get(i.personId) ?? null : null,
+      // The Person's verdicts when they have one, plus the application's: a
+      // first-time applicant has no Person, and their language assessment and
+      // contract RN answer live on the recruitment side until roster build
+      // carries them over (see applicantCapabilities).
+      verifiedLanguages: [
+        ...new Set([...(i.personId ? languageMap.get(i.personId) ?? [] : []), ...i.verifiedLanguages]),
+      ].sort(),
+      spanishScore: (i.personId ? spanishScores.get(i.personId) : undefined) ?? i.spanishScore,
       licensedRN: i.licensedRN,
     },
     kind: i.kind,

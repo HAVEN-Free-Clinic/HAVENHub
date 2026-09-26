@@ -23,7 +23,7 @@
 
 import { requireModuleAccess } from "@/platform/auth/session";
 import { Alert } from "@/platform/ui/alert";
-import { Button } from "@/platform/ui/button";
+import { Button, buttonClasses } from "@/platform/ui/button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { cardClasses } from "@/platform/ui/card";
 import { cx } from "@/platform/ui/cx";
@@ -505,8 +505,18 @@ export default async function BuilderPage({ searchParams }: PageProps) {
             showPublishControl ? (deptPublished ? " · Published" : " · Not published") : ""
           }`}
           action={
-            showPublishControl ? (
-              deptPublished ? (
+            <div className="flex flex-wrap items-center gap-2">
+              {/* A plain download, not a Link: the route answers with a file, and a
+                  soft navigation would try to render it as a page. */}
+              <a
+                href={`/api/schedule/export?${new URLSearchParams({ term: workingTerm.id, dept: dept.id })}`}
+                download
+                className={buttonClasses("outline", "sm")}
+              >
+                Export to Excel
+              </a>
+              {showPublishControl &&
+              (deptPublished ? (
                 <form action={unpublishAction}>
                   <ConfirmButton
                     label="Unpublish"
@@ -519,8 +529,8 @@ export default async function BuilderPage({ searchParams }: PageProps) {
                     {`Publish ${dept.code}'s ${workingTerm.name} schedule`}
                   </Button>
                 </form>
-              )
-            ) : undefined
+              ))}
+            </div>
           }
         />
       </div>

@@ -14,6 +14,7 @@ import {
   applicationAvailabilityDates,
   findIncomingMember,
   listIncomingMembers,
+  listIncomingShiftDrafts,
   newcomersByMember,
   onboardingNotesByMember,
   parseAvailabilityDates,
@@ -112,6 +113,9 @@ type ApplicantOpts = {
   contractNotes?: { shiftsWanted?: string; availabilityChangeNeeded?: boolean; availabilityChangeRequest?: string };
   promotedPersonId?: string;
   accepted?: boolean;
+  contractRN?: boolean;
+  /** Application language verdicts, as the language review queue records them. */
+  assessments?: { language: string; verified: boolean; score?: number }[];
   applicantType?: "NEW" | "RENEWAL" | "TRANSFER";
   transferFrom?: string[];
 };
@@ -140,6 +144,11 @@ async function seedApplicant(opts: ApplicantOpts) {
       transferFromDepartments: opts.transferFrom ?? [],
     },
   });
+  for (const a of opts.assessments ?? []) {
+    await prisma.applicationLanguageAssessment.create({
+      data: { applicationId: application.id, verifiedById: opts.approvedById, ...a },
+    });
+  }
   if (opts.accepted === false) return { applicant, application, acceptance: null };
   const acceptance = await prisma.acceptance.create({
     data: {
@@ -158,6 +167,7 @@ async function seedApplicant(opts: ApplicantOpts) {
         lastName: lastName ?? "",
         email,
         promotedPersonId: opts.promotedPersonId ?? null,
+        licensedRN: opts.contractRN ?? false,
         ...opts.contractNotes,
       },
     });
@@ -229,6 +239,27 @@ describe("listIncomingMembers", () => {
     expect(byName.get("Grace Hopper")?.licensedRN).toBe(true);
     expect(byName.get("New Person")?.personId).toBeNull();
     expect(byName.get("New Person")?.licensedRN).toBe(false);
+  });
+
+  // A first-time applicant has no Person, so the RN flag and verified languages a
+  // member's badges read are not there yet. They are on the contract and the
+  // application, and the builder showed neither until they were read from there.
+  it("reads a first-timer's RN answer from the contract and languages from the application", async () => {
+    const { term, srr, cycle } = await seed();
+    await seedApplicant({
+      cycleId: cycle.id, approvedById: srr.id, name: "Nurse Speaker", contractStatus: "SUBMITTED", contractRN: true,
+      assessments: [{ language: "es", verified: true, score: 3.5 }, { language: "ht", verified: true }],
+    });
+    await seedApplicant({
+      cycleId: cycle.id, approvedById: srr.id, name: "Assessed No",
+      assessments: [{ language: "es", verified: false, score: 2 }],
+    });
+
+    const rows = await listIncomingMembers({ termId: term.id, departmentCode: "SRHD", clinicDates: CLINIC_DATES });
+    const byName = new Map(rows.map((r) => [r.name, [r.licensedRN, r.verifiedLanguages, r.spanishScore]]));
+    expect(byName.get("Nurse Speaker")).toEqual([true, ["es", "ht"], 3.5]);
+    // A "no" verdict is not a capability, so neither the language nor its score shows.
+    expect(byName.get("Assessed No")).toEqual([false, [], null]);
   });
 
   it("reports the onboarding stage from the contract", async () => {
@@ -440,6 +471,26 @@ describe("onboardingNotesByMember", () => {
 
     expect(await onboardingNotesByMember({ termId: term.id, departmentCode: "SRHD", personIds: [elsewhere.id] })).toEqual(new Map());
     expect(await onboardingNotesByMember({ termId: term.id, departmentCode: "SRHD", personIds: [] })).toEqual(new Map());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// listIncomingShiftDrafts
+// ---------------------------------------------------------------------------
+
+describe("listIncomingShiftDrafts", () => {
+  it("carries the same RN and language capabilities as the member row", async () => {
+    const { term, dept, srr, cycle } = await seed();
+    const { acceptance } = await seedApplicant({
+      cycleId: cycle.id, approvedById: srr.id, name: "Nurse Speaker", contractStatus: "PENDING", contractRN: true,
+      assessments: [{ language: "es", verified: true, score: 4 }],
+    });
+    await prisma.incomingShiftAssignment.create({
+      data: { acceptanceId: acceptance!.id, termId: term.id, departmentId: dept.id, clinicDate: CLINIC_DATES[0], role: "VOLUNTEER" },
+    });
+
+    const [draft] = await listIncomingShiftDrafts({ termId: term.id, departmentId: dept.id });
+    expect([draft.licensedRN, draft.verifiedLanguages, draft.spanishScore]).toEqual([true, ["es"], 4]);
   });
 });
 

@@ -175,7 +175,12 @@ export type IncomingMember = {
    */
   legalFirstName: string;
   lastName: string;
+  /** See {@link applicantCapabilities}. */
   licensedRN: boolean;
+  /** Languages assessed and verified on the APPLICATION; see {@link applicantCapabilities}. */
+  verifiedLanguages: string[];
+  /** The application's verified Spanish score, or null. INTERNAL, never shown to them. */
+  spanishScore: number | null;
   /** Membership kind they are inbound to, from the cycle's track. */
   kind: "DIRECTOR" | "VOLUNTEER";
   stage: IncomingStage;
@@ -205,6 +210,40 @@ function kindFor(track: string): "DIRECTOR" | "VOLUNTEER" {
  * be years old. Shared by the member list and the draft read so a draft always
  * renders under the same name as the row it sits in.
  */
+/**
+ * The application-side language verdicts {@link applicantCapabilities} reads:
+ * verified ones only, the same rule the builder applies to a member's languages.
+ */
+const VERIFIED_ASSESSMENTS = {
+  where: { verified: true },
+  select: { language: true, score: true },
+  orderBy: { language: "asc" },
+} as const;
+
+/**
+ * RN and verified languages for someone not yet on the roster, from what the
+ * recruitment side already holds about them.
+ *
+ * A first-time applicant has no Person, so the capabilities the builder shows
+ * for a member (Person.licensedRN, PersonLanguage) are not there to read. They
+ * are on file all the same: the RN answer on the onboarding contract, and the
+ * language verdict on the application. Both move onto the Person at promotion,
+ * so this reads them where they sit until then, and a Person's own flag still
+ * counts for an applicant who has one.
+ */
+export function applicantCapabilities(opts: {
+  person: { licensedRN: boolean } | null;
+  /** The contract they filled in, wherever it hangs (a dual appointment has one). */
+  contract: { licensedRN: boolean } | null;
+  assessments: { language: string; score: number | null }[];
+}): { licensedRN: boolean; verifiedLanguages: string[]; spanishScore: number | null } {
+  return {
+    licensedRN: Boolean(opts.contract?.licensedRN || opts.person?.licensedRN),
+    verifiedLanguages: opts.assessments.map((a) => a.language),
+    spanishScore: opts.assessments.find((a) => a.language === "es")?.score ?? null,
+  };
+}
+
 function incomingName(applicant: {
   firstName: string;
   lastName: string;
@@ -227,7 +266,7 @@ function incomingName(applicant: {
  *     the HIPAA cert), so the acceptance still looks live and nothing else here
  *     would catch it. promoteContracts skips these for the same reason.
  */
-function liveAcceptanceWhere(): Prisma.AcceptanceWhereInput {
+export function liveAcceptanceWhere(): Prisma.AcceptanceWhereInput {
   return {
     application: {
       status: { not: "WITHDRAWN" },
@@ -266,15 +305,16 @@ export async function listIncomingMembers(opts: {
     },
     select: {
       id: true,
-      contract: { select: { status: true, ...SCHEDULING_NOTE_COLUMNS } },
+      contract: { select: { status: true, licensedRN: true, ...SCHEDULING_NOTE_COLUMNS } },
       application: {
         select: {
           id: true,
           answers: true,
+          languageAssessments: VERIFIED_ASSESSMENTS,
           ...NEWCOMER_COLUMNS,
           // A dual appointment's second acceptance has no contract of its own;
           // the one the person filled in hangs off the other acceptance.
-          acceptances: { select: { contract: { select: { status: true, ...SCHEDULING_NOTE_COLUMNS } } } },
+          acceptances: { select: { contract: { select: { status: true, licensedRN: true, ...SCHEDULING_NOTE_COLUMNS } } } },
           cycle: { select: { track: true } },
           applicant: {
             select: {
@@ -302,7 +342,7 @@ export async function listIncomingMembers(opts: {
         name: incomingName(applicant),
         legalFirstName: person?.legalFirstName ?? applicant.firstName,
         lastName: person?.lastName ?? applicant.lastName,
-        licensedRN: person?.licensedRN ?? false,
+        ...applicantCapabilities({ person, contract, assessments: application.languageAssessments }),
         kind: kindFor(application.cycle.track),
         stage: stageFor(contract?.status),
         availabilityDates: applicationAvailabilityDates(application.answers, opts.clinicDates),
@@ -486,6 +526,8 @@ export type IncomingShiftDraft = {
   legalFirstName: string;
   lastName: string;
   licensedRN: boolean;
+  verifiedLanguages: string[];
+  spanishScore: number | null;
 };
 
 /**
@@ -517,8 +559,13 @@ export async function listIncomingShiftDrafts(opts: {
       specialty: true,
       acceptance: {
         select: {
+          contract: { select: { licensedRN: true } },
           application: {
             select: {
+              // A dual appointment's second acceptance has no contract of its
+              // own; the one the person filled in hangs off the other.
+              acceptances: { select: { contract: { select: { licensedRN: true } } } },
+              languageAssessments: VERIFIED_ASSESSMENTS,
               applicant: {
                 select: {
                   firstName: true,
@@ -535,13 +582,18 @@ export async function listIncomingShiftDrafts(opts: {
     },
   });
   return rows.map(({ acceptance, ...draft }) => {
-    const { applicant } = acceptance.application;
+    const { application } = acceptance;
+    const { applicant } = application;
     return {
       ...draft,
       name: incomingName(applicant),
       legalFirstName: applicant.applicantPerson?.legalFirstName ?? applicant.firstName,
       lastName: applicant.applicantPerson?.lastName ?? applicant.lastName,
-      licensedRN: applicant.applicantPerson?.licensedRN ?? false,
+      ...applicantCapabilities({
+        person: applicant.applicantPerson,
+        contract: acceptance.contract ?? application.acceptances.find((a) => a.contract)?.contract ?? null,
+        assessments: application.languageAssessments,
+      }),
     };
   });
 }

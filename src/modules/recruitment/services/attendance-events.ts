@@ -479,6 +479,8 @@ export type CheckInCandidate = {
    *  row yet, so their own firstName/lastName columns fill these. */
   legalFirstName: string;
   lastName: string;
+  /** Only a `person` has a photo; null for the other two shapes. */
+  photoVersion: number | null;
   email: string | null;
   /** From Person.netId, or Applicant.netId. Lowercased; the exact-match key. */
   netId: string | null;
@@ -604,6 +606,7 @@ export async function listCheckInCandidates(
         lastName: true,
         netId: true,
         contactEmail: true,
+        photoVersion: true,
       },
       orderBy: PERSON_NAME_ORDER,
     }),
@@ -700,6 +703,7 @@ export async function listCheckInCandidates(
       name: p.name,
       legalFirstName: p.legalFirstName,
       lastName: p.lastName,
+      photoVersion: p.photoVersion,
       email: p.contactEmail,
       netId: p.netId?.toLowerCase() ?? null,
       departmentCodes,
@@ -747,6 +751,7 @@ export async function listCheckInCandidates(
       name: `${applicant.firstName} ${applicant.lastName}`.trim(),
       legalFirstName: applicant.firstName,
       lastName: applicant.lastName,
+      photoVersion: null,
       email: applicant.email,
       netId: applicant.netId?.toLowerCase() ?? null,
       departmentCodes: [a.departmentCode],
@@ -780,6 +785,7 @@ export async function listCheckInCandidates(
       name: `${app.applicant.firstName} ${app.applicant.lastName}`.trim(),
       legalFirstName: app.applicant.firstName,
       lastName: app.applicant.lastName,
+      photoVersion: null,
       email: app.applicant.email,
       netId: app.applicant.netId?.toLowerCase() ?? null,
       // Where they are waiting: the routed department on the volunteer track,

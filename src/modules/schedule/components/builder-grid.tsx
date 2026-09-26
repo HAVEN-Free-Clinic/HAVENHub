@@ -26,6 +26,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { comparePersonName } from "@/platform/person-name";
+import { PersonPhoto } from "@/platform/ui/person-photo";
 import { MatrixScroll } from "@/platform/ui/matrix-table";
 import { Badge } from "@/platform/ui/badge";
 import { MembershipKindBadge } from "@/platform/ui/membership-kind-badge";
@@ -86,6 +87,8 @@ type GridRow = {
    */
   personId: string;
   name: string;
+  /** Null when there is no photo to show: a first-time applicant or a former member. */
+  photoVersion: number | null;
   legalFirstName: string;
   lastName: string;
   /** Membership kind, or null for a former-member assignee. */
@@ -597,6 +600,7 @@ export function BuilderGrid({
     .map((m) => ({
       personId: m.person.id,
       name: m.person.name,
+      photoVersion: m.person.photoVersion,
       legalFirstName: m.person.legalFirstName,
       lastName: m.person.lastName,
       kind: m.kind,
@@ -618,6 +622,7 @@ export function BuilderGrid({
       formerRowByPerson.set(pid, {
         personId: pid,
         name: entry.person.name,
+        photoVersion: null,
         legalFirstName: entry.person.legalFirstName,
         lastName: entry.person.lastName,
         kind: null,
@@ -725,6 +730,17 @@ export function BuilderGrid({
                   {/* Pinned member name column */}
                   <th scope="row" className="sticky left-0 z-10 bg-surface border-b border-r border-border px-3 py-2 whitespace-nowrap text-left font-normal">
                     <div className="flex items-center gap-1.5">
+                      {row.photoVersion !== null ? (
+                        <PersonPhoto
+                          person={{ id: row.personId, name: row.name, photoVersion: row.photoVersion }}
+                          size={20}
+                          alt=""
+                          className="shrink-0 rounded-full object-cover"
+                        />
+                      ) : (
+                        // Keeps names aligned down the pinned column.
+                        <span aria-hidden className="h-5 w-5 shrink-0" />
+                      )}
                       <span className="text-xs font-medium text-foreground">
                         {row.name}
                       </span>

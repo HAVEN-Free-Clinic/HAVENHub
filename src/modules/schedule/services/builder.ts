@@ -1365,6 +1365,8 @@ export type BuilderMember = {
     /** INTP proficiency, for the below-bar mark on the Spanish badge. Null when unscored. */
     spanishScore: number | null;
     licensedRN: boolean;
+    /** Null for a first-time applicant, who has no Person and so no photo. */
+    photoVersion: number | null;
   };
   kind: "DIRECTOR" | "VOLUNTEER";
   availability: ResolvedAvailability;
@@ -1951,6 +1953,19 @@ export async function builderView(
     incomingAll.flatMap((i) => (i.personId && i.newcomer ? [[`${i.personId}:${i.kind}`, i.newcomer] as const] : [])),
   );
 
+  // Incoming returners already have a Person, and so a photo. The incoming
+  // roster read does not carry it, so fetch just the versions here.
+  const incomingPhotoVersions = new Map(
+    incomingPersonIds.size === 0
+      ? []
+      : (
+          await prisma.person.findMany({
+            where: { id: { in: [...incomingPersonIds] } },
+            select: { id: true, photoVersion: true },
+          })
+        ).map((p) => [p.id, p.photoVersion] as const),
+  );
+
   // Build members list.
   const builderMembers: BuilderMember[] = members.map((m) => {
     const availability = resolveAvailability({
@@ -1974,6 +1989,7 @@ export async function builderView(
         verifiedLanguages: languageMap.get(m.person.id) ?? [],
         spanishScore: spanishScores.get(m.person.id) ?? null,
         licensedRN: m.person.licensedRN,
+        photoVersion: m.person.photoVersion,
       },
       kind: m.kind as "DIRECTOR" | "VOLUNTEER",
       availability,
@@ -2020,6 +2036,7 @@ export async function builderView(
       ].sort(),
       spanishScore: (i.personId ? spanishScores.get(i.personId) : undefined) ?? i.spanishScore,
       licensedRN: i.licensedRN,
+      photoVersion: (i.personId ? incomingPhotoVersions.get(i.personId) : undefined) ?? null,
     },
     kind: i.kind,
     availability: resolveAvailability({

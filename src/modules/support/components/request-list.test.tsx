@@ -35,7 +35,7 @@ function row(overrides: Partial<TechRequestListRow> = {}): TechRequestListRow {
     createdAt: new Date("2026-01-01"),
     updatedAt: new Date("2026-01-02"),
     intercomConversationId: null,
-    requester: { id: "person-1", name: "Volunteer One" },
+    requester: { id: "person-1", name: "Volunteer One", photoVersion: 0 },
     assignedTo: null,
     ...overrides,
   };

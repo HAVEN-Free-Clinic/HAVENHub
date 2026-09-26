@@ -10,6 +10,7 @@ function candidate(over: Partial<CheckInCandidate> & { name: string }): CheckInC
     id: over.name.toLowerCase().replace(/\W/g, ""),
     legalFirstName: parts.legalFirstName,
     lastName: parts.lastName,
+    photoVersion: 0,
     email: null,
     netId: null,
     departmentCodes: [],

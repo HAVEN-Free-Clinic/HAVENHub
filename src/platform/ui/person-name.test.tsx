@@ -13,6 +13,17 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { PersonName } from "./person-name";
 
 describe("PersonName", () => {
+  it("shows the photo before the name when given one, without a second alt name", () => {
+    const out = renderToStaticMarkup(<PersonName name="Ada Lovelace" photo={{ id: "p1", photoVersion: 2 }} />);
+    expect(out).toContain('src="/api/people/p1/photo?v=2"');
+    expect(out).toContain('alt=""');
+    expect(out).toContain("Ada Lovelace");
+  });
+
+  it("renders no image when no photo is passed", () => {
+    expect(renderToStaticMarkup(<PersonName name="Ada Lovelace" cleared />)).not.toContain("<img");
+  });
+
   it("renders the name unchanged when not cleared", () => {
     const out = renderToStaticMarkup(<PersonName name="Ada Lovelace" cleared={false} />);
     expect(out).toContain("Ada Lovelace");

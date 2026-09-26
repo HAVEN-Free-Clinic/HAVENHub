@@ -3,7 +3,6 @@ import { Prisma } from "@prisma/client";
 
 vi.mock("@/platform/auth/auth", () => ({ auth: vi.fn() }));
 vi.mock("@/platform/auth/match-person", () => ({ getActivePerson: vi.fn() }));
-vi.mock("@/platform/rbac/engine", () => ({ can: vi.fn() }));
 vi.mock("@/platform/photos", () => ({
   resolvePhoto: vi.fn(),
   initialsSvg: vi.fn(() => "<svg></svg>"),
@@ -21,7 +20,6 @@ vi.mock("@/platform/db", async (importOriginal) => {
 
 import { auth } from "@/platform/auth/auth";
 import { getActivePerson } from "@/platform/auth/match-person";
-import { can } from "@/platform/rbac/engine";
 import { resolvePhoto } from "@/platform/photos";
 import { log } from "@/platform/logging";
 import { GET } from "./route";
@@ -39,7 +37,6 @@ describe("GET /api/people/[personId]/photo", () => {
     vi.clearAllMocks();
     vi.mocked(auth).mockResolvedValue({ personId: "p1" } as never);
     vi.mocked(getActivePerson).mockResolvedValue({ id: "p1", status: "ACTIVE" } as never);
-    vi.mocked(can).mockResolvedValue(false);
     vi.mocked(resolvePhoto).mockResolvedValue({
       bytes: Buffer.from([1, 2, 3]),
       contentType: "image/webp",
@@ -109,18 +106,8 @@ describe("GET /api/people/[personId]/photo", () => {
     await expect(GET(request(), context("p1"))).rejects.toThrow("Unique constraint failed");
   });
 
-  it("refuses one member reading another's photo", async () => {
-    const res = await GET(request(), context("p2"));
-
-    expect(res.status).toBe(403);
-    expect(vi.mocked(resolvePhoto)).not.toHaveBeenCalled();
-  });
-
-  it("allows a people admin to read another's photo", async () => {
-    vi.mocked(can).mockResolvedValue(true);
-
+  it("lets any active member read another member's photo", async () => {
     expect((await GET(request(), context("p2"))).status).toBe(200);
-    expect(vi.mocked(can)).toHaveBeenCalledWith("p1", "admin.manage_people");
   });
 
   it("allows a self-view to pull from Yalies", async () => {
@@ -129,9 +116,7 @@ describe("GET /api/people/[personId]/photo", () => {
     expect(vi.mocked(resolvePhoto)).toHaveBeenCalledWith("p1", undefined, { allowPull: true });
   });
 
-  it("forbids an admin's cross-view from pulling, but still serves what is already stored", async () => {
-    vi.mocked(can).mockResolvedValue(true);
-
+  it("forbids a cross-view from pulling, but still serves what is already stored", async () => {
     const res = await GET(request(), context("p2"));
 
     expect(res.status).toBe(200);

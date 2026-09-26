@@ -5,13 +5,18 @@
  * pointing here and never await a third party themselves; a slow Yalies degrades
  * to one slow-loading avatar instead of a slow page. This is also the only route
  * that ever triggers a lazy Yalies pull, and even here only for a self-view (see
- * the `allowPull` call below): an admin browsing the roster must not turn one
+ * the `allowPull` call below): someone browsing the roster must not turn one
  * page render into dozens of outbound calls to a third party with no published
  * rate limit, on behalf of people who never asked to be looked at. The public
  * credential photo route never triggers a pull at all, for the same reason in
  * a more exposed (unauthenticated) setting.
  *
- * Uses auth()/can() rather than requirePermission because the session helpers
+ * Any active member may view any person's photo: faces appear on schedules,
+ * rosters and check-in screens that ordinary volunteers use, and the same photo
+ * is already on the member's public credential page. What stays restricted is
+ * the Yalies pull, which is self-view only.
+ *
+ * Uses auth() rather than requirePermission because the session helpers
  * redirect on denial, and an <img> request needs a status code.
  */
 import { auth } from "@/platform/auth/auth";
@@ -19,7 +24,6 @@ import { getActivePerson } from "@/platform/auth/match-person";
 import { isDbUnreachableError, prisma } from "@/platform/db";
 import { log, errorAttrs } from "@/platform/logging";
 import { initialsSvg, resolvePhoto } from "@/platform/photos";
-import { can } from "@/platform/rbac/engine";
 
 type RouteContext = { params: Promise<{ personId: string }> };
 
@@ -63,7 +67,7 @@ export async function GET(_request: Request, context: RouteContext): Promise<Res
 
   // The JWT lives 7 days and does not revalidate Person.status on its own, so an
   // offboarded person must be rejected here rather than trusted from the token.
-  // Same convention as the other routes that combine auth() with can() directly.
+  // Same convention as the other routes that combine auth() with can().
   //
   // This is the revocation check, so a database blip must never resolve as
   // "still active" -- unlike resolvePhoto below, there is no safe fallback
@@ -89,14 +93,11 @@ export async function GET(_request: Request, context: RouteContext): Promise<Res
   if (!person) return new Response("Forbidden", { status: 403 });
 
   const isSelf = person.id === personId;
-  if (!isSelf && !(await can(person.id, "admin.manage_people"))) {
-    return new Response("Forbidden", { status: 403 });
-  }
 
   // A photo failure must never break the surface asking for it. Reads degrade to
   // initials, consistent with the app's posture when the database is unreachable.
-  // allowPull is restricted to self-views (see the route's own doc comment): an
-  // admin looking at someone else's photo gets whatever is already stored and
+  // allowPull is restricted to self-views (see the route's own doc comment):
+  // anyone looking at someone else's photo gets whatever is already stored and
   // never triggers an outbound Yalies call.
   const photo = await resolvePhoto(personId, undefined, { allowPull: isSelf }).catch((err) => {
     log.warn("[people-photo] resolvePhoto failed; degrading to initials", errorAttrs(err));

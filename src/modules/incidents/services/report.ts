@@ -732,7 +732,7 @@ export async function getReport(
   id: string
 ): Promise<{
   report: IncidentReport & {
-    subjects: Array<{ id: string; personId: string; strikeDecision: StrikeDecision | null; person: { id: string; name: string } }>;
+    subjects: Array<{ id: string; personId: string; strikeDecision: StrikeDecision | null; person: { id: string; name: string; photoVersion: number } }>;
     reporter: { name: string };
     attachments: IncidentReportAttachment[];
   };
@@ -742,7 +742,7 @@ export async function getReport(
     where: { id },
     include: {
       // person.id is selected so the detail page can badge a cleared subject.
-      subjects: { include: { person: { select: { id: true, name: true } } }, orderBy: { createdAt: "asc" } },
+      subjects: { include: { person: { select: { id: true, name: true, photoVersion: true } } }, orderBy: { createdAt: "asc" } },
       reporter: { select: { name: true } },
       attachments: true,
     },

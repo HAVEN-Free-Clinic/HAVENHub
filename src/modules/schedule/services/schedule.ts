@@ -164,6 +164,7 @@ export type TaggedPerson = PersonLite & {
    */
   spanishScore: number | null;
   licensedRN: boolean;
+  photoVersion: number;
 };
 
 /** Department fields the full-schedule view needs (subset of Department). */
@@ -465,7 +466,7 @@ export async function fullSchedule(
         cc: true,
         remote: true,
         specialty: true,
-        person: { select: { id: true, name: true, legalFirstName: true, lastName: true, licensedRN: true } },
+        person: { select: { id: true, name: true, legalFirstName: true, lastName: true, licensedRN: true, photoVersion: true } },
         department: { select: { id: true, name: true, code: true, minInterpreterScore: true } },
       },
     }),
@@ -541,6 +542,7 @@ export async function fullSchedule(
       verifiedLanguages: scheduleLanguages.get(a.personId) ?? [],
       spanishScore: spanishScores.get(a.personId) ?? null,
       licensedRN: a.person.licensedRN,
+      photoVersion: a.person.photoVersion,
     };
     if (a.role === "DIRECTOR") {
       bucket.directors.push(person);

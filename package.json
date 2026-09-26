@@ -96,6 +96,7 @@
     "@tiptap/pm": "^3.31.3",
     "@tiptap/react": "^3.31.3",
     "@tiptap/starter-kit": "^3.31.3",
+    "botid": "^1.5.11",
     "cron-parser": "^5.5.0",
     "exceljs": "^4.4.0",
     "fast-xml-parser": "^5.8.0",

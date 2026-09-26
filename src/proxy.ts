@@ -49,6 +49,9 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   return resolveProxy(request, hostFromUrl(process.env.PORTAL_BASE_URL));
 }
 
+// The long hex segment is Vercel BotID's proxied challenge path (withBotId in
+// next.config.ts). Left in the matcher, the portal host would rewrite it onto
+// /apply/<hex> and 404 the challenge, and every applicant would look like a bot.
 export const config = {
-  matcher: ["/((?!api|_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/((?!api|_next/static|_next/image|favicon.ico|149e9513-01fa-4fb0-aad4-566afd725d1b).*)"],
 };

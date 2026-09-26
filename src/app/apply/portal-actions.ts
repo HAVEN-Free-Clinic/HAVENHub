@@ -9,11 +9,19 @@ import { safeNextPath, PORTAL_HOME } from "@/modules/recruitment/services/portal
 import { withdrawApplication, discardDraft, WithdrawError } from "@/modules/recruitment/services/withdraw";
 import { captureEvent } from "@/platform/posthog/capture";
 import { termGroupForCycleSlug } from "@/platform/posthog/groups";
+import { isBotRequest } from "@/platform/botid/check";
 
 export async function requestMagicLinkAction(formData: FormData): Promise<{ ok: boolean }> {
   const email = String(formData.get("email") ?? "").trim();
   // Basic shape check; the email service normalizes + rate-limits.
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return { ok: false };
+  // A bot gets the same "check your email" as a person, so it learns nothing
+  // about whether the check fired. The event is how a false positive on a real
+  // applicant would show up.
+  if (await isBotRequest()) {
+    await captureEvent({ distinctId: email, event: "magic_link_bot_blocked", properties: { form: "apply" } });
+    return { ok: true };
+  }
   // Carry the deep-link the applicant was headed to (e.g. /apply/<slug>) so the
   // emailed verify link returns them there; requestMagicLink sanitizes it.
   const next = String(formData.get("next") ?? "").trim() || null;

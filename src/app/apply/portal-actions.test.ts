@@ -11,6 +11,7 @@ vi.mock("@/platform/auth/auth", () => ({ signOut: vi.fn(async () => {}), auth: v
 // so stand in a minimal AuthError. The action imports AuthError from this same
 // specifier, so `instanceof` stays coherent against the class constructed here.
 vi.mock("next-auth", () => ({ AuthError: class AuthError extends Error {} }));
+vi.mock("@/platform/botid/check", () => ({ isBotRequest: vi.fn(async () => false) }));
 // redirect() throws in production, which is what stops the action falling through
 // to its rethrow. Model that: throw a tagged sentinel carrying the target URL.
 class RedirectSentinel extends Error {
@@ -22,6 +23,7 @@ vi.mock("next/navigation", () => ({
 
 import { AuthError } from "next-auth";
 import { signIn } from "@/platform/auth/auth";
+import { isBotRequest } from "@/platform/botid/check";
 import { requestMagicLinkAction, portalYaleSignInAction } from "./portal-actions";
 
 beforeEach(async () => { await resetDb(); });
@@ -48,6 +50,16 @@ it("sends a clean link when the form carries no next", async () => {
 
   const mail = await prisma.emailLog.findFirstOrThrow({ where: { template: "recruitment.portal_link" } });
   expect(mail.html).not.toContain("next=");
+});
+
+it("answers a bot like a person but sends it no email", async () => {
+  vi.mocked(isBotRequest).mockResolvedValueOnce(true);
+  const fd = new FormData();
+  fd.set("email", "reed@yale.edu");
+
+  const res = await requestMagicLinkAction(fd);
+  expect(res.ok).toBe(true);
+  expect(await prisma.emailLog.count()).toBe(0);
 });
 
 it("passes a safe deep-link next to signIn as the post-auth destination", async () => {

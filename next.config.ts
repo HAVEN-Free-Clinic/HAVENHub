@@ -1,5 +1,6 @@
 import type { NextConfig } from "next";
 import { withPostHogConfig } from "@posthog/nextjs-config";
+import { withBotId } from "botid/next/config";
 import { pinServerActionsEncryptionKey } from "./src/platform/server-actions-key";
 
 /**
@@ -218,8 +219,12 @@ const nextConfig: NextConfig = {
  * compiler hook rather than a webpack plugin; the package picks the right path
  * itself. It must stay the OUTERMOST wrapper -- another wrapper around it would
  * flatten the config to a plain object and silently drop these build hooks.
+ *
+ * withBotId adds the rewrites that proxy Vercel BotID's challenge script and
+ * verification calls through our own origin (see src/platform/botid), so ad
+ * blockers that drop third-party scripts cannot switch the check off.
  */
-export default withPostHogConfig(nextConfig, {
+export default withPostHogConfig(withBotId(nextConfig), {
   personalApiKey: process.env.POSTHOG_API_KEY!,
   projectId: "514029",
   sourcemaps: {

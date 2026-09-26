@@ -98,6 +98,22 @@ export function isWalletEnabled(): boolean {
 }
 
 /**
+ * Issuing new badges is paused (2026-09-26). The Pro trial lapsed while
+ * WALLETWALLET_PRO was still true, so every create came back 400 "Custom color
+ * is a Pro-only feature" and members got a button that never worked.
+ *
+ * This pauses ISSUING only. Revocation (revokeWalletPasses, the wallet-passes
+ * sweep) still runs on isWalletEnabled, because a badge already in an
+ * offboarded member's wallet must still be killed. To resume, flip this to
+ * false and set WALLETWALLET_PRO to match the account's actual tier.
+ */
+const WALLET_ISSUING_PAUSED = true;
+
+export function isWalletIssuingEnabled(): boolean {
+  return isWalletEnabled() && !WALLET_ISSUING_PAUSED;
+}
+
+/**
  * Whether the account is on the Pro tier, which is what makes `color` and the
  * image URLs take effect. Deliberately a separate switch from the API key: the
  * clinic is on a time-limited Pro trial, and when it lapses this flips to false

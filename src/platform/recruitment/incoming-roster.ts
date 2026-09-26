@@ -141,7 +141,7 @@ export type IncomingStage = "ACCEPTED" | "ONBOARDING" | "SUBMITTED";
  */
 export type Newcomer = { type: "NEW" | "TRANSFER"; transferFrom: string[] };
 
-function newcomerOf(application: {
+export function newcomerOf(application: {
   applicantType: "NEW" | "RENEWAL" | "TRANSFER";
   transferFromDepartments: string[];
 }): Newcomer | null {
@@ -152,7 +152,7 @@ function newcomerOf(application: {
   };
 }
 
-const NEWCOMER_COLUMNS = { applicantType: true, transferFromDepartments: true } as const;
+export const NEWCOMER_COLUMNS = { applicantType: true, transferFromDepartments: true } as const;
 
 export type IncomingMember = {
   acceptanceId: string;

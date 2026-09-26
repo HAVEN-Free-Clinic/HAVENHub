@@ -5,6 +5,7 @@ import { prisma } from "@/platform/db";
 import {
   buildScheduleWorkbook,
   loadScheduleExportRows,
+  newcomerLabel,
   scheduleExportFilename,
   tagsLabel,
 } from "./schedule-export";
@@ -104,13 +105,13 @@ describe("loadScheduleExportRows", () => {
 
     const rows = await loadScheduleExportRows(term.id, rhd.id);
     expect(
-      rows.map((r) => [r.clinicDate.toISOString().slice(0, 10), r.name, r.role, tagsLabel(r.tags), r.licensedRN, r.spanishScore, r.firstTimer]),
+      rows.map((r) => [r.clinicDate.toISOString().slice(0, 10), r.name, r.role, tagsLabel(r.tags), r.licensedRN, r.spanishScore, newcomerLabel(r.newcomer)]),
     ).toEqual([
-      ["2026-09-05", "Cal Young", "DIRECTOR", "", false, null, false],
-      ["2026-09-05", "Bea Zhou", "VOLUNTEER", "Triage, Walk-in", true, 4.5, false],
-      ["2026-09-05", "Ana Abad", "SHADOW", "", true, 3, true],
-      ["2026-09-12", "Cal Young", "DIRECTOR", "", false, null, false],
-      ["2026-09-12", "Dev Nair", "VOLUNTEER", "", false, null, true],
+      ["2026-09-05", "Cal Young", "DIRECTOR", "", false, null, ""],
+      ["2026-09-05", "Bea Zhou", "VOLUNTEER", "Triage, Walk-in", true, 4.5, ""],
+      ["2026-09-05", "Ana Abad", "SHADOW", "", true, 3, "New"],
+      ["2026-09-12", "Cal Young", "DIRECTOR", "", false, null, ""],
+      ["2026-09-12", "Dev Nair", "VOLUNTEER", "", false, null, "New"],
     ]);
   });
 
@@ -127,6 +128,46 @@ describe("loadScheduleExportRows", () => {
     });
 
     expect(await loadScheduleExportRows(term.id, rhd.id)).toEqual([]);
+  });
+
+  // Roster build turns a first-timer's drafts into ordinary shifts, and that is
+  // when directors schedule the term. The first export of a real board (SCTS,
+  // FA26) marked nobody new although 7 of its 19 people came in that way.
+  it("still marks someone new or a transfer after roster build has promoted them", async () => {
+    const board = await seedBoard();
+    const { term, rhd, approver, cycle } = board;
+    const promoted = async (name: string, applicantType: "NEW" | "RENEWAL" | "TRANSFER", transferFromDepartments: string[] = []) => {
+      const [first, last] = name.split(" ");
+      const person = await prisma.person.create({ data: { name, legalFirstName: first, lastName: last, status: "ACTIVE" } });
+      const applicant = await prisma.applicant.create({
+        data: { cycleId: cycle.id, firstName: first, lastName: last, email: `${first}@example.com`, emailLower: `${first}@example.com`.toLowerCase() },
+      });
+      const application = await prisma.application.create({
+        data: { cycleId: cycle.id, applicantId: applicant.id, answers: {}, departmentChoices: ["RHD"], applicantType, transferFromDepartments },
+      });
+      const acceptance = await prisma.acceptance.create({
+        data: { applicationId: application.id, departmentCode: "RHD", approvedById: approver.id },
+      });
+      await prisma.onboardingContract.create({
+        data: {
+          acceptanceId: acceptance.id, token: `t-${acceptance.id}`, status: "PROMOTED", promotedPersonId: person.id,
+          promotedAt: new Date(), firstName: first, lastName: last, email: `${first}@example.com`,
+        },
+      });
+      await prisma.shiftAssignment.create({
+        data: { termId: term.id, departmentId: rhd.id, personId: person.id, clinicDate: SEP_5, role: "VOLUNTEER" },
+      });
+    };
+    await promoted("Hana Ito", "NEW");
+    await promoted("Ivo Kerr", "TRANSFER", ["PATS"]);
+    await promoted("Jo Lin", "RENEWAL");
+
+    const rows = await loadScheduleExportRows(term.id, rhd.id);
+    expect(rows.map((r) => [r.name, newcomerLabel(r.newcomer)])).toEqual([
+      ["Hana Ito", "New"],
+      ["Ivo Kerr", "Transfer from PATS"],
+      ["Jo Lin", ""],
+    ]);
   });
 
   // The export reports the number; a "no" verdict still has one.
@@ -151,17 +192,19 @@ describe("buildScheduleWorkbook", () => {
       {
         clinicDate: SEP_5, name: "Bea Zhou", legalFirstName: "Bea", lastName: "Zhou", role: "VOLUNTEER",
         tags: { triage: true, walkin: false, cc: false, remote: false, specialty: false },
-        licensedRN: true, spanishScore: 4.5, firstTimer: false,
+        licensedRN: true, spanishScore: 4.5, newcomer: { type: "TRANSFER", transferFrom: ["PCAR"] },
       },
     ]);
 
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(buffer as unknown as ArrayBuffer);
     const ws = wb.getWorksheet("Schedule")!;
-    expect(ws.getRow(1).values).toEqual([undefined, "Date", "Name", "Role", "Tags", "RN", "Spanish score", "First-timer"]);
+    expect(ws.getRow(1).values).toEqual([undefined, "Date", "Name", "Role", "Tags", "RN", "Spanish score", "New this term"]);
     const row = ws.getRow(2);
     expect((row.getCell(1).value as Date).toISOString().slice(0, 10)).toBe("2026-09-05");
-    expect([2, 3, 4, 5, 6].map((c) => row.getCell(c).value)).toEqual(["Bea Zhou", "Volunteer", "Triage", "Yes", 4.5]);
+    expect([2, 3, 4, 5, 6, 7].map((c) => row.getCell(c).value)).toEqual(
+      ["Bea Zhou", "Volunteer", "Triage", "Yes", 4.5, "Transfer from PCAR"],
+    );
   });
 
   it("names the file after the department and term", () => {

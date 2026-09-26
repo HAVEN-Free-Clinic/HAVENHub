@@ -5,6 +5,11 @@
  * and their Spanish score. Directors asked for it to sort, filter and print the
  * schedule in Excel; it is a hand-off, not a second editor.
  *
+ * "New this term" is whether they came in on a NEW or TRANSFER application for
+ * this term, the same mark the builder shows. It has to survive roster build:
+ * once promoted, a first-timer's shifts are ordinary ShiftAssignments, and
+ * directors schedule the term after that point, not before.
+ *
  * Covers the whole board the builder shows, which is two tables:
  *   - ShiftAssignment, for everyone with a Person (members and returners);
  *   - IncomingShiftAssignment, for first-time applicants with no Person yet.
@@ -18,7 +23,14 @@
 import ExcelJS from "exceljs";
 import { prisma } from "@/platform/db";
 import { comparePersonName } from "@/platform/person-name";
-import { applicantCapabilities, liveAcceptanceWhere } from "@/platform/recruitment/incoming-roster";
+import {
+  NEWCOMER_COLUMNS,
+  applicantCapabilities,
+  liveAcceptanceWhere,
+  newcomerOf,
+  newcomersByMember,
+  type Newcomer,
+} from "@/platform/recruitment/incoming-roster";
 
 const SPANISH = "es";
 
@@ -32,7 +44,8 @@ export type ScheduleExportRow = {
   licensedRN: boolean;
   /** The assessed score, 1 to 5 in half steps. Null when nobody has scored them. */
   spanishScore: number | null;
-  firstTimer: boolean;
+  /** Null for a returning member (a renewal, or someone with no application). */
+  newcomer: Newcomer | null;
 };
 
 const ROLE_ORDER = { DIRECTOR: 0, VOLUNTEER: 1, SHADOW: 2 } as const;
@@ -60,6 +73,10 @@ export async function loadScheduleExportRows(
   termId: string,
   departmentId: string,
 ): Promise<ScheduleExportRow[]> {
+  const department = await prisma.department.findUniqueOrThrow({
+    where: { id: departmentId },
+    select: { code: true },
+  });
   const [shifts, drafts] = await Promise.all([
     prisma.shiftAssignment.findMany({
       where: { termId, departmentId },
@@ -87,6 +104,7 @@ export async function loadScheduleExportRows(
                 // A dual appointment's second acceptance has no contract of its
                 // own; the one the person filled in hangs off the other.
                 acceptances: { select: { contract: { select: { licensedRN: true } } } },
+                ...NEWCOMER_COLUMNS,
                 languageAssessments: {
                   where: { language: SPANISH, score: { not: null } },
                   select: { score: true },
@@ -129,6 +147,11 @@ export async function loadScheduleExportRows(
           select: { personId: true, score: true },
         });
   const personScores = new Map(scoreRows.map((r) => [r.personId, r.score as number]));
+  const newcomers = await newcomersByMember({
+    termId,
+    departmentCode: department.code,
+    personIds: [...new Set(shifts.map((s) => s.personId))],
+  });
 
   const rows: ScheduleExportRow[] = shifts.map((s) => ({
     clinicDate: s.clinicDate,
@@ -139,7 +162,8 @@ export async function loadScheduleExportRows(
     tags: { triage: s.triage, walkin: s.walkin, cc: s.cc, remote: s.remote, specialty: s.specialty },
     licensedRN: s.person.licensedRN,
     spanishScore: personScores.get(s.personId) ?? null,
-    firstTimer: false,
+    // Keyed by membership kind, and a shadow shift is a volunteer's.
+    newcomer: newcomers.get(`${s.personId}:${s.role === "DIRECTOR" ? "DIRECTOR" : "VOLUNTEER"}`) ?? null,
   }));
 
   for (const d of drafts) {
@@ -161,7 +185,7 @@ export async function loadScheduleExportRows(
         (person ? personScores.get(person.id) : undefined) ??
         application.languageAssessments[0]?.score ??
         null,
-      firstTimer: true,
+      newcomer: newcomerOf(application),
     });
   }
 
@@ -178,6 +202,13 @@ export function tagsLabel(tags: ScheduleExportRow["tags"]): string {
   return TAG_LABELS.filter(([key]) => tags[key])
     .map(([, label]) => label)
     .join(", ");
+}
+
+/** "New", "Transfer from PCAR", or blank for a returning member. */
+export function newcomerLabel(newcomer: Newcomer | null): string {
+  if (!newcomer) return "";
+  if (newcomer.type === "NEW") return "New";
+  return newcomer.transferFrom.length > 0 ? `Transfer from ${newcomer.transferFrom.join(", ")}` : "Transfer";
 }
 
 /** The download's name, e.g. "RHD schedule FA26.xlsx". */
@@ -199,7 +230,7 @@ export async function buildScheduleWorkbook(rows: ScheduleExportRow[]): Promise<
     { header: "Tags", key: "tags", width: 22 },
     { header: "RN", key: "rn", width: 6 },
     { header: "Spanish score", key: "spanish", width: 14 },
-    { header: "First-timer", key: "firstTimer", width: 12 },
+    { header: "New this term", key: "newcomer", width: 20 },
   ];
   ws.getRow(1).font = { bold: true };
   ws.autoFilter = { from: "A1", to: "G1" };
@@ -214,7 +245,7 @@ export async function buildScheduleWorkbook(rows: ScheduleExportRow[]): Promise<
       tags: tagsLabel(r.tags),
       rn: r.licensedRN ? "Yes" : "",
       spanish: r.spanishScore,
-      firstTimer: r.firstTimer ? "Yes" : "",
+      newcomer: newcomerLabel(r.newcomer),
     });
   }
 

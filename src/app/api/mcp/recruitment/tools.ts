@@ -272,7 +272,7 @@ export const cycleSummaryTool: RecruitmentTool = {
   name: "cycle_summary",
   title: "Recruitment cycle summary",
   description:
-    "Counts over the submitted applications you can see in one cycle: by stage, by decision, by applicant type, by routed department and by first-choice department, plus committee-scoring coverage. Scoped exactly like your Applicants page in the Hub.",
+    "Counts over the submitted applications you can see in one cycle: by stage, by decision, by applicant type, by routed department and by first-choice department, plus committee-scoring coverage. Scoped exactly like your Applicants page in the Hub. byDecision is each applicant's OVERALL outcome, the Applicants page's Decision column: an acceptance anywhere outranks a waitlist, so an applicant waitlisted by one department but accepted by another counts as accepted here, not waitlisted. list_waitlist counts every open waitlist entry instead, so its total can be higher.",
   inputSchema: cycleSummarySchema,
   run: async (ctx, args) => {
     const input = parseArgs(cycleSummarySchema, args);
@@ -636,13 +636,22 @@ const listWaitlistSchema = z.object({
  * department. One entry per waitlisted decision, so a director-track applicant
  * waitlisted by two departments appears twice, as on the page.
  *
- * Returns { cycle, total, offset, limit, rows }.
+ * An applicant can also sit on one department's waitlist while ACCEPTED by
+ * another (routed to VADC and waitlisted there, accepted into PNLC through a
+ * dual appointment -- a real Fall 2026 case). The Waitlist page lists them,
+ * and so does this tool; cycle_summary's byDecision counts them as accepted,
+ * because the Applicants page's Decision column does. A consumer comparing the
+ * two numbers found the gap and guessed at double counting, so each row now
+ * carries acceptedElsewhere, and the response reports distinct applications
+ * alongside entries, rather than leaving the reconciliation to inference.
+ *
+ * Returns { cycle, total, applications, acceptedElsewhere, offset, limit, rows }.
  */
 export const listWaitlistTool: RecruitmentTool = {
   name: "list_waitlist",
   title: "List a cycle's waitlist",
   description:
-    "Applicants currently waitlisted in one cycle, scoped as your Hub Waitlist page shows them: name, email, and the department that waitlisted them. Paged; `total` is the full count.",
+    "Open waitlist entries in one cycle, scoped as your Hub Waitlist page shows them: name, email, and the department that waitlisted them. One row per waitlisting decision: `total` counts entries, `applications` counts distinct applicants. An applicant can be on one department's waitlist while accepted by another; those rows carry acceptedElsewhere (the accepting departments) and `acceptedElsewhere` counts them. That is why this total can exceed cycle_summary's WAITLIST count, which reports each applicant's overall outcome. Paged.",
   inputSchema: listWaitlistSchema,
   run: async (ctx, args) => {
     const input = parseArgs(listWaitlistSchema, args);
@@ -654,6 +663,17 @@ export const listWaitlistTool: RecruitmentTool = {
     });
     if (!cycle) return CYCLE_REFUSAL;
     const entries = await listWaitlisted(cycle.id, ctx.personId);
+    // Acceptances for every waitlisted application, in one query. Accepted
+    // departments are already on the Applicants page for anyone who can see
+    // this cycle's waitlist (recruitment.access sees the whole roster).
+    const applicationIds = [...new Set(entries.map((e) => e.applicationId))];
+    const acceptances = await prisma.acceptance.findMany({
+      where: { applicationId: { in: applicationIds } },
+      select: { applicationId: true, departmentCode: true },
+    });
+    const acceptedIn = new Map<string, string[]>();
+    for (const a of acceptances) acceptedIn.set(a.applicationId, [...(acceptedIn.get(a.applicationId) ?? []), a.departmentCode]);
+
     const paged = page(entries, input);
     const rows = paged.rows.map((e) => ({
       applicationId: e.applicationId,
@@ -661,8 +681,17 @@ export const listWaitlistTool: RecruitmentTool = {
       email: e.applicantEmail,
       departmentCode: e.departmentCode,
       interviewId: e.interviewId,
+      acceptedElsewhere: acceptedIn.get(e.applicationId) ?? null,
     }));
-    return JSON.stringify({ cycle, total: paged.total, offset: paged.offset, limit: paged.limit, rows });
+    return JSON.stringify({
+      cycle,
+      total: paged.total,
+      applications: applicationIds.length,
+      acceptedElsewhere: applicationIds.filter((id) => acceptedIn.has(id)).length,
+      offset: paged.offset,
+      limit: paged.limit,
+      rows,
+    });
   },
 };
 

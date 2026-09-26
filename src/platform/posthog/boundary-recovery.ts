@@ -37,6 +37,22 @@
  *    `global-error.tsx` -- so it can never arrive here. See
  *    router-hook-crash.ts. Listing it would be dead code implying a coverage we
  *    do not have.
+ *  - Transient network failure ("Load failed" in Safari, "Failed to fetch" in
+ *    Chrome, "NetworkError when attempting to fetch resource" and "Error in
+ *    input stream" in Firefox): NOT included, by choice. Every heal above exists
+ *    because the boundary's "Try again" cannot work for that class. A network
+ *    drop is the opposite: the boundaries call `retry()`, which re-fetches the
+ *    route, and that is exactly what a dropped request needs. (They used to
+ *    call `reset()`, which re-renders without a request, and that is what made
+ *    these look unrecoverable: Error Tracking, Sep 14-23, 6 events, 4 members,
+ *    retries re-logging the same error ~45ms later.) An automatic reload would
+ *    also be worse here, not better. We only reach this boundary because the
+ *    network just failed; `navigator.onLine` is true on a weak phone signal, so
+ *    a reload fired into the same outage swaps our page, its "Back to Hub"
+ *    link and a working retry for the browser's own "cannot open the page"
+ *    screen, and the once-guard would then have spent the tab's only attempt.
+ *    Staying put and letting the member retry when the signal is back is the
+ *    recovery.
  *
  * Each heal keeps its own sessionStorage key, and `recoverOnce` is the same
  * function the listeners and `runAction` call, so a tab still spends exactly one

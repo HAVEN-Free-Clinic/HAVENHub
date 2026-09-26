@@ -6,8 +6,9 @@ import { CaptureException } from "@/platform/posthog/capture-exception";
 // reads (onboarding status, courses, training, certificates); if any throws, a
 // not-yet-cleared member would otherwise hit Next's unstyled default 500 while
 // blocked from the rest of the app. This gives them a branded retry and a next
-// step instead. Mirrors src/app/apply/[slug]/error.tsx (client boundary + reset).
-export default function GetStartedError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
+// step instead. Mirrors src/app/apply/[slug]/error.tsx (client boundary + retry;
+// `retry()` re-fetches, where `reset()` would re-render the same failed result).
+export default function GetStartedError({ error, retry }: { error: Error & { digest?: string }; retry: () => void }) {
   return (
     <main className="mx-auto flex min-h-screen max-w-2xl flex-col items-center justify-center px-6 py-16 text-center">
       <CaptureException error={error} />
@@ -16,7 +17,7 @@ export default function GetStartedError({ error, reset }: { error: Error & { dig
         We could not load your onboarding checklist. Please try again. If the problem persists,
         contact your recruitment director.
       </p>
-      <Button onClick={() => reset()} className="mt-6">Try again</Button>
+      <Button onClick={() => retry()} className="mt-6">Try again</Button>
     </main>
   );
 }

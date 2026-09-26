@@ -18,13 +18,19 @@ import { useBoundaryRecovery } from "@/platform/posthog/capture-exception";
  * Yale" button ended up here, offering a "Try again" that re-sent the same dead
  * id. `useBoundaryRecovery` reloads out of that class of error and tells us so,
  * which is what the branch below is for. See `boundary-recovery.ts`.
+ *
+ * "Try again" calls `retry()`, which re-fetches before re-rendering, not
+ * `reset()`, which re-renders the same failed result without a request. The
+ * root boundary gets the same `retry` as every segment boundary (Next wraps
+ * both in one ErrorBoundaryHandler, inside the router context it refreshes). A
+ * network drop on `/login` ("TypeError: Load failed", 2026-09-23) lands here.
  */
 export default function GlobalError({
   error,
-  reset,
+  retry,
 }: {
   error: Error & { digest?: string };
-  reset: () => void;
+  retry: () => void;
 }) {
   const recovering = useBoundaryRecovery(error);
 
@@ -59,7 +65,7 @@ export default function GlobalError({
               check, so a tab that already spent its automatic reload lands here
               too, and it must not be a dead end. */}
           <button
-            onClick={() => (recovering ? window.location.reload() : reset())}
+            onClick={() => (recovering ? window.location.reload() : retry())}
             style={{
               marginTop: "1.5rem",
               padding: "0.5rem 1rem",

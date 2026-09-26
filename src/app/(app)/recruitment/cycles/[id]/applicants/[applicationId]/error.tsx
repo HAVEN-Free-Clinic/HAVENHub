@@ -14,7 +14,7 @@ import { CaptureException } from "@/platform/posthog/capture-exception";
  * layout (breadcrumbs, nav) intact and offers a direct way back to the roster,
  * so one bad record degrades gracefully instead of blanking the page.
  */
-export default function ApplicantDetailError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
+export default function ApplicantDetailError({ error, retry }: { error: Error & { digest?: string }; retry: () => void }) {
   const params = useParams<{ id: string }>();
   const applicantsHref = params?.id ? `/recruitment/cycles/${params.id}/applicants` : "/recruitment";
   return (
@@ -30,7 +30,7 @@ export default function ApplicantDetailError({ error, reset }: { error: Error & 
           Please try again, or head back to the applicant list. If the problem persists, contact support.
         </p>
         <div className="mt-6 flex flex-wrap items-center justify-center gap-2.5">
-          <Button onClick={() => reset()}>Try again</Button>
+          <Button onClick={() => retry()}>Try again</Button>
           <Link href={applicantsHref} className={buttonClasses("outline")}>
             Back to applicants
           </Link>

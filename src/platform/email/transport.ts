@@ -39,6 +39,22 @@ export class TransientEmailError extends Error {
 }
 
 /**
+ * The provider refused the RECIPIENT address itself (Graph 400
+ * ErrorInvalidRecipients, or Maileroo's equivalent). Nothing about the address
+ * changes between attempts, so the queue fails the row on the FIRST attempt
+ * instead of spending its 8-attempt budget re-sending to an address that cannot
+ * be delivered to. In practice these are bot submissions to the public
+ * magic-link forms ("first..last@yale.edu"), and each wasted retry is a send
+ * against the shared mailbox's submission cap.
+ */
+export class InvalidRecipientError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InvalidRecipientError";
+  }
+}
+
+/**
  * Whether a thrown error from token acquisition or the sendMail request is
  * transient (a temporary upstream problem that should be retried without burning
  * the row's permanent attempt budget). Covers:
@@ -155,6 +171,46 @@ function describeGraphMailboxRejection(
     `or off SENDING_DOMAINS if a whole domain routes here. Permanent: retrying cannot move a ` +
     `mailbox into the tenant. Graph said: 404 ${text}`
   );
+}
+
+/**
+ * Recognise Graph's "that recipient address is not valid" 400, or return null.
+ *
+ *   400 {"error":{"code":"ErrorInvalidRecipients","message":"At least one
+ *   recipient is not valid., Recipient 'a..b@yale.edu' is not resolved. ..."}}
+ *
+ * Narrow on purpose: only a 400 whose body names ErrorInvalidRecipients is
+ * treated as a bad address. Every other 400 (a malformed request body, an
+ * attachment problem) keeps the generic permanent-failure path and its retries.
+ */
+export function describeGraphRecipientRejection(
+  status: number,
+  to: string,
+  text: string
+): string | null {
+  if (status !== 400) return null;
+  if (!/ErrorInvalidRecipients/i.test(text)) return null;
+  return `Invalid recipient address ${to}: Graph refused it as undeliverable. Not retried. Graph said: 400 ${text}`;
+}
+
+/**
+ * Maileroo's wording is not a documented contract, so this matches the phrasings
+ * a validation error about the recipient plausibly uses ("invalid email
+ * address", "must be a valid email", "recipient is invalid"). It runs only on a
+ * non-429 4xx or a success:false body, never on a 429/5xx, which stay transient.
+ * A miss is safe: the failure falls back to the generic permanent path, which is
+ * what happened before this existed.
+ */
+const MAILEROO_RECIPIENT_RE =
+  /(?:invalid|not a valid|must be a valid)\s+(?:recipient|e-?mail(?:\s+address)?|to\s+address)|recipient(?:\s+address)?\s+(?:is\s+)?(?:invalid|not valid)/i;
+
+/** Recognise Maileroo refusing the recipient address, or return null. */
+export function describeMailerooRecipientRejection(to: string, text: string): string | null {
+  if (!MAILEROO_RECIPIENT_RE.test(text)) return null;
+  // "from must be a valid email address" is a SENDER configuration problem, not
+  // a bad recipient, and must keep the generic path (and its operator log).
+  if (/\bfrom\b|reply[_ -]?to/i.test(text)) return null;
+  return `Invalid recipient address ${to}: Maileroo refused it as undeliverable. Not retried. Maileroo said: ${text}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -297,6 +353,10 @@ export class GraphTransport implements EmailTransport {
       // failure mode of one of the two ways a message reaches Graph: a Send-As
       // refusal for an address the connected mailbox has no grant on, and a
       // not-in-Exchange-Online 404 for an address Graph cannot act on at all.
+      // A refused RECIPIENT is its own class: the queue fails it on the first
+      // attempt instead of retrying an address that can never be delivered to.
+      const badRecipient = describeGraphRecipientRejection(res.status, message.to, text);
+      if (badRecipient) throw new InvalidRecipientError(badRecipient);
       const diagnosed =
         describeGraphSendAsRejection(res.status, sender, text) ??
         describeGraphMailboxRejection(res.status, sender, text);
@@ -496,9 +556,11 @@ export class MailerooTransport implements EmailTransport {
       from.display_name = message.fromName.trim();
     }
 
+    // Captured here because the success:false branch below shadows `message`.
+    const payloadTo = message.to;
     const payload: Record<string, unknown> = {
       from,
-      to: [{ address: message.to }],
+      to: [{ address: payloadTo }],
       subject: message.subject,
       html,
     };
@@ -559,6 +621,8 @@ export class MailerooTransport implements EmailTransport {
           `Maileroo send transient failure: ${res.status}${retryAfter ? ` retry-after=${retryAfter}` : ""} ${text}`,
         );
       }
+      const badRecipient = describeMailerooRecipientRejection(message.to, `${res.status} ${text}`);
+      if (badRecipient) throw new InvalidRecipientError(badRecipient);
       throw new Error(`Maileroo send failed: ${res.status} ${text}`);
     }
 
@@ -577,8 +641,13 @@ export class MailerooTransport implements EmailTransport {
       // Maileroo spells some rejections this way rather than as a non-2xx, so the
       // same domain-level recognition has to apply here or the diagnosis an
       // operator gets would depend on which shape the API chose.
+      const recipient = payloadTo;
       const message = body?.message ?? "no message";
       const domainRejection = describeMailerooDomainRejection(message);
+      const badRecipient = domainRejection
+        ? null
+        : describeMailerooRecipientRejection(recipient, message);
+      if (badRecipient) throw new InvalidRecipientError(badRecipient);
       throw new Error(
         domainRejection
           ? `${domainRejection} (Maileroo rejected the send)`
@@ -737,7 +806,15 @@ function annotateRoutedFailure(
   from: string | null | undefined,
   decision: SigningDecision
 ): unknown {
-  if (!(err instanceof Error) || err instanceof TransientEmailError) return err;
+  // A refused recipient is about the TO address, not the From routing, so a
+  // routing note would send an operator to the wrong lever.
+  if (
+    !(err instanceof Error) ||
+    err instanceof TransientEmailError ||
+    err instanceof InvalidRecipientError
+  ) {
+    return err;
+  }
   const { transport, rule } = decision;
   const because =
     rule === "address"

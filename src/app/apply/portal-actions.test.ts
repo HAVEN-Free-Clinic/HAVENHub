@@ -62,6 +62,17 @@ it("answers a bot like a person but sends it no email", async () => {
   expect(await prisma.emailLog.count()).toBe(0);
 });
 
+it("refuses an address with consecutive dots and queues nothing", async () => {
+  // Graph answers these with 400 ErrorInvalidRecipients; refusing them here keeps
+  // them out of the queue entirely.
+  const fd = new FormData();
+  fd.set("email", "first..last@yale.edu");
+
+  const res = await requestMagicLinkAction(fd);
+  expect(res.ok).toBe(false);
+  expect(await prisma.emailLog.count()).toBe(0);
+});
+
 it("passes a safe deep-link next to signIn as the post-auth destination", async () => {
   const fd = new FormData();
   fd.set("next", "/apply/spring-2026");

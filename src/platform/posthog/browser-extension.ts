@@ -47,6 +47,21 @@
  * URL schemes browsers serve extension code from. Chrome/Edge/Brave use
  * `chrome-extension:`, Firefox `moz-extension:`, Safari `safari-web-extension:`
  * (and `safari-extension:` for the legacy kind).
+ *
+ * `webkit-masked-url:` is not a real scheme but Safari's stand-in for a script
+ * whose URL it hides from the page, which is how an extension content script
+ * shows up in a Safari stack. A Safari web extension produced "Error: No
+ * Listener: tabs:outgoing.message.ready" (its own messaging bus finding no
+ * receiver), 43 events in a month, every frame `webkit-masked-url://hidden/`.
+ * It passed every other filter because it is a real `Error`.
+ *
+ * posthog-js notes that Safari can also mask blob, eval'd, or injected
+ * application code the same way. We ship none of those: every script of ours is
+ * a plain `https:` asset. So an ALL-masked stack is not ours, and the `every`
+ * rule below still keeps any stack with one real frame of ours in it. Across the
+ * 30 days before this was added, the only exceptions in the project carrying a
+ * masked frame at all were this extension error and one coerced non-Error
+ * placeholder (already dropped by `nonerror-throw.ts`).
  */
 const EXTENSION_SCHEMES = [
   "chrome-extension://",
@@ -54,6 +69,7 @@ const EXTENSION_SCHEMES = [
   "safari-web-extension://",
   "safari-extension://",
   "ms-browser-extension://",
+  "webkit-masked-url://",
 ];
 
 /**

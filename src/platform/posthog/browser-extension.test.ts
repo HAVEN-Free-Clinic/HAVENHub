@@ -155,6 +155,102 @@ describe("isBrowserExtensionEvent", () => {
     ).toBe(false);
   });
 
+  // A Safari web extension's messaging bus finding no receiver. Safari hides the
+  // content script's URL as webkit-masked-url://hidden/. Reproduced from the
+  // real capture (Safari 17.4, posthog-js 1.402.2): a real Error, unhandled, not
+  // synthetic, one frame, and after ingestion the only copy of the path is under
+  // junk_drawer.raw_frame.filename.
+  it("drops a Safari extension messaging failure whose only frame is webkit-masked-url", () => {
+    expect(
+      isBrowserExtensionEvent(
+        exceptionEvent([
+          {
+            type: "Error",
+            value: "No Listener: tabs:outgoing.message.ready",
+            mechanism: { exception_id: 0, handled: false, synthetic: false, type: "generic" },
+            stacktrace: {
+              type: "resolved",
+              frames: [
+                {
+                  column: 38491,
+                  in_app: false,
+                  junk_drawer: {
+                    raw_frame: {
+                      colno: 38491,
+                      filename: "webkit-masked-url://hidden/",
+                      function: "g",
+                      in_app: false,
+                      lineno: 132,
+                      synthetic: false,
+                    },
+                  },
+                  lang: "javascript",
+                  line: 132,
+                  mangled_name: "g",
+                  resolve_failure: "This frame had no source url or chunk id",
+                  resolved: true,
+                  resolved_name: "g",
+                  suspicious: false,
+                  synthetic: false,
+                },
+              ],
+            },
+          },
+        ]),
+      ),
+    ).toBe(true);
+  });
+
+  // The same event as before_send sees it in the browser, before ingestion
+  // moves the path: the raw frame posthog-js's stack parser builds.
+  it("drops the same event in its pre-ingestion shape, filename at the top level", () => {
+    expect(
+      isBrowserExtensionEvent(
+        exceptionEvent([
+          {
+            type: "Error",
+            value: "No Listener: tabs:outgoing.message.ready",
+            mechanism: { handled: false, synthetic: false, type: "generic" },
+            stacktrace: {
+              type: "raw",
+              frames: [
+                {
+                  platform: "web:javascript",
+                  filename: "webkit-masked-url://hidden/",
+                  function: "g",
+                  in_app: false,
+                  lineno: 132,
+                  colno: 38491,
+                },
+              ],
+            },
+          },
+        ]),
+      ),
+    ).toBe(true);
+  });
+
+  // Safari can mask some page code with the same URL, so one masked frame next
+  // to a real frame of ours is not enough: the every-frame rule keeps it.
+  it("keeps an exception whose stack mixes our code with a webkit-masked-url frame", () => {
+    expect(
+      isBrowserExtensionEvent(
+        exceptionEvent([
+          {
+            type: "TypeError",
+            value: "boom",
+            stacktrace: {
+              frames: [
+                frame("webkit-masked-url://hidden/"),
+                frame("https://hub.havenfreeclinic.org/_next/static/chunk.js"),
+              ],
+            },
+          },
+        ]),
+      ),
+    ).toBe(false);
+  });
+
   // --- Everything below must be KEPT ---
 
   it("keeps an ordinary application exception", () => {

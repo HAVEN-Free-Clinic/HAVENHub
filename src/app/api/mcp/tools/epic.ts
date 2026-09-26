@@ -23,8 +23,7 @@ import type { McpTool } from "./index";
  * and the registry's identity-argument guard in index.ts.
  */
 
-// Fix round 1, item 3: give a member a next step instead of a dead end,
-// matching the shape describeRequestStatus's REJECTED sentence already uses.
+// Fix round 1, item 3: give a member a next step instead of a dead end.
 const NO_REQUEST =
   "No Epic access request has been raised for you yet. Contact a human on the team if you believe you need one.";
 
@@ -42,8 +41,9 @@ function describeRequestStatus(status: EpicRequestStatus): string {
       return "Your Epic access request has been submitted to Yale New Haven Hospital and is awaiting their action.";
     case "COMPLETED":
       return "Your Epic access request has been completed.";
-    case "REJECTED":
-      return "Yale New Haven Hospital declined your Epic access request. Contact a human on the team for next steps.";
+    // No REJECTED case yet: that status arrives with the Epic access pipeline
+    // (feat/epic-access-pipeline, 1462a966), which carries this tool's
+    // original REJECTED sentence. Restore it when that branch merges.
     case "CANCELLED":
       // Excluded by mostRelevantRequest's own query filter, so this branch is
       // not reachable through the tool's normal path. Kept as a defensive

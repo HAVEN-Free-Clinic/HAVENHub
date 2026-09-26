@@ -36,7 +36,25 @@ const CONVERSATION_ID_ARG = "conversation_id";
  * db-unreachable-degradation) must never reach the response. The real error
  * goes to the server log only.
  */
-const TOOL_FAILURE_MESSAGE = "Sorry, I could not look that up right now.";
+const TOOL_FAILURE_MESSAGE =
+  "Sorry, I could not look that up right now. Try again in a minute, or ask to talk to a person on the team.";
+
+/**
+ * Sent to the client once, at MCP initialize, as the server's `instructions`.
+ *
+ * Tool descriptions each explain one tool; nothing explained the set. Through
+ * September 2026 the tools saw about thirty verified calls in six weeks while
+ * the questions they cover (clearance, EHS, Epic, email lists) kept escalating
+ * to tickets. Whether a given client surfaces this text is up to the client,
+ * so every rule here is also stated where it matters in a tool description;
+ * this is the summary, not the only copy.
+ */
+const SERVER_INSTRUCTIONS = [
+  "These tools read the HAVEN Free Clinic Hub on behalf of the member in this conversation. Every tool already knows who the member is; never ask them for an id, NetID, or email to look themselves up.",
+  "Prefer a tool over a general answer whenever the question is about the member's own shifts, clearance, training, EHS, HIPAA certificate, Epic access, application, role, or department. If unsure what their role is, call my_profile first.",
+  "Directors asking about someone in their department: use member_status (are they active), volunteer_clearance (why are they not cleared), or department_roster (who is on the team). Tools never return email lists; department_roster links the People directory, which is where directors copy their department's addresses.",
+  "Tool answers are written to be relayed as-is. Keep any links they include. If a tool says it cannot confirm something or the member lacks access, relay that without guessing at the reason and offer a person on the team.",
+].join(" ");
 
 /**
  * Never audit a request that has not authenticated.
@@ -203,7 +221,7 @@ async function handle(request: Request): Promise<Response> {
   const denied = await guard(request);
   if (denied) return denied;
 
-  const handler = createMcpHandler((server) => registerTools(server));
+  const handler = createMcpHandler((server) => registerTools(server), { instructions: SERVER_INSTRUCTIONS });
   return handler(request);
 }
 

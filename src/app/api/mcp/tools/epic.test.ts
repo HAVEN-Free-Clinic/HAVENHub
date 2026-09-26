@@ -48,7 +48,7 @@ function addMembership(personId: string, termId: string, departmentId: string, k
   return prisma.termMembership.create({ data: { personId, termId, departmentId, kind, status: "ACTIVE" } });
 }
 
-type RequestStatus = "PENDING" | "SUBMITTED" | "COMPLETED" | "CANCELLED" | "REJECTED";
+type RequestStatus = "PENDING" | "SUBMITTED" | "COMPLETED" | "CANCELLED";
 type RequestKind = "NEW" | "MODIFY" | "RENEW" | "DEACTIVATE";
 
 function createEpicRequest(
@@ -121,16 +121,6 @@ describe("my_epic_status", () => {
     expect(text).toMatch(/your epic access request has been completed/i);
   });
 
-  it("reports a REJECTED request as declined by YNHH", async () => {
-    const person = await createPerson("Rejected Person");
-    const staff = await createPerson("ITCM Staff 4");
-    await createEpicRequest(person.id, staff.id, "REJECTED");
-
-    const text = await myEpicStatusTool.run({ personId: person.id }, {});
-
-    expect(text).toMatch(/yale new haven hospital declined your epic access request/i);
-  });
-
   it("reads a CANCELLED-only request exactly like no request at all -- WE withdrew it, not YNHH", async () => {
     const person = await createPerson("Cancelled Only");
     const staff = await createPerson("ITCM Staff 5");
@@ -144,15 +134,15 @@ describe("my_epic_status", () => {
   it("picks the most recently raised request as the relevant one, not the most recently created row order", async () => {
     const person = await createPerson("Multiple Requests");
     const staff = await createPerson("ITCM Staff 6");
-    // An older REJECTED request superseded by a fresh PENDING one -- the
-    // member should hear about the live one, not the stale rejection.
-    await createEpicRequest(person.id, staff.id, "REJECTED", { createdAt: new Date("2026-01-01") });
+    // An older COMPLETED request superseded by a fresh PENDING one (a renewal
+    // raised for a new term) -- the member should hear about the live one.
+    await createEpicRequest(person.id, staff.id, "COMPLETED", { createdAt: new Date("2026-01-01") });
     await createEpicRequest(person.id, staff.id, "PENDING", { createdAt: new Date("2026-06-01") });
 
     const text = await myEpicStatusTool.run({ personId: person.id }, {});
 
     expect(text).toMatch(/has not yet been sent to the hospital/i);
-    expect(text).not.toMatch(/declined/i);
+    expect(text).not.toMatch(/has been completed/i);
   });
 
   it("ignores a later CANCELLED row and falls back to the most recent non-cancelled one", async () => {

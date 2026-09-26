@@ -8,6 +8,8 @@ import { prisma } from "@/platform/db";
 import { getAccessTerm } from "@/platform/terms/access-term";
 import { epicRequirementFor, strictestEpicRequirement } from "@/modules/recruitment/contract/epic-requirement";
 import type { McpTool } from "./index";
+import { outstandingEhsClause } from "./ehs";
+import { hubLink } from "./links";
 
 /**
  * Renders one outstanding onboarding task as a member-facing clause, reusing
@@ -27,6 +29,21 @@ import type { McpTool } from "./index";
  * wrong there would tell a member their cert is valid through the wrong date.
  */
 async function describeOutstandingTask(personId: string, task: OnboardingTask): Promise<string> {
+  // EHS has no Hub page to send anyone to, and its generic copy names none of
+  // the actual trainings, so it gets the specific list plus the "a coordinator
+  // records it" explanation instead. See outstandingEhsClause.
+  if (task.key === "ehs") {
+    return (await outstandingEhsClause(personId)) ?? `${task.label}: ${task.description}`;
+  }
+
+  const clause = await taskClause(personId, task);
+  // The /get-started page the in-app checklist links this task to. Every task
+  // but EHS has one, and handing it over turns "you are not cleared" into
+  // something the member can act on without a second question.
+  return task.href ? `${clause} Hub page: ${await hubLink(task.href)}` : clause;
+}
+
+async function taskClause(personId: string, task: OnboardingTask): Promise<string> {
   const base = `${task.label}: ${task.description}`;
   if (task.key !== "hipaa" || task.state !== "INCOMPLETE") return base;
 
@@ -146,7 +163,7 @@ export const myClearanceStatusTool: McpTool = {
   name: "my_clearance_status",
   title: "My clearance status",
   description:
-    "Whether the signed-in member is cleared to work at clinic this term, and if not, exactly what is outstanding. Use for questions like 'am I cleared?', 'why can't I sign up for a shift?', or 'what do I still need to finish?'.",
+    "Whether the signed-in member is cleared to work at clinic this term, and if not, exactly what is outstanding (profile, HIPAA certificate, training, courses, EHS) with a Hub link for each. Use for questions like 'am I cleared?', 'why can't I sign up for a shift?', 'what do I still need to finish?', 'I uploaded my HIPAA certificate, why am I still blocked?', or 'I finished my BBP/EHS training, why does it still show as missing?'. Relay the links in the answer.",
   inputSchema: z.object({}),
   run: async (ctx) => {
     const status = await getOnboardingStatus(ctx.personId);

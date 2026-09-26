@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import { assertSafeToolOutput, collectSchemaKeys, FORBIDDEN_OUTPUT_PATTERN, IDENTITY_ARGUMENT_PATTERN } from "./index";
-import { departmentRosterTool, memberStatusTool } from "./roster";
+import { departmentRosterTool, memberStatusTool, volunteerClearanceTool } from "./roster";
 
 /**
  * These are real-DB tests, not mocked-service ones like compliance.test.ts and
@@ -319,6 +319,19 @@ describe("department_roster", () => {
     expect(text).not.toContain("Volunteer 29"); // the truncated tail must not leak through
   });
 
+  it("points at the People directory for email addresses, and never includes any itself", async () => {
+    const f = await fixture();
+    const caller = await createPerson("Director Wanting Emails");
+    await addMembership(caller.id, f.term.id, f.nursing.id, "DIRECTOR");
+    const v = await createPerson("Volunteer With Email", { contactEmail: "vol@example.org" });
+    await addMembership(v.id, f.term.id, f.nursing.id, "VOLUNTEER");
+
+    const text = await departmentRosterTool.run({ personId: caller.id }, { department: "Nursing" });
+
+    expect(text).toMatch(/For email addresses, use the People directory: https?:\/\/\S+\/volunteers\/directory/);
+    expect(text).not.toContain("vol@example.org");
+  });
+
   it("declares no identity-shaped input", () => {
     for (const key of collectSchemaKeys(departmentRosterTool.inputSchema)) {
       expect(IDENTITY_ARGUMENT_PATTERN.test(key)).toBe(false);
@@ -398,5 +411,88 @@ describe("member_status", () => {
       expect(IDENTITY_ARGUMENT_PATTERN.test(key)).toBe(false);
     }
     expect(Object.keys(memberStatusTool.inputSchema.shape)).toEqual(["name"]);
+  });
+});
+
+describe("volunteer_clearance", () => {
+  it("tells a director what their own volunteer still owes, with a link to the compliance record", async () => {
+    const f = await fixture();
+    const director = await createPerson("Nursing Director");
+    await addMembership(director.id, f.term.id, f.nursing.id, "DIRECTOR");
+    const volunteer = await createPerson("Uncleared Volunteer");
+    await addMembership(volunteer.id, f.term.id, f.nursing.id, "VOLUNTEER");
+
+    const text = await volunteerClearanceTool.run({ personId: director.id }, { name: "Uncleared Volunteer" });
+
+    expect(text).toContain("Uncleared Volunteer is not yet cleared for Summer 2026");
+    // No certificate on file at all -> the HIPAA item is named, third-person.
+    expect(text).toMatch(/HIPAA certificate missing, expired, or not accepted/);
+    expect(text).toContain(`/volunteers/compliance/${volunteer.id}`);
+    // Written about the volunteer, not to them.
+    expect(text).not.toMatch(/\byour\b/i);
+  });
+
+  it("names the missing EHS trainings and says who records them", async () => {
+    const f = await fixture();
+    const director = await createPerson("EHS Director");
+    await addMembership(director.id, f.term.id, f.nursing.id, "DIRECTOR");
+    const volunteer = await createPerson("EHS Volunteer");
+    await addMembership(volunteer.id, f.term.id, f.nursing.id, "VOLUNTEER");
+    await prisma.ehsTraining.create({ data: { name: "Chemical Safety", requiredForAll: true, position: 1 } });
+
+    const text = await volunteerClearanceTool.run({ personId: director.id }, { name: "EHS Volunteer" });
+
+    expect(text).toContain("EHS training not yet recorded: Chemical Safety");
+    expect(text).toMatch(/recorded in the Hub by the compliance team/);
+  });
+
+  it("returns byte-identical refusals for another department's volunteer, an unknown name, and a caller with no reach", async () => {
+    const f = await fixture();
+    const director = await createPerson("Scoped Nursing Director");
+    await addMembership(director.id, f.term.id, f.nursing.id, "DIRECTOR");
+    const triageVolunteer = await createPerson("Hidden Triage Volunteer");
+    await addMembership(triageVolunteer.id, f.term.id, f.triage.id, "VOLUNTEER");
+    const plainVolunteer = await createPerson("Plain Volunteer");
+    await addMembership(plainVolunteer.id, f.term.id, f.nursing.id, "VOLUNTEER");
+    const colleague = await createPerson("Nursing Colleague");
+    await addMembership(colleague.id, f.term.id, f.nursing.id, "VOLUNTEER");
+
+    const otherDept = await volunteerClearanceTool.run({ personId: director.id }, { name: "Hidden Triage Volunteer" });
+    const unknown = await volunteerClearanceTool.run({ personId: director.id }, { name: "Nobody Real Zzyzx" });
+    // A volunteer has no volunteers.view, so not even a same-department peer.
+    const peer = await volunteerClearanceTool.run({ personId: plainVolunteer.id }, { name: "Nursing Colleague" });
+
+    expect(otherDept).toBe(unknown);
+    expect(peer).toBe(unknown);
+    expect(otherDept).not.toContain("Hidden Triage Volunteer");
+  });
+
+  it("gives a clinic-wide compliance reader any member, and says plainly when someone is not on a roster", async () => {
+    const f = await fixture();
+    const complianceRole = await prisma.role.create({
+      data: { name: "Compliance Reader", grants: { create: [{ permission: "volunteers.view_compliance" }] } },
+    });
+    const reader = await createPerson("Compliance Reader Caller");
+    await prisma.roleAssignment.create({ data: { roleId: complianceRole.id, personId: reader.id, termId: null } });
+
+    const triageVolunteer = await createPerson("Anywhere Volunteer");
+    await addMembership(triageVolunteer.id, f.term.id, f.triage.id, "VOLUNTEER");
+    await createPerson("Former Alum");
+
+    const member = await volunteerClearanceTool.run({ personId: reader.id }, { name: "Anywhere Volunteer" });
+    expect(member).toContain("Anywhere Volunteer is not yet cleared");
+
+    const alum = await volunteerClearanceTool.run({ personId: reader.id }, { name: "Former Alum" });
+    // Never "cleared": an alum has no requirements left to fail, which is not
+    // the same as being cleared to work.
+    expect(alum).toMatch(/not on the roster for the current or upcoming term/);
+    expect(alum).not.toMatch(/is cleared/);
+  });
+
+  it("declares no identity-shaped input", () => {
+    for (const key of collectSchemaKeys(volunteerClearanceTool.inputSchema)) {
+      expect(IDENTITY_ARGUMENT_PATTERN.test(key)).toBe(false);
+    }
+    expect(Object.keys(volunteerClearanceTool.inputSchema.shape)).toEqual(["name"]);
   });
 });

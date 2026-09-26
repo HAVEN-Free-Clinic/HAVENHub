@@ -17,12 +17,16 @@ vi.mock("@/platform/db", () => ({
   },
 }));
 vi.mock("@/platform/terms/access-term", () => ({ getAccessTerm: vi.fn() }));
+vi.mock("./ehs", () => ({ outstandingEhsClause: vi.fn() }));
+vi.mock("./links", () => ({ hubLink: vi.fn() }));
 
 import { getOnboardingStatus } from "@/modules/onboarding/services/onboarding";
 import { listMyCertificates } from "@/modules/my-info/services/my-info";
 import { prisma } from "@/platform/db";
 import { getAccessTerm } from "@/platform/terms/access-term";
 import { myClearanceStatusTool } from "./compliance";
+import { outstandingEhsClause } from "./ehs";
+import { hubLink } from "./links";
 
 const mocked = (fn: unknown) => fn as unknown as ReturnType<typeof vi.fn>;
 
@@ -43,6 +47,7 @@ type Task = {
   description: string;
   state: "COMPLETE" | "IN_PROGRESS" | "INCOMPLETE" | "NOT_REQUIRED";
   blocking: boolean;
+  href?: string;
 };
 
 function status(opts: { hasActiveTerm?: boolean; cleared?: boolean; tasks?: Task[] }) {
@@ -74,6 +79,7 @@ function cert(completionDate: string | null, rejectedAt: string | null = null) {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  mocked(hubLink).mockImplementation(async (path: string) => `https://hub.test${path}`);
 });
 
 describe("my_clearance_status", () => {
@@ -218,6 +224,62 @@ describe("my_clearance_status", () => {
 
     expect(mocked(listMyCertificates)).not.toHaveBeenCalled();
     expect(text).toContain("A compliance manager is reviewing it.");
+  });
+
+  it("hands over the Hub page for each outstanding task that has one", async () => {
+    mocked(getOnboardingStatus).mockResolvedValue(
+      status({
+        cleared: false,
+        tasks: [
+          {
+            key: "hipaa",
+            label: "HIPAA certificate",
+            description: "We have your certificate. A compliance manager is reviewing it.",
+            state: "IN_PROGRESS",
+            blocking: true,
+            href: "/get-started/hipaa",
+          },
+        ],
+      })
+    );
+
+    const text = await myClearanceStatusTool.run({ personId: "p1" }, {});
+
+    // The "I uploaded it, why am I still blocked" ticket: the answer names the
+    // wait and where to see it, not just "HIPAA is outstanding".
+    expect(text).toContain("A compliance manager is reviewing it.");
+    expect(text).toContain("Hub page: https://hub.test/get-started/hipaa");
+  });
+
+  it("names the specific EHS trainings and how they get recorded, instead of the generic step copy", async () => {
+    mocked(getOnboardingStatus).mockResolvedValue(
+      status({
+        cleared: false,
+        tasks: [{ key: "ehs", label: "EHS training", description: "generic", state: "INCOMPLETE", blocking: false }],
+      })
+    );
+    mocked(outstandingEhsClause).mockResolvedValue("EHS training not yet recorded: BBP Student. Recorded by a coordinator.");
+
+    const text = await myClearanceStatusTool.run({ personId: "p1" }, {});
+
+    expect(text).toContain("BBP Student");
+    expect(text).toContain("Recorded by a coordinator.");
+    expect(text).not.toContain("generic");
+    expect(mocked(outstandingEhsClause)).toHaveBeenCalledWith("p1");
+  });
+
+  it("falls back to the step copy if the EHS task is outstanding but no specific training resolves", async () => {
+    mocked(getOnboardingStatus).mockResolvedValue(
+      status({
+        cleared: false,
+        tasks: [{ key: "ehs", label: "EHS training", description: "generic", state: "INCOMPLETE", blocking: false }],
+      })
+    );
+    mocked(outstandingEhsClause).mockResolvedValue(null);
+
+    const text = await myClearanceStatusTool.run({ personId: "p1" }, {});
+
+    expect(text).toContain("EHS training: generic");
   });
 
   it("reads only the caller's own record", async () => {

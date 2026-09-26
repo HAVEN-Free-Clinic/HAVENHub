@@ -50,10 +50,21 @@ function requireEnv(name: string): string {
   return value;
 }
 
-/** Every email-shaped distinct id whose person has no email property. */
+/** HogQL string literal. Distinct ids are user-typed emails, so escape them. */
+function sqlString(value: string): string {
+  return `'${value.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
+}
+
+/**
+ * Every email-shaped distinct id whose person has no email property.
+ *
+ * Pages by keyset on distinct_id: the Query API rejects OFFSET on queries made
+ * with a personal API key.
+ */
 async function fetchTargets(apiKey: string): Promise<string[]> {
   const ids: string[] = [];
-  for (let offset = 0; ; offset += PAGE_SIZE) {
+  for (;;) {
+    const after = ids.length > 0 ? `AND distinct_id > ${sqlString(ids[ids.length - 1])}` : "";
     const res = await fetch(`${APP_HOST}/api/projects/${PROJECT_ID}/query/`, {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -65,8 +76,9 @@ async function fetchTargets(apiKey: string): Promise<string[]> {
             FROM person_distinct_ids
             WHERE distinct_id LIKE '%@%'
               AND (person.properties.email IS NULL OR person.properties.email = '')
+              ${after}
             ORDER BY distinct_id
-            LIMIT ${PAGE_SIZE} OFFSET ${offset}
+            LIMIT ${PAGE_SIZE}
           `,
         },
       }),

@@ -59,6 +59,26 @@ export type PersonProperties = Record<
   string | number | boolean | string[] | null
 >;
 
+/**
+ * The `name`/`email` person properties for a Hub Person, for `setPersonProperties`.
+ *
+ * The same two values the browser's PostHogIdentify sets, for server events that
+ * may be the ONLY thing PostHog ever hears about someone: a member who gets
+ * shift reminders but never opens the Hub, or who signs in only through the apply
+ * portal, never renders the (app) layout that identifies them, and showed in the
+ * persons list as a bare UUID. Empty values are dropped rather than sent as null,
+ * so a missing contact email never erases one the browser already set.
+ */
+export function personProfile(person: {
+  name?: string | null;
+  email?: string | null;
+}): PersonProperties {
+  const out: PersonProperties = {};
+  if (person.name?.trim()) out.name = person.name;
+  if (person.email?.trim()) out.email = person.email;
+  return out;
+}
+
 export interface CaptureEventInput {
   event: string;
   distinctId: string;

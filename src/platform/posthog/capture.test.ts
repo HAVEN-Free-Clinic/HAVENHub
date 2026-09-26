@@ -10,7 +10,7 @@ vi.mock("@/platform/posthog/posthog-server", () => ({
   getPostHogClient: () => ({ capture, flush, alias }),
 }));
 
-import { aliasPerson, captureEvent, flushEvents, GROUP_DEPARTMENT, GROUP_TERM } from "./capture";
+import { aliasPerson, captureEvent, flushEvents, GROUP_DEPARTMENT, GROUP_TERM, personProfile } from "./capture";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -116,6 +116,29 @@ describe("captureEvent", () => {
     await captureEvent({ event: "e", distinctId: "person-1", flush: false });
     expect(capture).toHaveBeenCalledTimes(1);
     expect(flush).not.toHaveBeenCalled();
+  });
+});
+
+describe("personProfile", () => {
+  it("returns the name and email that are present", () => {
+    expect(personProfile({ name: "Jane Doe", email: "jane@yale.edu" })).toEqual({
+      name: "Jane Doe",
+      email: "jane@yale.edu",
+    });
+  });
+
+  it("drops empty values instead of sending null, so it never erases a set one", () => {
+    expect(personProfile({ name: "Jane Doe", email: null })).toEqual({ name: "Jane Doe" });
+    expect(personProfile({ name: "  ", email: undefined })).toEqual({});
+  });
+});
+
+describe("test isolation", () => {
+  it("runs with the PostHog token claimed as empty, so no test can reach the real project", () => {
+    // vitest.setup.ts claims these before .env loads. Without it, every unmocked
+    // captureEvent in an integration test created a person in production PostHog.
+    expect(process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN).toBe("");
+    expect(process.env.POSTHOG_PERSONAL_API_KEY).toBe("");
   });
 });
 

@@ -77,6 +77,14 @@ for (const key of [
   "AZURE_AD_TENANT_ID",
   "AZURE_AD_CLIENT_ID",
   "AZURE_AD_CLIENT_SECRET",
+  // PostHog. Every integration test that reaches an unmocked captureEvent sent a
+  // real event to the PRODUCTION project (dev, preview and prod share one), and
+  // each fixture Person became a PostHog person: 96 bare-UUID persons in one
+  // afternoon once the token was added to .env. An empty token disables the
+  // posthog-node client outright.
+  "NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN",
+  "NEXT_PUBLIC_POSTHOG_HOST",
+  "POSTHOG_PERSONAL_API_KEY",
 ]) {
   process.env[key] = "";
 }

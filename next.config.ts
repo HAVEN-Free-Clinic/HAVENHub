@@ -187,6 +187,21 @@ const nextConfig: NextConfig = {
         source: "/ingest/:path*",
         destination: "https://us.i.posthog.com/:path*",
       },
+      // OAuth discovery for the per-user MCP endpoints (src/platform/oauth).
+      // Clients look these up at fixed /.well-known paths (RFC 8414, RFC 9728);
+      // the documents are built per request, so they live in API routes.
+      {
+        source: "/.well-known/oauth-authorization-server",
+        destination: "/api/oauth/authorization-server",
+      },
+      {
+        source: "/.well-known/oauth-protected-resource/:path*",
+        destination: "/api/oauth/protected-resource/:path*",
+      },
+      {
+        source: "/.well-known/oauth-protected-resource",
+        destination: "/api/oauth/protected-resource",
+      },
     ];
   },
   skipTrailingSlashRedirect: true,

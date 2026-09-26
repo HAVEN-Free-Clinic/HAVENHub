@@ -441,6 +441,14 @@ export const MODULES: ModuleManifest[] = [
       "recruitment.review_all",
       "recruitment.score",
       "recruitment.record_attendance",
+      // Lets a person connect an AI client (Claude) to recruitment data through
+      // /api/mcp/recruitment. Granted per person, never by kind or department:
+      // it sends applicant records to a third-party AI service, which is a
+      // decision about that individual, not a perk of a role. It adds no reach
+      // of its own -- every tool behind it re-checks the same recruitment
+      // permissions the pages do -- it only decides whether that reach may
+      // leave the Hub through a connector.
+      "recruitment.api_access",
     ],
     status: "active",
     nav: [

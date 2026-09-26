@@ -392,6 +392,8 @@ model Person {
   updatedAt                      DateTime                     @updatedAt
   historicalApplicantLinks       HistoricalApplicant[]        @relation("historicalApplicantPerson")
   calendarFeedToken              CalendarFeedToken?
+  oauthConnections               OAuthConnection[]            @relation("oauthConnectionPerson")
+  oauthConnectionsRevoked        OAuthConnection[]            @relation("oauthConnectionRevoker")
   serviceCredential              ServiceCredential?
   walletPasses                   WalletPass[]
 
@@ -3907,6 +3909,94 @@ model CalendarFeedToken {
   lastFetchedAt DateTime?
   /// Cascade: the feed belongs to the person and dies with them.
   person        Person    @relation(fields: [personId], references: [id], onDelete: Cascade)
+}
+
+/// One person's consent for one OAuth client (an AI connector such as Claude)
+/// to call one Hub MCP resource as them. See src/platform/oauth.
+///
+/// The connection is what a person or an admin revokes; its tokens die with it.
+/// A new consent for the same person, client, and resource revokes the previous
+/// connection rather than stacking a second live one.
+model OAuthConnection {
+  id          String    @id @default(cuid())
+  personId    String
+  /// Either a Client ID Metadata Document URL or the id of a self-registered
+  /// OAuthClient (see src/platform/oauth/client.ts). Not a secret either way.
+  clientId    String
+  /// The name the client gave for itself at consent time, for the Connected
+  /// apps page. Self-asserted, so it is shown as a label, never as proof.
+  clientName  String?
+  /// The MCP resource URL this consent is for, exactly as advertised in the
+  /// protected-resource metadata. Access tokens are only honored on this URL.
+  resource    String
+  scope       String
+  createdAt   DateTime  @default(now())
+  /// Written at most once a minute, so a busy connector cannot turn every tool
+  /// call into a write.
+  lastUsedAt  DateTime?
+  revokedAt   DateTime?
+  /// Null when the connection was revoked automatically (a replayed refresh
+  /// token, a superseding consent) rather than by a person.
+  revokedById String?
+
+  /// Cascade: a person's consents die with them.
+  person    Person       @relation("oauthConnectionPerson", fields: [personId], references: [id], onDelete: Cascade)
+  /// SetNull: removing the admin who revoked it must not resurrect or delete the record.
+  revokedBy Person?      @relation("oauthConnectionRevoker", fields: [revokedById], references: [id], onDelete: SetNull)
+  tokens    OAuthToken[]
+
+  @@index([personId])
+}
+
+/// An MCP client that registered itself through dynamic client registration
+/// (RFC 7591, POST /api/oauth/register) -- how Cursor, VS Code, MCP Inspector
+/// and most local agents connect. Registering grants nothing: a person still has
+/// to sign in and approve the client on the consent screen.
+model OAuthClient {
+  /// The client_id handed back at registration. Random, not a cuid, so ids
+  /// cannot be guessed from creation order.
+  id                      String    @id
+  clientName              String?
+  redirectUris            String[]
+  /// "none" (public, PKCE only), "client_secret_post" or "client_secret_basic".
+  tokenEndpointAuthMethod String    @default("none")
+  /// SHA-256 of the client secret, for the two secret-bearing methods only.
+  secretHash              String?
+  createdAt               DateTime  @default(now())
+  /// Set when someone approves this client. A registration nobody ever approves
+  /// is deleted after a week (see sweepUnusedClients).
+  lastUsedAt              DateTime?
+
+  @@index([createdAt])
+}
+
+enum OAuthTokenKind {
+  AUTH_CODE
+  ACCESS
+  REFRESH
+}
+
+/// A bearer credential issued under an OAuthConnection. Only the SHA-256 of the
+/// token is stored; the plaintext exists once, in the response that issued it.
+model OAuthToken {
+  id            String         @id @default(cuid())
+  connectionId  String
+  kind          OAuthTokenKind
+  tokenHash     String         @unique
+  expiresAt     DateTime
+  /// Set when a single-use token (AUTH_CODE, REFRESH) is exchanged. Presenting
+  /// one again after this is set is treated as theft and revokes the connection.
+  usedAt        DateTime?
+  /// AUTH_CODE only: the PKCE S256 challenge and the redirect URI it was issued
+  /// for, both re-checked at the token endpoint.
+  codeChallenge String?
+  redirectUri   String?
+  createdAt     DateTime       @default(now())
+
+  /// Cascade: tokens are meaningless without their connection.
+  connection OAuthConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@index([connectionId])
 }
 
 enum HistoricalStage {

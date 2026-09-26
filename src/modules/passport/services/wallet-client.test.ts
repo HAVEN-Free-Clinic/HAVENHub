@@ -10,7 +10,7 @@ const { mockConfig } = vi.hoisted(() => ({
 vi.mock("@/platform/config", () => ({ config: mockConfig }));
 
 import { log } from "@/platform/logging";
-import { createPass, revokePass, updatePass } from "./wallet-client";
+import { createPass, isWalletIssuingEnabled, revokePass, updatePass } from "./wallet-client";
 
 const OK = {
   serialNumber: "ser_123",
@@ -90,6 +90,10 @@ describe("wallet client", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) }));
 
     expect(await createPass(INPUT)).toBeNull();
+  });
+
+  it("keeps issuing paused even with an API key configured", () => {
+    expect(isWalletIssuingEnabled()).toBe(false);
   });
 
   it("returns null when no API key is configured", async () => {

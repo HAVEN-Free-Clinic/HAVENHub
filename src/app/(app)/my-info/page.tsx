@@ -33,7 +33,7 @@ import {
   type IssuedCredential,
 } from "@/modules/passport/services/credential";
 import { issueWalletPass } from "@/modules/passport/services/wallet-pass";
-import { isWalletEnabled } from "@/modules/passport/services/wallet-client";
+import { isWalletIssuingEnabled } from "@/modules/passport/services/wallet-client";
 import { ServiceRecordCard } from "@/modules/passport/components/service-record-card";
 import { listMyStrikes } from "@/modules/incidents/services/disciplinary";
 import { StrikesPanel } from "./strikes-panel";
@@ -78,9 +78,9 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
     ]);
 
   // Resolved on the server so the card can omit the wallet section entirely
-  // when no vendor key is configured, rather than rendering a button that
-  // would always come back null.
-  const walletEnabled = isWalletEnabled();
+  // when no vendor key is configured or issuing is paused, rather than
+  // rendering a button that would always come back null.
+  const walletEnabled = isWalletIssuingEnabled();
 
   // Server actions
   async function updateAction(formData: FormData) {
@@ -243,6 +243,9 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
   async function issueWalletPassAction(): Promise<Awaited<ReturnType<typeof issueWalletPass>>> {
     "use server";
     const session = await requireModuleAccess("my-info");
+    // Also refused here, not just hidden: an open tab rendered before the
+    // pause still holds the button.
+    if (!isWalletIssuingEnabled()) return null;
     return issueWalletPass(session.personId);
   }
 

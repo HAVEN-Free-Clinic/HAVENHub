@@ -19,6 +19,7 @@ const member: BuilderMember = {
   legacyNote: null,
   intake: { preferredShifts: null, feedback: null },
   provisional: null,
+  newcomer: null,
 };
 
 const noop = async () => {};

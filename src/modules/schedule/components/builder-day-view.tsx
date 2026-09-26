@@ -27,6 +27,7 @@ import { Input } from "@/platform/ui/input";
 import { AlertTriangle } from "lucide-react";
 import { IntakeNotes } from "./intake-notes";
 import { PROVISIONAL_BADGE_LABEL, PROVISIONAL_STAGE_LABEL } from "./provisional-labels";
+import { NewcomerBadge } from "./newcomer-badge";
 import { isoDateKey } from "@/platform/dates";
 import { rolesForDept } from "@/modules/schedule/engine/capacity";
 import { compareBuilderMembers } from "@/modules/schedule/engine/member-order";
@@ -163,20 +164,28 @@ export function BuilderDayView({
 
   /**
    * The "Incoming" chip for an assignee who is accepted but not on the roster
-   * yet, or null for everyone else.
+   * yet, plus the "New" / "Transfer" chip for anyone joining the department
+   * this term. Renders nothing for a returning, confirmed member.
    *
    * Shown in the Assigned column as well as the pool, because "who is working
    * this Saturday" is the question this column answers, and a draft shift on
    * somebody still finishing onboarding is a different answer from a confirmed
    * one. Without it the two are indistinguishable once assigned.
    */
-  function incomingBadge(pid: string): ReactNode {
-    const incoming = memberByPersonId.get(pid)?.provisional;
-    if (!incoming) return null;
+  function assigneeBadges(pid: string): ReactNode {
+    const member = memberByPersonId.get(pid);
+    const incoming = member?.provisional;
     return (
-      <Badge tone="warning" title={PROVISIONAL_STAGE_LABEL[incoming.stage]}>
-        {PROVISIONAL_BADGE_LABEL}
-      </Badge>
+      <>
+        {incoming && (
+          <Badge tone="warning" title={PROVISIONAL_STAGE_LABEL[incoming.stage]}>
+            {PROVISIONAL_BADGE_LABEL}
+          </Badge>
+        )}
+        {/* New and transfer people too: "who on this Saturday is new" is how a
+            director checks each one is paired with someone experienced. */}
+        <NewcomerBadge newcomer={member?.newcomer ?? null} />
+      </>
     );
   }
 
@@ -302,6 +311,7 @@ export function BuilderDayView({
               <Badge tone="default">{PROVISIONAL_STAGE_LABEL[incoming.stage]}</Badge>
             </>
           )}
+          <NewcomerBadge newcomer={member.newcomer} />
           {flagBadges(member.person)}
           {!available && <Badge tone="warning">not free</Badge>}
         </div>
@@ -390,7 +400,7 @@ export function BuilderDayView({
                     <div className="flex flex-wrap items-center gap-2">
                       {profileLink(pid, <span className="text-sm font-bold text-foreground">{name}</span>)}
                       {flagPerson && flagBadges(flagPerson)}
-                      {incomingBadge(pid)}
+                      {assigneeBadges(pid)}
                     </div>
                     {/* Directors carry the same per-assignment flags volunteers
                         do: a director can hold the triage post or work the day
@@ -431,7 +441,7 @@ export function BuilderDayView({
                     <div className="flex flex-wrap items-center gap-2 text-sm">
                       {profileLink(pid, <span className="font-medium text-foreground">{name}</span>)}
                       {flagPerson && flagBadges(flagPerson)}
-                      {incomingBadge(pid)}
+                      {assigneeBadges(pid)}
                       {personConflicts.length > 0 && (
                         <Badge tone="warning" title={personConflicts.join(", ")}>
                           Also in {personConflicts.join(", ")}
@@ -468,7 +478,7 @@ export function BuilderDayView({
                     <div className="flex flex-wrap items-center gap-2">
                       {profileLink(pid, <span className="text-sm font-medium text-foreground-soft">{name}</span>)}
                       {flagPerson && flagBadges(flagPerson)}
-                      {incomingBadge(pid)}
+                      {assigneeBadges(pid)}
                     </div>
                     {editable && tagToggles(pid, ["remote"])}
                     {editable && (

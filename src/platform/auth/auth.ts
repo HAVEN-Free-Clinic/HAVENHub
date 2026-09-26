@@ -13,7 +13,7 @@ import {
 import { verifyAndConsumeMemberToken } from "./member-magic-link";
 import { recordAudit } from "@/platform/audit";
 import { prisma } from "@/platform/db";
-import { captureEvent, GROUP_TERM, type PersonProperties } from "@/platform/posthog/capture";
+import { captureEvent, GROUP_TERM, personProfile, type PersonProperties } from "@/platform/posthog/capture";
 import { headers } from "next/headers";
 import { log, errorAttrs } from "@/platform/logging";
 import { recordLoginContext } from "./login-record";
@@ -192,6 +192,19 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           let termId: string | undefined;
           const setProps: PersonProperties = {};
           try {
+            // name/email too: a member who signs in only through the apply
+            // portal never renders the (app) layout whose PostHogIdentify sets
+            // them, and showed in the PostHog persons list as a bare UUID.
+            const person = await prisma.person.findUnique({
+              where: { id: personId },
+              select: { name: true, contactEmail: true },
+            });
+            if (person) {
+              Object.assign(
+                setProps,
+                personProfile({ name: person.name, email: person.contactEmail ?? user?.email }),
+              );
+            }
             const term = await prisma.term.findFirst({
               where: { status: "ACTIVE" },
               orderBy: { startDate: "desc" },

@@ -13,7 +13,7 @@ import { notify } from "@/platform/notifications/notify";
 import { renderEmail } from "./templates/renderEmail";
 import { claimReminderDispatch, releaseReminderDispatch } from "./reminder-dispatch";
 import { log, errorAttrs } from "@/platform/logging";
-import { captureEvent, flushEvents, GROUP_TERM } from "@/platform/posthog/capture";
+import { captureEvent, flushEvents, GROUP_TERM, personProfile } from "@/platform/posthog/capture";
 
 export const ROLE_LABEL: Record<ShiftRole, string> = {
   DIRECTOR: "Director",
@@ -531,6 +531,7 @@ export async function runShiftReminders(now: Date = new Date()): Promise<ShiftRe
         distinctId: item.person.id,
         properties: { target_date: targetKey },
         groups: { [GROUP_TERM]: term.id },
+        setPersonProperties: personProfile({ name: item.person.name, email: item.person.contactEmail }),
         flush: false,
       });
     } catch (err) {
@@ -603,6 +604,7 @@ export async function runShiftReminders(now: Date = new Date()): Promise<ShiftRe
         distinctId: item.person.id,
         properties: { target_date: targetKey, role: item.spec.roleLabel, template: item.spec.templateKey },
         groups: { [GROUP_TERM]: term.id },
+        setPersonProperties: personProfile({ name: item.person.name, email: item.person.contactEmail }),
         flush: false,
       });
     } catch (err) {

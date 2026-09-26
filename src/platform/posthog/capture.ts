@@ -109,13 +109,34 @@ function cleanGroups(groups?: EventGroups): Record<string, string> | undefined {
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+/**
+ * The `$set` payload for an event, or undefined when there is nothing to set.
+ *
+ * Applicant events (drafts, submissions, magic links, onboarding contracts) use
+ * the applicant's EMAIL as the distinct id, because there is no Person yet. Those
+ * captures set no person properties, so ~1,500 PostHog persons had none at all,
+ * and the persons list (which reads only `name`/`email` properties, never the
+ * distinct id) showed them as bare UUIDs. Stamping `email` here fixes every
+ * email-keyed call site at once.
+ *
+ * The distinct id is copied verbatim, never trimmed or lowercased: it has to
+ * match the id the person already carries. A caller's own `email` wins.
+ */
+function personSet(input: CaptureEventInput): PersonProperties | undefined {
+  const set = input.distinctId.includes("@")
+    ? { email: input.distinctId, ...input.setPersonProperties }
+    : input.setPersonProperties;
+  return set && Object.keys(set).length > 0 ? set : undefined;
+}
+
 /** Capture one server-side event. Flushes (bounded, best-effort) unless `flush: false`.
  *  Never throws -- analytics must not fail a committed user action. */
 export async function captureEvent(input: CaptureEventInput): Promise<void> {
   try {
     const client = getPostHogClient();
     const properties: Record<string, unknown> = cleanProperties(input.properties);
-    if (input.setPersonProperties) properties.$set = input.setPersonProperties;
+    const $set = personSet(input);
+    if ($set) properties.$set = $set;
     client.capture({
       distinctId: input.distinctId,
       event: input.event,

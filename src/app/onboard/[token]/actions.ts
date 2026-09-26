@@ -8,6 +8,7 @@ import { prisma } from "@/platform/db";
 import { log, errorAttrs } from "@/platform/logging";
 import { captureEvent } from "@/platform/posthog/capture";
 import { activeTermGroup } from "@/platform/posthog/groups";
+import { displayNameOf } from "@/platform/person-name";
 
 export type SubmitResult =
   | { ok: true; nextSteps: OnboardingNextSteps }
@@ -141,9 +142,18 @@ export async function submitOnboarding(token: string, formData: FormData): Promi
   };
   try {
     const contract = await submitContract(token, input);
+    const personName = displayNameOf({
+      legalFirstName: input.firstName,
+      lastName: input.lastName,
+      preferredFirstName: input.preferredFirstName,
+    });
     await captureEvent({
       event: "onboarding_contract_submitted",
       distinctId: contract.email,
+      // captureEvent stamps `email` from the distinct id. This is the one
+      // email-keyed event with a full name in scope, so the PostHog persons
+      // list can show the volunteer by name rather than by address.
+      setPersonProperties: personName ? { name: personName } : undefined,
       // captureEvent itself never throws (platform/posthog/capture.ts), but
       // activeTermGroup runs its own prisma.term.findFirst in this argument
       // position (platform/posthog/groups.ts), unguarded. A DB blip there

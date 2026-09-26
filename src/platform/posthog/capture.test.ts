@@ -70,6 +70,48 @@ describe("captureEvent", () => {
     );
   });
 
+  it("stamps email on the person when the distinct id is an email, verbatim", async () => {
+    // Applicant events are keyed by email and set nothing else, so the PostHog
+    // persons list showed ~1,500 of them as bare UUIDs. The id must be copied
+    // exactly: trimming or lowercasing it would not match the existing person.
+    await captureEvent({ event: "application_draft_saved", distinctId: "Applicant@Example.com" });
+    expect(capture).toHaveBeenCalledWith(
+      expect.objectContaining({
+        properties: expect.objectContaining({ $set: { email: "Applicant@Example.com" } }),
+      }),
+    );
+  });
+
+  it("keeps caller person properties alongside the stamped email, and lets a caller email win", async () => {
+    await captureEvent({
+      event: "onboarding_contract_submitted",
+      distinctId: "a@b.co",
+      setPersonProperties: { name: "Jane Doe" },
+    });
+    expect(capture).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        properties: expect.objectContaining({ $set: { email: "a@b.co", name: "Jane Doe" } }),
+      }),
+    );
+
+    await captureEvent({
+      event: "e",
+      distinctId: "a@b.co",
+      setPersonProperties: { email: "other@b.co" },
+    });
+    expect(capture).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        properties: expect.objectContaining({ $set: { email: "other@b.co" } }),
+      }),
+    );
+  });
+
+  it("sets no person properties for a non-email distinct id", async () => {
+    await captureEvent({ event: "e", distinctId: "person-1" });
+    const props = capture.mock.calls[0][0].properties;
+    expect(props).not.toHaveProperty("$set");
+  });
+
   it("does not flush when flush is false", async () => {
     await captureEvent({ event: "e", distinctId: "person-1", flush: false });
     expect(capture).toHaveBeenCalledTimes(1);

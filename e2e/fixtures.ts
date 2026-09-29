@@ -431,23 +431,39 @@ function isoDateKeyUTC(d: Date): string {
  * this is a no-op and cleanup does nothing, so it never clobbers a real date.
  */
 export async function seedTodayClinicDate() {
-  const term = await activeTerm();
   const zone = await resolveDisplayZone();
-  const todayKey = ymdInZone(new Date(), zone);
-  const existing = term.clinicDates.find((d) => isoDateKeyUTC(d) === todayKey);
-  const clinicDate = existing ?? new Date(`${todayKey}T12:00:00Z`);
+  const { cleanup, clinicDate, termId, dateKey } = await seedClinicDate(ymdInZone(new Date(), zone));
+  return { termId, clinicDate, todayKey: dateKey, cleanup };
+}
+
+/**
+ * Ensures a Saturday two to three weeks from now is one of the active term's
+ * clinic dates, for tests that need a date that has not passed. The seeded
+ * term's dates are a fixed range that is now entirely in the past, so the last
+ * seeded date is no longer a safe stand-in for "upcoming". Same idempotence and
+ * cleanup contract as seedTodayClinicDate.
+ */
+export async function seedUpcomingClinicDate() {
+  const d = new Date(Date.now() + 14 * 86400000);
+  d.setUTCDate(d.getUTCDate() + ((6 - d.getUTCDay() + 7) % 7));
+  return seedClinicDate(isoDateKeyUTC(d));
+}
+
+async function seedClinicDate(dateKey: string) {
+  const term = await activeTerm();
+  const existing = term.clinicDates.find((d) => isoDateKeyUTC(d) === dateKey);
+  const clinicDate = existing ?? new Date(`${dateKey}T12:00:00Z`);
 
   if (!existing) {
-    await prisma.term.update({
-      where: { id: term.id },
-      data: { clinicDates: [...term.clinicDates, clinicDate] },
-    });
+    // Sorted, because the builder's date strip renders clinicDates in stored order.
+    const clinicDates = [...term.clinicDates, clinicDate].sort((a, b) => a.getTime() - b.getTime());
+    await prisma.term.update({ where: { id: term.id }, data: { clinicDates } });
   }
 
   return {
     termId: term.id,
     clinicDate,
-    todayKey,
+    dateKey,
     cleanup: async () => {
       if (existing) return;
       await prisma.term

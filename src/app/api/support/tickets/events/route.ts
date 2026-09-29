@@ -248,9 +248,15 @@ async function handleTicketCreated(item: Record<string, unknown>): Promise<Respo
   const attrs = (item.ticket_attributes && typeof item.ticket_attributes === "object"
     ? (item.ticket_attributes as Record<string, unknown>)
     : {}) as Record<string, unknown>;
-  const subject = asString(attrs["_default_title_"]) ?? "";
-  const description = asString(attrs["_default_description_"]) ?? "";
   const ticketTypeName = extractTicketTypeName(item);
+  // Title and description are both optional in Intercom, but the Hub requires
+  // each one, so a blank one is filled in here rather than refused. Refusing
+  // was a 400, which Intercom retries once and then drops: on 2026-09-28 three
+  // untitled "Epic Access" tickets never reached the Hub at all.
+  const subject = asString(attrs["_default_title_"])?.trim() || `${ticketTypeName?.trim() || "Support"} request`;
+  const description =
+    asString(attrs["_default_description_"])?.trim() ||
+    "No description was entered in Intercom. See the linked conversation.";
   const category = mapIntercomTicketTypeToCategory(ticketTypeName);
 
   // Identity comes ONLY from the conversation, via the exact same verified
@@ -370,6 +376,12 @@ async function handleTicketCreated(item: Record<string, unknown>): Promise<Respo
       return Response.json({ error: "Service Unavailable" }, { status: 503 });
     }
     if (err instanceof SupportStateError) {
+      // Logged because this 400 drops the ticket for good (Intercom stops
+      // retrying) and before this line nothing recorded it happening.
+      log.warn("[support] refused to create a ticket from an Intercom ticket.created webhook", {
+        ticketId,
+        reason: err.message,
+      });
       return Response.json({ error: err.message }, { status: 400 });
     }
     throw err;

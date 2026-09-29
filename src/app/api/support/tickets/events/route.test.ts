@@ -469,6 +469,46 @@ describe("POST /api/support/tickets/events", () => {
       const ticket = await prisma.techRequest.findUnique({ where: { number: json.number } });
       expect(ticket?.category).toBe("OTHER");
     });
+
+    // Production, 2026-09-28: three "Epic Access" tickets created in Intercom
+    // with no title 400'd here, Intercom gave up after one retry, and no Hub
+    // ticket ever existed. The title is optional in Intercom; it cannot be
+    // required here.
+    it("creates the ticket when Intercom sent no title, naming it after the ticket type", async () => {
+      const person = await createPerson("Sam Rivera");
+      mocked(resolveIdentityFromConversation).mockResolvedValue({ ok: true, personId: person.id, name: person.name });
+
+      const { POST } = await import("./route");
+      const res = await POST(
+        signedReq(
+          ticketCreatedPayload({
+            ticket_type: { name: "Epic Access" },
+            ticket_attributes: { _default_title_: null, _default_description_: "My Epic login stopped working." },
+          })
+        )
+      );
+      const json = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(json.created).toBe(true);
+      const ticket = await prisma.techRequest.findUnique({ where: { number: json.number } });
+      expect(ticket?.subject).toBe("Epic Access request");
+      expect(ticket?.description).toBe("My Epic login stopped working.");
+    });
+
+    it("creates the ticket when Intercom sent neither a title nor a description", async () => {
+      const person = await createPerson("Sam Rivera");
+      mocked(resolveIdentityFromConversation).mockResolvedValue({ ok: true, personId: person.id, name: person.name });
+
+      const { POST } = await import("./route");
+      const res = await POST(signedReq(ticketCreatedPayload({ ticket_type: null, ticket_attributes: {} })));
+      const json = await res.json();
+
+      expect(res.status).toBe(200);
+      const ticket = await prisma.techRequest.findUnique({ where: { number: json.number } });
+      expect(ticket?.subject).toBe("Support request");
+      expect(ticket?.description.length).toBeGreaterThan(0);
+    });
   });
 
   describe("ticket.state.updated", () => {

@@ -6,6 +6,7 @@ import {
   seedCapacityConfig,
   seedComplianceMember,
   seedSchedulableVolunteer,
+  seedUpcomingClinicDate,
 } from "./fixtures";
 
 /**
@@ -308,6 +309,18 @@ test("Request round trip: Jack assigns dev.volunteer, volunteer requests drop, J
   page,
 }) => {
   test.setTimeout(90_000);
+  // createRequest/approveRequest refuse a change request for a clinic date that
+  // has already passed, and every seeded SU26 date is now past, so the round
+  // trip adds its own upcoming date. Sorted into the term, it is the last pill.
+  const upcoming = await seedUpcomingClinicDate();
+  try {
+    await requestRoundTrip(page);
+  } finally {
+    await upcoming.cleanup();
+  }
+});
+
+async function requestRoundTrip(page: import("@playwright/test").Page) {
   // Step 1: Jack assigns dev.volunteer to VADM on a not-yet-past date.
   await devLogin(page, "j.carney@yale.edu");
   await page.goto("/schedule/builder");
@@ -316,14 +329,8 @@ test("Request round trip: Jack assigns dev.volunteer, volunteer requests drop, J
   // Select VADM.
   await goToDept(page, await selectDeptByCode(page, "VADM"));
 
-  // Click the LAST date pill, not the first. The date strip renders every
-  // clinic date of the seeded SU26 term unfiltered and in ascending order
-  // (prisma/seed.ts: saturdays("2026-05-30", "2026-09-26")); the first pill
-  // is long past. createRequest/approveRequest now refuse a change request
-  // for a clinic date that has already passed, so the round trip below (drop
-  // request -> approve) needs a date that is not in the past. The term's
-  // final clinic date, 2026-09-26, is the one date in this fixture guaranteed
-  // to be furthest from "past" for as long as this seed is in use.
+  // Click the LAST date pill: the upcoming date seeded above. The strip renders
+  // clinic dates in ascending order and every seeded one is past.
   const dateCount = await page.locator('nav[aria-label="Clinic dates"]').getByRole("link").count();
   await pickDate(page, dateCount - 1);
 
@@ -449,7 +456,7 @@ test("Request round trip: Jack assigns dev.volunteer, volunteer requests drop, J
   // Assert the decided section shows at least one "approved" entry.
   const pendingPanelAfter = page.locator("section").filter({ has: page.locator("h2", { hasText: "Pending requests" }) });
   await expect(pendingPanelAfter.getByText(/approved/i).first()).toBeVisible();
-});
+}
 
 // ---------------------------------------------------------------------------
 // Test 6: Capacity panel renders

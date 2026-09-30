@@ -35,6 +35,7 @@ export const CRON_JOBS: { id: string; label: string; maxStaleMs: number }[] = [
   { id: "recruitment-review-digest", label: "Recruitment review digest", maxStaleMs: 50 * 60 * 60 * 1000 }, // daily
   { id: "schedule-reminders", label: "Schedule reminders", maxStaleMs: 50 * 60 * 60 * 1000 }, // daily
   { id: "shift-reminders", label: "Weekly shift reminders", maxStaleMs: 9 * 24 * 60 * 60 * 1000 }, // weekly
+  { id: "shift-clearance-digest", label: "Weekly on-shift clearance digest (directors)", maxStaleMs: 9 * 24 * 60 * 60 * 1000 }, // weekly
   // Was missing for as long as the job existed, so its heartbeat was written and
   // never read and the panel could not flag it however long it stayed dead
   // (audit 14, finding 4). Its recipients are attendings, who have no Person row

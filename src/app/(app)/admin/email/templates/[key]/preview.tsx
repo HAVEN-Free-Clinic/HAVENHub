@@ -8,6 +8,7 @@ import Placeholder from "@tiptap/extension-placeholder";
 import { renderTemplate } from "@/platform/email/render/render";
 import type { VariableDef } from "@/platform/email/templates/types";
 import { Input, Textarea, Field } from "@/platform/ui/input";
+import { isRichUnsafe } from "./rich-unsafe";
 
 type Mode = "rich" | "source";
 
@@ -22,11 +23,10 @@ export function TemplateEditor(props: {
 }) {
   const [subject, setSubject] = useState(props.initialSubject);
   const [body, setBody] = useState(props.initialBody);
-  // TipTap (StarterKit only) cannot represent tables, <style>, or a full HTML
-  // document, so the rich editor would silently drop them on the first edit. For
-  // such templates -- the layout, and any body with a table/style/doctype/head --
-  // lock the editor to HTML source mode so the structured markup round-trips intact.
-  const richUnsafe = props.isLayout || /<table|<style|<!doctype|<head/i.test(props.initialBody);
+  // Bodies the rich editor would rewrite on the first edit (tables, a full
+  // document, a list wrapped around a raw slot) are locked to HTML source mode so
+  // the markup round-trips intact. See isRichUnsafe.
+  const richUnsafe = isRichUnsafe(props.initialBody, props.isLayout);
   const [mode, setMode] = useState<Mode>(richUnsafe ? "source" : "rich");
   const sourceRef = useRef<HTMLTextAreaElement>(null);
 
@@ -125,7 +125,7 @@ export function TemplateEditor(props: {
           <span className="text-sm font-medium text-foreground-soft">Message body</span>
           <div className="inline-flex overflow-hidden rounded-lg border border-border text-xs">
             {/* eslint-disable-next-line no-restricted-syntax -- segmented editor-mode toggle, active state applied inline */}
-            <button type="button" aria-pressed={mode === "rich"} onClick={() => switchMode("rich")} disabled={richUnsafe} title={richUnsafe ? "This template uses tables or a full HTML layout that the formatted editor can't represent. Edit it as HTML." : undefined} className={`px-2 py-1 ${mode === "rich" ? "bg-brand text-white" : "bg-surface text-foreground-soft"} ${richUnsafe ? "cursor-not-allowed opacity-40" : ""}`}>
+            <button type="button" aria-pressed={mode === "rich"} onClick={() => switchMode("rich")} disabled={richUnsafe} title={richUnsafe ? "This template uses markup the formatted editor can't represent (a table, a full HTML layout, or a generated list). Edit it as HTML." : undefined} className={`px-2 py-1 ${mode === "rich" ? "bg-brand text-white" : "bg-surface text-foreground-soft"} ${richUnsafe ? "cursor-not-allowed opacity-40" : ""}`}>
               Formatted
             </button>
             {/* eslint-disable-next-line no-restricted-syntax -- segmented editor-mode toggle, active state applied inline */}

@@ -8,7 +8,7 @@
  * never the work. These routes are the single drain implementation; there is no
  * background worker to keep in sync.
  *
- * All TEN jobs are triggered by one external scheduler (cron-job.org), where each
+ * All ELEVEN jobs are triggered by one external scheduler (cron-job.org), where each
  * can also be individually switched off. Vercel only fires vercel.json crons on a
  * sufficiently-provisioned paid plan (see commit 7be5efd), so nothing is
  * scheduled there -- vercel.json declares no `crons`.

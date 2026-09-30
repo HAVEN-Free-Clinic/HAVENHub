@@ -105,6 +105,51 @@ export function clearanceDigestContext(p: ClearanceDigestParams): Record<string,
   };
 }
 
+export type ShiftClearanceDigestMember = {
+  name: string;
+  /** "Volunteer", "Director" or "Shadow": the role they are scheduled in. */
+  roleLabel: string;
+  departmentName: string;
+  /** Short labels for what is outstanding, e.g. "HIPAA certificate". */
+  missing: string[];
+};
+
+export type ShiftClearanceDigestParams = {
+  directorName: string;
+  /** Comma-joined names of the departments with someone listed. */
+  departmentNames: string;
+  /** The clinic day these people are scheduled for, already formatted. */
+  clinicDateLabel: string;
+  /** Scheduled members not cleared, grouped by department then by name. */
+  members: ShiftClearanceDigestMember[];
+  /** Absolute link to the volunteers surface, which directors can open. */
+  reviewUrl: string;
+  /** Absolute link to the full clinic schedule. */
+  scheduleUrl: string;
+};
+
+export function shiftClearanceDigestContext(p: ShiftClearanceDigestParams): Record<string, unknown> {
+  const rows = p.members.map((m) => {
+    // An empty list means every task key was unlabeled; say so rather than
+    // printing a dangling colon.
+    const missing = m.missing.length ? esc(m.missing.join(", ")) : "requirements outstanding";
+    return `<li><strong>${esc(m.name)}</strong> (${esc(m.roleLabel)}, ${esc(m.departmentName)}): ${missing}</li>`;
+  });
+  const count = p.members.length;
+  return {
+    directorName: p.directorName,
+    directorFirstName: firstNameOf(p.directorName),
+    departmentNames: p.departmentNames,
+    clinicDateLabel: p.clinicDateLabel,
+    memberCount: count,
+    memberNoun: count === 1 ? "person" : "people",
+    memberVerb: count === 1 ? "is" : "are",
+    memberRowsHtml: rows.join(""),
+    reviewUrl: p.reviewUrl,
+    scheduleUrl: p.scheduleUrl,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Descriptors
 // ---------------------------------------------------------------------------
@@ -182,6 +227,40 @@ export const clearanceDescriptors: TemplateDescriptor[] = [
 <ul>{{{ memberRowsHtml }}}</ul>
 
 <p><a href="{{ reviewUrl }}">Open the volunteers list</a></p>
+
+<p>Thank you,<br>HAVEN Free Clinic</p>`,
+  },
+  {
+    key: "shift-clearance-digest",
+    name: "Clearance: on shift this week but not cleared (directors)",
+    category: "transactional",
+    group: "compliance",
+    variables: [
+      { name: "directorName", label: "Director name", sampleValue: "Dr. Smith" },
+      { name: "directorFirstName", label: "What the director goes by, for the greeting", sampleValue: "Alex" },
+      { name: "departmentNames", label: "Comma-joined department names with someone listed", sampleValue: "Cardiology" },
+      { name: "clinicDateLabel", label: "The clinic day, formatted", sampleValue: "Saturday, October 3, 2026" },
+      { name: "memberCount", label: "How many scheduled people are not cleared", sampleValue: "2" },
+      { name: "memberNoun", label: "\"person\" or \"people\", matched to the count", sampleValue: "people" },
+      { name: "memberVerb", label: "\"is\" or \"are\", matched to the count", sampleValue: "are" },
+      {
+        name: "memberRowsHtml",
+        label: "Pre-rendered <li> rows, one per scheduled person, with what they are missing",
+        sampleValue: "<li><strong>Jane Doe</strong> (Volunteer, Cardiology): HIPAA certificate, EHS training</li>",
+      },
+      { name: "reviewUrl", label: "Absolute link to the volunteers surface", sampleValue: "https://hub.havenfreeclinic.org/volunteers" },
+      { name: "scheduleUrl", label: "Absolute link to the full clinic schedule", sampleValue: "https://hub.havenfreeclinic.org/schedule/full" },
+    ],
+    defaultSubject: "[HAVEN] {{ memberCount }} {{ memberNoun }} on shift {{ clinicDateLabel }} {{ memberVerb }} not cleared",
+    defaultBody: `<p>Hello {{ directorFirstName }},</p>
+
+<p>{{ memberCount }} {{ memberNoun }} scheduled in {{ departmentNames }} for {{ clinicDateLabel }} {{ memberVerb }} not fully cleared. Until they finish the items below, they cannot work their shift:</p>
+
+<ul>{{{ memberRowsHtml }}}</ul>
+
+<p>Please follow up with them before Saturday, or arrange cover if they cannot finish in time.</p>
+
+<p><a href="{{ reviewUrl }}">Open the volunteers list</a> &middot; <a href="{{ scheduleUrl }}">Open the clinic schedule</a></p>
 
 <p>Thank you,<br>HAVEN Free Clinic</p>`,
   },

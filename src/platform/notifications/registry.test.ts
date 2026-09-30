@@ -37,6 +37,7 @@ describe("notification registry", () => {
         "support.comment_added",
         "support.request_resolved",
         "shift-reminder",
+        "shift-clearance-digest",
         "shift-reminder-cc",
         "shift-reminder-triage",
         "clinic-checkin-invite",

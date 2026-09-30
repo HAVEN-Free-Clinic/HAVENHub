@@ -156,6 +156,7 @@ fired by an external scheduler (**cron-job.org**, free tier) hitting `/api/cron/
 | `/api/cron/email` | ~30 min | Failed-send retries + scheduled campaigns stall (interactive mail still flows via enqueue-flush). |
 | `/api/cron/reminders` | daily | HIPAA/EHS compliance reminders + director escalations never sent. |
 | `/api/cron/shift-reminders` | weekly (Mon) | Volunteers miss clinic-day notice. |
+| `/api/cron/shift-clearance-digest` | weekly (Wed 5pm ET) | Directors get no warning that someone scheduled this weekend is not cleared to work. |
 | `/api/cron/attending-reminders` | weekly (Mon) | Attendings miss their Saturday reminder, which Faculty Relations previously sent by hand. |
 | `/api/cron/recruitment-review-digest` | daily | Reviewers stop getting the digest. |
 | `/api/cron/recruitment-drafts` | daily | Applicants receive no unfinished-application reminders, and abandoned drafts are not swept. |
@@ -164,7 +165,7 @@ fired by an external scheduler (**cron-job.org**, free tier) hitting `/api/cron/
 | `/api/cron/wallet-passes` | daily | An offboarded volunteer's wallet badge stays live and scannable indefinitely. |
 | `/api/cron/intercom-reconcile` | daily | Hub/Intercom ticket status drifts permanently with nothing to notice it. |
 
-All **ten** are listed here on purpose. This table carried six until audit 14,
+All **eleven** are listed here on purpose. This table carried six until audit 14,
 so an operator provisioning from it created six schedules and the other four
 existed only in `docs/cron-jobs.md`. Keep the two in sync (see the note at the
 end of this file), and remember each job can also be individually **Inactive**

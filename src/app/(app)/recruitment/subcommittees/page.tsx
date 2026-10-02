@@ -15,7 +15,7 @@ export default async function SubcommitteesListPage() {
     <div className="space-y-6">
       <PageHeader
         title="Subcommittees"
-        description="Manage the subcommittees applicants rank and the recruitment team assigns."
+        description="Manage subcommittees, their leads and members, and whether volunteers can sign up."
         action={
           <Link href="/recruitment/subcommittees/new" className={buttonClasses("primary", "sm")}>
             Create subcommittee
@@ -27,7 +27,9 @@ export default async function SubcommitteesListPage() {
           <TR>
             <TH>Name</TH>
             <TH>Status</TH>
-            <TH>Assigned</TH>
+            <TH>Sign-up</TH>
+            <TH>Members</TH>
+            <TH>Assigned (applications)</TH>
           </TR>
         </THead>
         <tbody>
@@ -41,12 +43,19 @@ export default async function SubcommitteesListPage() {
               <TD>
                 {s.isActive ? <Badge tone="success">Active</Badge> : <Badge tone="default">Inactive</Badge>}
               </TD>
+              <TD>
+                {s.signupOpen ? <Badge tone="brand">Open</Badge> : <span className="text-subtle-foreground">Closed</span>}
+              </TD>
+              <TD>
+                {s._count.memberships}
+                {s.capacity !== null && <span className="text-subtle-foreground"> (cap {s.capacity})</span>}
+              </TD>
               <TD>{s._count.assignedApplications}</TD>
             </TR>
           ))}
           {subcommittees.length === 0 && (
             <TR>
-              <TD colSpan={3} className="py-10 text-center text-sm text-subtle-foreground">
+              <TD colSpan={5} className="py-10 text-center text-sm text-subtle-foreground">
                 No subcommittees yet.
               </TD>
             </TR>

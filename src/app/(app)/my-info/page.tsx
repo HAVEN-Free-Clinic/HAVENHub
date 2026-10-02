@@ -39,6 +39,8 @@ import { listMyStrikes } from "@/modules/incidents/services/disciplinary";
 import { StrikesPanel } from "./strikes-panel";
 import { languagesForPerson } from "@/platform/languages";
 import { LanguagesPanel } from "./languages-panel";
+import { mySubcommittees, anySignupOpen } from "@/modules/admin/services/subcommittee-members";
+import { MySubcommitteesPanel } from "./subcommittees-panel";
 import { CalendarSubscribeSection } from "@/modules/schedule/calendar/subscribe-section";
 import { issueAuditedFeedToken } from "@/modules/schedule/calendar/subscribe-actions";
 
@@ -290,6 +292,10 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
     );
 
   const withdrawn = sp.withdrawn !== undefined ? parseInt(sp.withdrawn, 10) : undefined;
+  const [mySubs, signupOpen] = await Promise.all([
+    mySubcommittees(person.personId),
+    anySignupOpen(),
+  ]);
 
   return (
     <>
@@ -342,6 +348,15 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
             withdrawn={withdrawn}
           />
         </section>
+
+        {/* Subcommittees. Shown when the person is on one, or when any is open
+            for sign-up; otherwise there is nothing to say or do here. */}
+        {(mySubs.length > 0 || signupOpen) && (
+          <section>
+            <SectionHeader className="mb-4">Subcommittees</SectionHeader>
+            <MySubcommitteesPanel subcommittees={mySubs} signupOpen={signupOpen} />
+          </section>
+        )}
 
         {/* Clearance. Ahead of the HIPAA and EHS sections it summarizes: the
             banner tells a member to "finish the unchecked items below", which

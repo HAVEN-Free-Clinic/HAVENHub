@@ -16,6 +16,9 @@ export default async function NewSubcommitteePage() {
         name: String(formData.get("name") ?? ""),
         isActive: formData.get("isActive") === "on",
         order: optionalInt(formData.get("order")) ?? 0,
+        description: String(formData.get("description") ?? ""),
+        capacity: optionalInt(formData.get("capacity")),
+        signupOpen: formData.get("signupOpen") === "on",
       });
       redirect(`/recruitment/subcommittees/${sc.id}?saved=1`);
     } catch (err) {
@@ -28,7 +31,7 @@ export default async function NewSubcommitteePage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Create subcommittee" description="Applicants will be able to rank active subcommittees." />
+      <PageHeader title="Create subcommittee" description="Applicants can rank active subcommittees, and current volunteers can join one while its sign-up is open." />
       <SubcommitteeForm action={createAction} mode="create" />
     </div>
   );

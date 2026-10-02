@@ -143,6 +143,22 @@ async function loadApplicantFacts(
   const wantSubcommittees = subcommitteeIds.length > 0;
   if (cycleIds.length === 0 && !wantSubcommittees && !wantApplicantTypes) return facts();
 
+  // Current members and leads, from SubcommitteeMembership. Unioned with the
+  // application assignments below rather than replacing them, so an audience
+  // saved before memberships existed keeps matching the people it did. Every
+  // return past this point goes through here, including the no-applicants one,
+  // since a subcommittee can have members and no recruitment history at all.
+  const withMemberships = async (): Promise<ApplicantFacts> => {
+    if (wantSubcommittees) {
+      const memberships = await prisma.subcommitteeMembership.findMany({
+        where: { subcommitteeId: { in: subcommitteeIds } },
+        select: { subcommitteeId: true, personId: true },
+      });
+      for (const m of memberships) bySubcommittee.get(m.subcommitteeId)?.add(m.personId);
+    }
+    return facts();
+  };
+
   const applicants = await prisma.applicant.findMany({
     where: {
       // An applicantType condition names no cycle and no subcommittee -- the
@@ -198,7 +214,7 @@ async function loadApplicantFacts(
       },
     },
   });
-  if (applicants.length === 0) return facts();
+  if (applicants.length === 0) return withMemberships();
 
   const people = await prisma.person.findMany({
     select: { id: true, contactEmail: true, netId: true },
@@ -276,7 +292,8 @@ async function loadApplicantFacts(
       }
     }
   }
-  return facts();
+
+  return withMemberships();
 }
 
 /**

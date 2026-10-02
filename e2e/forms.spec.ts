@@ -49,7 +49,9 @@ test("forms: create from a template, assign, fill out, read results", async ({ b
       "After I was accepted, I knew what I needed to do before my first shift (contract, HIPAA, trainings).",
     ];
     for (const legend of agreeGroups) {
-      await volunteer.getByRole("group", { name: new RegExp(legend.replace(/[.()]/g, "\\$&")) }).getByRole("radio", { name: "Agree", exact: true }).check();
+      // A plain string is a substring match, which is all this needs: the
+      // group's name also carries the question number.
+      await volunteer.getByRole("group", { name: legend }).getByRole("radio", { name: "Agree", exact: true }).check();
     }
     await volunteer.getByRole("group", { name: /Did you have an interview/ }).getByRole("radio", { name: "No" }).check();
     await volunteer.getByRole("group", { name: /How clear was communication/ }).getByRole("radio", { name: "4" }).check();

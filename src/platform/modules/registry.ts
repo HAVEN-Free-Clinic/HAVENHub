@@ -1,6 +1,7 @@
 import {
   CalendarDays,
   ClipboardList,
+  FileText,
   GraduationCap,
   LifeBuoy,
   Megaphone,
@@ -383,6 +384,20 @@ export const MODULES: ModuleManifest[] = [
       { label: "Notification log", href: "/admin/notifications", permission: "admin.manage_sync", underTab: "/admin/email" },
       { label: "Settings", href: "/admin/settings", permission: "admin.manage_settings" },
     ],
+  },
+  {
+    id: "forms",
+    title: "Forms",
+    description: "Build forms and surveys, send them out, and read the responses",
+    icon: FileText,
+    accessPermission: "forms.manage",
+    permissions: [
+      // Build, open and close forms, assign them, and read every response.
+      // Filling a form needs nothing: respondents reach it from My info.
+      "forms.manage",
+    ],
+    status: "active",
+    nav: [{ label: "Forms", href: "/forms" }],
   },
   {
     id: "outreach",

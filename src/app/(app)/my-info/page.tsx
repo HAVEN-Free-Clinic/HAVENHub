@@ -41,6 +41,8 @@ import { languagesForPerson } from "@/platform/languages";
 import { LanguagesPanel } from "./languages-panel";
 import { mySubcommittees, anySignupOpen } from "@/modules/admin/services/subcommittee-members";
 import { MySubcommitteesPanel } from "./subcommittees-panel";
+import { formsForPerson } from "@/modules/forms/service";
+import { MyFormsPanel } from "./forms-panel";
 import { CalendarSubscribeSection } from "@/modules/schedule/calendar/subscribe-section";
 import { issueAuditedFeedToken } from "@/modules/schedule/calendar/subscribe-actions";
 
@@ -296,6 +298,7 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
     mySubcommittees(person.personId),
     anySignupOpen(),
   ]);
+  const myForms = await formsForPerson(person.personId);
 
   return (
     <>
@@ -355,6 +358,14 @@ export default async function MyInfoPage({ searchParams }: PageProps) {
           <section>
             <SectionHeader className="mb-4">Subcommittees</SectionHeader>
             <MySubcommitteesPanel subcommittees={mySubs} signupOpen={signupOpen} />
+          </section>
+        )}
+
+        {/* Forms staff asked this person to fill out. Hidden when there are none. */}
+        {myForms.length > 0 && (
+          <section>
+            <SectionHeader className="mb-4">Forms</SectionHeader>
+            <MyFormsPanel forms={myForms} />
           </section>
         )}
 

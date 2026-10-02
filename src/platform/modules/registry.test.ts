@@ -41,6 +41,7 @@ describe("module registry", () => {
       [
         "admin",
         "clinic",
+        "forms",
         "incidents",
         "learning",
         "my-info",

@@ -913,6 +913,67 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
     message: () => "You left the subcommittee.",
   },
   {
+    // forms/[id]/actions.ts (saveFormAction).
+    params: ["saved"],
+    pathnames: ["/forms/*"],
+    tone: "success",
+    message: () => "Form saved.",
+  },
+  {
+    // forms/[id]/actions.ts (setStatusAction). NOT `status`: five list pages
+    // filter on that name, and every flash param is stripped from pagination.
+    params: ["formStatus"],
+    pathnames: ["/forms/*"],
+    tone: "success",
+    message: (values) =>
+      values.get("formStatus") === "open"
+        ? "The form is open for responses."
+        : values.get("formStatus") === "closed"
+          ? "The form is closed. Responses stay readable."
+          : "The form is back to a draft.",
+  },
+  {
+    // forms/[id]/actions.ts (duplicateFormAction). Lands on the copy.
+    params: ["duplicated"],
+    pathnames: ["/forms/*"],
+    tone: "success",
+    message: () => "Form duplicated. You are editing the copy.",
+  },
+  {
+    // forms/[id]/actions.ts (deleteFormAction), landing on the list.
+    params: ["deleted"],
+    pathnames: ["/forms"],
+    tone: "info",
+    message: () => "Form deleted.",
+  },
+  {
+    // forms/[id]/actions.ts (remindAction).
+    params: ["reminded"],
+    pathnames: ["/forms/*"],
+    tone: "success",
+    message: (values) => {
+      const n = values.get("reminded") ?? "0";
+      return `Reminder sent to ${n} ${n === "1" ? "person" : "people"}.`;
+    },
+  },
+  {
+    // forms/actions.ts (importAirtableAction): "<imported>-<matched>".
+    params: ["imported"],
+    pathnames: ["/forms/*"],
+    tone: "success",
+    message: (values) => {
+      const [imported = "0", matched = "0"] = (values.get("imported") ?? "").split("-");
+      return `Imported ${imported} responses from Airtable; ${matched} matched to people in the Hub.`;
+    },
+  },
+  {
+    // my-info/forms/[id]/actions.ts (submitFormAction).
+    params: ["submitted"],
+    pathnames: ["/my-info/forms/*"],
+    tone: "success",
+    message: () => "Thanks, your response was submitted.",
+  },
+  {
     // admin/email/page.tsx:304-306 (retryAction). "Email re-queued.", distinct from
     // admin/notifications' own `retried` text below -- same param name, two owning pages, no
     // unscoped default, so it does nothing if it ever showed up somewhere else.

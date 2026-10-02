@@ -4,6 +4,7 @@ import {
   UserRoundPen,
   GraduationCap,
   ClipboardCheck,
+  FileText,
 } from "lucide-react";
 import type { ComponentType } from "react";
 import type { ComplianceStatus } from "@/platform/compliance/rules";
@@ -29,6 +30,8 @@ export type ActionCardInput = {
   trainingIncomplete: number;
   trainingHref: string;
   profileIncomplete: boolean;
+  /** Open forms assigned to the viewer that they have not answered. */
+  pendingForms?: number;
   /**
    * Withhold the HIPAA half of the My info card.
    *
@@ -145,6 +148,21 @@ export function buildActionCards(input: ActionCardInput): ActionCard[] {
 
   if (input.hasMyInfoAccess) {
     cards.push(myInfoCard(input));
+  }
+
+  // Below an approval or a missing HIPAA certificate, above training: a form
+  // staff asked for has a deadline, but nothing breaks at clinic without it.
+  if ((input.pendingForms ?? 0) > 0) {
+    const n = input.pendingForms ?? 0;
+    cards.push({
+      key: "forms",
+      href: "/my-info/forms",
+      icon: FileText,
+      hue: "info",
+      label: "Forms",
+      sub: n === 1 ? "1 to fill out" : `${n} to fill out`,
+      priority: 82,
+    });
   }
 
   if (input.trainingIncomplete > 0) {

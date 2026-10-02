@@ -129,6 +129,7 @@ const MODULE_IDS = [
   "triage",
   "referrals",
   "patient-trackers",
+  "forms",
 ];
 
 const eslintConfig = [

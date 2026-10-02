@@ -63,6 +63,17 @@
           },
           "additionalProperties": false
         },
+        "forms": {
+          "type": "object",
+          "description": "Whether the visitor can access the Forms area and its actions in HAVEN Hub.",
+          "properties": {
+            "manage": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the forms.manage permission in HAVEN Hub."
+            }
+          },
+          "additionalProperties": false
+        },
         "incidents": {
           "type": "object",
           "description": "Whether the visitor can access the Incidents area and its actions in HAVEN Hub.",

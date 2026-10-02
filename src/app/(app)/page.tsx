@@ -27,6 +27,7 @@ import { countPendingApprovals } from "@/modules/schedule/services/requests";
 import { countPendingAvailabilityRequests } from "@/modules/schedule/services/availability-requests";
 import { getCheckInState } from "@/modules/schedule/services/attendance";
 import { buildActionCards } from "./action-cards";
+import { pendingFormCount } from "@/modules/forms/service";
 import { listMyCertificates } from "@/modules/my-info/services/my-info";
 import { getOnboardingStatus, getMyOnboarding, type OnboardingTask } from "@/modules/onboarding/services/onboarding";
 import { getAccessTerm } from "@/platform/terms/access-term";
@@ -153,7 +154,7 @@ export default async function HubPage() {
   // One permission fetch per render; tiles filter in memory (never can() in a loop).
   const permissions = await getEffectivePermissions(person.personId);
 
-  const [schedule, certificates, orgName, onboarding, myOnboarding, myTraining, pendingApprovals, recruitmentScope, displayZone, liveTerm, checkIn, attendingSchedule, pendingAvailability] = await Promise.all([
+  const [schedule, certificates, orgName, onboarding, myOnboarding, myTraining, pendingApprovals, recruitmentScope, displayZone, liveTerm, checkIn, attendingSchedule, pendingAvailability, pendingForms] = await Promise.all([
     mySchedule(person.personId),
     listMyCertificates(person.personId),
     getSetting<string>("branding.orgName"),
@@ -171,6 +172,7 @@ export default async function HubPage() {
     // /schedule/requests, so the card counts both; a director with only
     // availability changes waiting would otherwise see no card at all.
     countPendingAvailabilityRequests(person.personId),
+    pendingFormCount(person.personId),
   ]);
   // The dashboard is a live-term view only: next-term shifts/requests are not
   // shown here (they belong to the term-aware schedule page). See mySchedule.
@@ -406,6 +408,7 @@ export default async function HubPage() {
     trainingIncomplete,
     trainingHref,
     profileIncomplete: profileTask?.state === "INCOMPLETE",
+    pendingForms,
     // Faculty are not on the volunteer clearance track, so the My info card must
     // not lead with "Upload HIPAA certificate" -- at priority 90 that was the TOP
     // card of an attending's feed, pointing at a requirement they hold no shift

@@ -326,6 +326,10 @@ model Person {
   /// Training absence excuses this person recorded for someone else.
   trainingExcusesRecorded        TrainingAbsenceExcuse[]      @relation("trainingExcuseRecorder")
   subcommitteeAssignments        Application[]                @relation("applicationSubcommitteeAssigner")
+  formsCreated                   Form[]                       @relation("formCreatedBy")
+  formsUpdated                   Form[]                       @relation("formUpdatedBy")
+  formAssignments                FormAssignment[]             @relation("formAssignee")
+  formResponses                  FormResponse[]               @relation("formRespondent")
   boardAttendance                BoardMeetingAttendance[]     @relation("boardAttendancePerson")
   /// Event attendance rows for this person (training, info sessions, other).
   eventAttendances               EventAttendance[]            @relation("eventAttendancePerson")
@@ -4193,4 +4197,88 @@ model WalletPass {
 
   @@unique([personId, termId])
   @@index([personId])
+}
+
+enum FormStatus {
+  /// Being built. Not fillable, not listed for anyone.
+  DRAFT
+  /// Accepting responses.
+  OPEN
+  /// No longer accepting responses. Results stay readable.
+  CLOSED
+}
+
+enum FormResponseSource {
+  HUB
+  /// Imported from an Airtable table (see modules/forms/airtable-import.ts).
+  AIRTABLE
+}
+
+/// A custom form staff build and send out: feedback surveys, sign-ups,
+/// check-ins. The questions are one JSON layout (see modules/forms/layout.ts),
+/// and every response snapshots the layout it answered, so editing a form
+/// after responses arrive never reinterprets old answers.
+model Form {
+  id             String         @id @default(cuid())
+  title          String
+  description    String         @default("")
+  status         FormStatus     @default(DRAFT)
+  layout         Json
+  /// Bumped on every layout save; a save loaded at an older version is
+  /// refused instead of overwriting someone else's edit.
+  layoutVersion  Int            @default(0)
+  /// Anyone signed in with the link may respond, not only assignees.
+  openToAnyone   Boolean        @default(false)
+  /// Respondents may change their answers while the form is open.
+  allowEdits     Boolean        @default(true)
+  closesAt       DateTime?
+  createdById    String?
+  createdBy      Person?        @relation("formCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedById    String?
+  updatedBy      Person?        @relation("formUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  assignments    FormAssignment[]
+  responses      FormResponse[]
+
+  @@index([status])
+}
+
+/// Someone asked to fill a form. Drives "Forms to fill out" and the
+/// completion count; a response from a non-assignee (open link) needs none.
+model FormAssignment {
+  id           String   @id @default(cuid())
+  formId       String
+  form         Form     @relation(fields: [formId], references: [id], onDelete: Cascade)
+  personId     String
+  person       Person   @relation("formAssignee", fields: [personId], references: [id], onDelete: Cascade)
+  assignedById String?
+  assignedAt   DateTime @default(now())
+  remindedAt   DateTime?
+
+  @@unique([formId, personId])
+  @@index([personId])
+}
+
+model FormResponse {
+  id             String             @id @default(cuid())
+  formId         String
+  form           Form               @relation(fields: [formId], references: [id], onDelete: Cascade)
+  /// Null only for an imported response whose person could not be matched.
+  personId       String?
+  person         Person?            @relation("formRespondent", fields: [personId], references: [id], onDelete: SetNull)
+  /// Keyed by question key. Strings, or string arrays for multi-choice.
+  answers        Json
+  /// The layout as it was when this response was submitted.
+  layoutSnapshot Json
+  source         FormResponseSource @default(HUB)
+  /// The respondent's name as the source recorded it, for unmatched imports.
+  importedName   String?
+  /// The source row's id, so re-running an import updates instead of duplicating.
+  externalId     String?            @unique
+  submittedAt    DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@unique([formId, personId])
+  @@index([formId, submittedAt])
 }

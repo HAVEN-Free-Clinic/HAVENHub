@@ -14,6 +14,26 @@ export type AirtableRecord = {
   createdTime?: string;
 };
 
+export type AirtableFieldSchema = {
+  id: string;
+  name: string;
+  type: string;
+  description?: string;
+  options?: {
+    choices?: Array<{ id: string; name: string }>;
+    max?: number;
+    linkedTableId?: string;
+    prefersSingleRecordLink?: boolean;
+  };
+};
+
+export type AirtableTableSchema = {
+  id: string;
+  name: string;
+  primaryFieldId: string;
+  fields: AirtableFieldSchema[];
+};
+
 export type AirtableClientOptions = {
   fetchImpl?: typeof fetch;
   /** Base backoff delay; doubles per attempt. Tests pass 1ms. */
@@ -78,6 +98,18 @@ export class AirtableClient {
       offset = data.offset;
     } while (offset);
     return records;
+  }
+
+  /**
+   * A base's table schemas (the Meta API). Needs the PAT to carry the
+   * schema.bases:read scope, which a data-only token does not have; the 403
+   * that produces is passed through like any other non-retryable 4xx.
+   */
+  async listTables(baseId: string): Promise<AirtableTableSchema[]> {
+    const data = (await this.request(`${API_ROOT}/meta/bases/${baseId}/tables`)) as {
+      tables: AirtableTableSchema[];
+    };
+    return data.tables;
   }
 
   async patchRecord(

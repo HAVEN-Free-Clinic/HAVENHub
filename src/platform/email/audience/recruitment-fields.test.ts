@@ -200,6 +200,40 @@ describe("resolveAudience acceptedInCycle", () => {
 });
 
 describe("resolveAudience subcommittee", () => {
+  it("matches current members and leads with no recruitment history, unioned with assignments", async () => {
+    const lead = await person("Lead Only", "lead@example.com");
+    const member = await person("Member Only", "member@example.com");
+    const assigned = await person("Assigned Only", "assigned-only@example.com");
+    await person("Bystander", "bystander@example.com");
+    const sub = await prisma.subcommittee.create({ data: { name: "CQA" } });
+    await prisma.subcommitteeMembership.createMany({
+      data: [
+        { subcommitteeId: sub.id, personId: lead.id, role: "LEAD", source: "IMPORT" },
+        { subcommitteeId: sub.id, personId: member.id, role: "MEMBER", source: "SIGNUP" },
+      ],
+    });
+
+    // No applicants at all yet: the members must still match.
+    let res = await resolveAudience({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "subcommittee", op: "in", value: [sub.id] }],
+    });
+    expect(res.recipients.map((r) => r.email).sort()).toEqual(["lead@example.com", "member@example.com"]);
+
+    await cycleWithApplication({ personId: assigned.id, email: "assigned-only@example.com", assignedSubcommitteeId: sub.id });
+    res = await resolveAudience({
+      recordType: "PERSON",
+      match: "ALL",
+      conditions: [{ field: "subcommittee", op: "in", value: [sub.id] }],
+    });
+    expect(res.recipients.map((r) => r.email).sort()).toEqual([
+      "assigned-only@example.com",
+      "lead@example.com",
+      "member@example.com",
+    ]);
+  });
+
   it("matches via the assigned application", async () => {
     const p = await person("Assigned", "assigned@example.com");
     const sub = await prisma.subcommittee.create({ data: { name: "Fundraising" } });

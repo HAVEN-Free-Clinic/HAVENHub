@@ -143,10 +143,9 @@ export type AudienceCtx = {
    * Person ids assigned to each subcommittee, keyed by subcommittee id.
    * Required only when a `subcommittee` condition is present.
    *
-   * `Subcommittee` has no relation to `Person` at all; its only link is
-   * `Application.assignedSubcommitteeId`, so this is a recruitment question
-   * wearing a membership disguise and is resolved through the same
-   * email/NetID fallback as the cycle buckets above. See loadApplicantFacts.
+   * The union of current SubcommitteeMembership rows and recruitment
+   * assignments (`Application.assignedSubcommitteeId`, matched by the same
+   * email/NetID fallback as the cycle buckets above). See loadApplicantFacts.
    */
   bySubcommittee?: Map<string, Set<string>>;
   /**
@@ -751,14 +750,14 @@ export const PERSON_FIELDS: PersonFieldDef[] = [
   },
   {
     key: "subcommittee",
-    label: "Assigned subcommittee",
+    label: "Subcommittee",
     group: "Recruitment",
     kind: "multiEnum",
     operators: MULTI_ENUM_OPERATORS,
-    // Subcommittee has NO relation to Person at all -- its only link is
-    // Application.assignedSubcommitteeId -- so this is a recruitment question
-    // wearing a membership disguise and resolves through the same precomputed,
-    // email/NetID-backed bucket as the cycle fields above. See ctx.bySubcommittee.
+    // Matches current members and leads (SubcommitteeMembership) AND anyone a
+    // recruitment cycle assigned to it (Application.assignedSubcommitteeId),
+    // through the same precomputed bucket as the cycle fields above, which is
+    // why it stays in the Recruitment group's loader. See ctx.bySubcommittee.
     compile: (cond, ctx) => bucketedIdWhere(ctx.bySubcommittee, cond, "bySubcommittee"),
   },
   {

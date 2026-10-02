@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireAnyPermission } from "@/platform/auth/session";
 import { listCampaigns } from "@/platform/email/campaigns/service";
-import { DateOnly } from "@/platform/dates/display";
+import { DateOnly, DateTime } from "@/platform/dates/display";
 import { PageHeader } from "@/platform/ui/page-header";
 import { buttonClasses } from "@/platform/ui/button";
 import { Badge } from "@/platform/ui/badge";
@@ -33,7 +33,7 @@ export default async function EmailCampaignsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Email campaigns"
-        description="Compose and send ad-hoc bulk emails to a filtered audience."
+        description="Compose and send emails to a filtered audience. Everyone with access to a campaign's scope can see and edit it."
         action={
           <Link
             href="/outreach/campaigns/new"
@@ -61,29 +61,52 @@ export default async function EmailCampaignsPage() {
           <THead>
             <TR>
               <TH>Campaign</TH>
-              <TH>Created</TH>
               <TH>Status</TH>
+              <TH>Sent / next send</TH>
+              <TH>Recipients</TH>
+              <TH>Last edited</TH>
             </TR>
           </THead>
           <tbody>
-            {campaigns.map((c) => (
-              <TR key={c.id}>
-                <TD>
-                  <TextLink href={`/outreach/campaigns/${c.id}`} className="font-medium">
-                    {c.name}
-                  </TextLink>
-                </TD>
-                <TD className="whitespace-nowrap text-muted-foreground">
-                  {/* The same date format as every other list, not "2026-09-10". */}
-                  <DateOnly value={c.createdAt} />
-                </TD>
-                <TD>
-                  <Badge tone={STATUS_TONES[c.status] ?? "default"}>
-                    {STATUS_LABELS[c.status] ?? c.status}
-                  </Badge>
-                </TD>
-              </TR>
-            ))}
+            {campaigns.map((c) => {
+              const lastRun = c.runs.reduce<Date | null>(
+                (latest, r) => (latest && latest > r.runAt ? latest : r.runAt),
+                null,
+              );
+              const recipients = c.runs.reduce((n, r) => n + r.recipientCount, 0);
+              return (
+                <TR key={c.id}>
+                  <TD>
+                    <TextLink href={`/outreach/campaigns/${c.id}`} className="font-medium">
+                      {c.name}
+                    </TextLink>
+                  </TD>
+                  <TD>
+                    <Badge tone={STATUS_TONES[c.status] ?? "default"}>
+                      {STATUS_LABELS[c.status] ?? c.status}
+                    </Badge>
+                  </TD>
+                  <TD className="whitespace-nowrap text-muted-foreground">
+                    {/* The next send for anything still on a schedule, else the
+                        last time it went out. */}
+                    {(c.status === "SCHEDULED" || c.status === "ACTIVE") && c.nextRunAt ? (
+                      <>Next: <DateTime value={c.nextRunAt} /></>
+                    ) : lastRun ? (
+                      <DateTime value={lastRun} />
+                    ) : (
+                      <span className="text-subtle-foreground">Not sent</span>
+                    )}
+                  </TD>
+                  <TD className="text-muted-foreground">
+                    {c.runs.length > 0 ? recipients : <span className="text-subtle-foreground">-</span>}
+                  </TD>
+                  <TD className="whitespace-nowrap text-muted-foreground">
+                    <DateOnly value={c.updatedAt} />
+                    {c.updatedBy && <span className="text-subtle-foreground"> by {c.updatedBy.name}</span>}
+                  </TD>
+                </TR>
+              );
+            })}
           </tbody>
         </Table>
       )}

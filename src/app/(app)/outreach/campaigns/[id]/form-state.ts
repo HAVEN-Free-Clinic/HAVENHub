@@ -17,4 +17,12 @@
  * already shipped one runtime failure from exporting a non-function from a
  * "use server" module, and the cost of not finding out again is one small file.
  */
-export type FormProblems = { problems: string[] } | null;
+export type FormProblems = {
+  problems: string[];
+  /**
+   * Set when the save was refused because someone else saved first. The form
+   * then offers an explicit "Save anyway", which resubmits without the version
+   * check. Only saveAction sets it.
+   */
+  conflict?: boolean;
+} | null;

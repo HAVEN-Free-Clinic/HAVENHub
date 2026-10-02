@@ -35,10 +35,18 @@ import {
   sendCampaignNow,
   scheduleCampaign,
   cancelCampaign,
+  unscheduleCampaign,
+  duplicateCampaign,
+  deleteDraftCampaign,
+  retryFailedDeliveries,
+  heartbeatPresence,
+  leavePresence,
   assertMayActOnScope,
   CampaignValidationError,
   CampaignConfirmationError,
   CampaignScopeError,
+  CampaignConflictError,
+  type CampaignPresence,
 } from "@/platform/email/campaigns/service";
 import { SenderIdentityError } from "@/platform/email/sender-identity";
 import type { PersonSearchHit } from "@/platform/email/audience/resolve";
@@ -46,6 +54,7 @@ import { UnknownAudienceFieldError } from "@/platform/email/audience/person-fiel
 import { isAudience, EMPTY_AUDIENCE } from "@/platform/email/audience/types";
 import type { Audience } from "@/platform/email/audience/types";
 import { parseZonedInput } from "@/platform/dates";
+import { formatDateTime } from "@/platform/dates/format";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import type { PreviewResult } from "./review-actions";
 import type { FormProblems } from "./form-state";
@@ -176,6 +185,15 @@ export async function saveAction(
   // there is nothing yet to merge it with.
   if (name === "") return { problems: ["Enter a campaign name."] };
 
+  // The version the editor was loaded at, so a save over someone else's newer
+  // save is refused instead of silently overwriting it. "Save anyway" (the
+  // `overwrite` submitter the conflict alert renders) drops the check.
+  const rawVersion = formData.get("contentVersion");
+  const expectedVersion =
+    formData.get("overwrite") === "1" || rawVersion === null || rawVersion === ""
+      ? undefined
+      : Number(rawVersion);
+
   try {
     await updateCampaign(actor.personId, id, {
       name,
@@ -184,8 +202,19 @@ export async function saveAction(
       audience,
       sendOncePerPerson,
       fromEmail,
+      expectedVersion: Number.isFinite(expectedVersion) ? expectedVersion : undefined,
     });
   } catch (err) {
+    if (err instanceof CampaignConflictError) {
+      const who = err.savedByName ?? "Someone else";
+      const when = formatDateTime(err.savedAt, await getDisplayTimeZone());
+      return {
+        conflict: true,
+        problems: [
+          `${who} saved this campaign at ${when}, after you opened it. Your changes are NOT saved yet. Save anyway to replace their version with yours, or copy anything you need and reload to see theirs.`,
+        ],
+      };
+    }
     if (err instanceof CampaignValidationError) return { problems: err.problems };
     // Returned, not redirected, for the same reason every other refusal here is:
     // the sender's entire unsaved draft is in client state and a redirect would
@@ -442,10 +471,19 @@ export async function testAction(id: string, scopeId: string | null): Promise<vo
   }
   try {
     await testSend(actor.personId, id, actor.email);
-  } catch {
-    redirect(
-      `/outreach/campaigns/${id}?tab=review&error=${encodeURIComponent("Test send failed. Check that the campaign has a subject and body.")}`,
-    );
+  } catch (err) {
+    // Only the refusals a sender can fix are spelled out. Anything else is a
+    // real failure, and is rethrown so it reaches the error boundary and the
+    // logs instead of being flattened into advice about the subject line.
+    if (err instanceof CampaignValidationError) {
+      redirect(
+        `/outreach/campaigns/${id}?tab=review&error=${encodeURIComponent(err.problems.join(" "))}`,
+      );
+    }
+    if (err instanceof SenderIdentityError) {
+      redirect(`/outreach/campaigns/${id}?tab=review&error=${encodeURIComponent(err.message)}`);
+    }
+    throw err;
   }
   redirect(`/outreach/campaigns/${id}?tab=review&tested=1#review`);
 }
@@ -553,4 +591,82 @@ export async function cancelAction(id: string, scopeId: string | null): Promise<
   }
   revalidatePath(`/outreach/campaigns/${id}`);
   redirect(`/outreach/campaigns/${id}?cancelled=1`);
+}
+
+/** Back to an editable draft. See unscheduleCampaign. */
+export async function unscheduleAction(id: string, scopeId: string | null): Promise<void> {
+  const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
+  await assertScopeOrRedirect(actor.personId, scopeId, id);
+  try {
+    await unscheduleCampaign(actor.personId, id);
+  } catch (err) {
+    if (err instanceof CampaignValidationError) {
+      redirect(`/outreach/campaigns/${id}?error=${encodeURIComponent(err.problems.join("; "))}`);
+    }
+    throw err;
+  }
+  revalidatePath(`/outreach/campaigns/${id}`);
+  redirect(`/outreach/campaigns/${id}?unscheduled=1`);
+}
+
+/**
+ * Copies the campaign into a new draft in the same scope and opens it. Gated on
+ * the SOURCE campaign's scope, which is also the copy's scope, so the one check
+ * covers both reading the original and creating under that scope.
+ */
+export async function duplicateAction(id: string, scopeId: string | null): Promise<void> {
+  const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
+  await assertScopeOrRedirect(actor.personId, scopeId, id);
+  const copy = await duplicateCampaign(actor.personId, id);
+  revalidatePath("/outreach/campaigns");
+  redirect(`/outreach/campaigns/${copy.id}?duplicated=1`);
+}
+
+export async function deleteAction(id: string, scopeId: string | null): Promise<void> {
+  const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
+  await assertScopeOrRedirect(actor.personId, scopeId, id);
+  try {
+    await deleteDraftCampaign(actor.personId, id);
+  } catch (err) {
+    if (err instanceof CampaignValidationError) {
+      redirect(`/outreach/campaigns/${id}?error=${encodeURIComponent(err.problems.join("; "))}`);
+    }
+    throw err;
+  }
+  revalidatePath("/outreach/campaigns");
+  redirect("/outreach/campaigns?deleted=1");
+}
+
+export async function retryFailedAction(id: string, scopeId: string | null): Promise<void> {
+  const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
+  await assertScopeOrRedirect(actor.personId, scopeId, id);
+  const count = await retryFailedDeliveries(actor.personId, id);
+  revalidatePath(`/outreach/campaigns/${id}`);
+  redirect(`/outreach/campaigns/${id}?retried=${count}`);
+}
+
+/**
+ * The editor's presence heartbeat. Returns null rather than throwing when the
+ * caller may no longer act on the campaign: it runs on a timer in the
+ * background, and a grant revoked mid-session should quietly stop the banner,
+ * not raise an error over the sender's work. Every action that changes
+ * anything still refuses loudly.
+ */
+export async function heartbeatAction(
+  id: string,
+  scopeId: string | null,
+): Promise<CampaignPresence | null> {
+  const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
+  try {
+    await assertMayActOnScope(actor.personId, scopeId);
+  } catch (err) {
+    if (err instanceof CampaignScopeError) return null;
+    throw err;
+  }
+  return heartbeatPresence(id, actor.personId);
+}
+
+export async function leaveAction(id: string): Promise<void> {
+  const actor = await requireAnyPermission(["outreach.send", "outreach.send_unrestricted"]);
+  await leavePresence(id, actor.personId);
 }

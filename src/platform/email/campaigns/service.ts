@@ -13,7 +13,7 @@ import type { Recipient, AddressRecipient, PersonSearchHit } from "@/platform/em
 import { EMAIL_RE } from "@/platform/email/address";
 import { renderInlineEmail, loadLayoutSource } from "@/platform/email/templates/renderEmail";
 import { getSetting } from "@/platform/settings/service";
-import { queueEmail, queueEmails } from "@/platform/email/send";
+import { queueEmail, queueEmails, scheduleEmailDrain } from "@/platform/email/send";
 import type { Prisma } from "@prisma/client";
 import { isValidCron, nextCronAfter, cronMinIntervalMinutes, CAMPAIGN_DISPATCH_CADENCE_MINUTES } from "./cron";
 import { getStarter } from "./starters";
@@ -59,6 +59,38 @@ export class CampaignConfirmationError extends Error {
  * cancelled) between selection and the claim. Distinct from a genuine failure so
  * dispatchDueCampaigns can treat a lost claim as a benign dedup, not an error.
  */
+/**
+ * Thrown when a compose-form save was loaded at an older contentVersion than
+ * the row now holds: someone else saved the campaign while this sender was
+ * editing. Refused rather than merged, because subject/body/audience are each
+ * saved whole and there is no field-level merge that would not silently drop
+ * one person's work. The caller shows who saved and when, and offers an
+ * explicit overwrite.
+ */
+export class CampaignConflictError extends Error {
+  savedByName: string | null;
+  savedAt: Date;
+  constructor(savedByName: string | null, savedAt: Date) {
+    super("Campaign was saved by someone else since it was loaded");
+    this.name = "CampaignConflictError";
+    this.savedByName = savedByName;
+    this.savedAt = savedAt;
+  }
+}
+
+/**
+ * Thrown by executeRun when asked to refuse an empty run and the audience
+ * resolved to nobody. Raised BEFORE the claim, so the campaign is untouched and
+ * the caller decides what to do with it (the dispatcher returns a one-off
+ * scheduled campaign to draft rather than marking it sent to zero people).
+ */
+export class CampaignEmptyAudienceError extends Error {
+  constructor() {
+    super("Campaign audience matched nobody");
+    this.name = "CampaignEmptyAudienceError";
+  }
+}
+
 export class CampaignAlreadyDispatchedError extends Error {
   constructor() {
     super("Campaign already dispatched");
@@ -91,6 +123,7 @@ export async function createDraft(
     data: {
       name: name || starter?.name || "Untitled campaign",
       createdById: actorId,
+      updatedById: actorId,
       status: "DRAFT",
       scopeId: opts.scopeId ?? null,
       audienceJson: EMPTY_AUDIENCE,
@@ -103,7 +136,10 @@ export async function createDraft(
 export async function getCampaign(id: string) {
   const campaign = await prisma.emailCampaign.findUnique({
     where: { id },
-    include: { runs: { orderBy: { runAt: "desc" } } },
+    include: {
+      runs: { orderBy: { runAt: "desc" } },
+      updatedBy: { select: { name: true } },
+    },
   });
   if (!campaign) return null;
   // Attach the ACTUAL EmailLog count per run. recipientCount is recorded when a run is
@@ -136,12 +172,22 @@ export async function getCampaign(id: string) {
  * an unrestricted sender.
  */
 export async function listCampaigns(personId: string) {
-  // The four columns /outreach/campaigns renders, and nothing else. A campaign
+  // The columns /outreach/campaigns renders, and nothing else. A campaign
   // row carries the whole email -- subject, body, and the audience tree -- and
   // this list shows a name, a date and a status chip. Selecting the rest shipped
   // every draft body a clinic has ever written across the wire to render a
   // table of links.
-  const select = { id: true, name: true, status: true, createdAt: true } as const;
+  const select = {
+    id: true,
+    name: true,
+    status: true,
+    createdAt: true,
+    updatedAt: true,
+    nextRunAt: true,
+    lastRunAt: true,
+    updatedBy: { select: { name: true } },
+    runs: { select: { runAt: true, recipientCount: true } },
+  } as const;
 
   const unrestricted = await can(personId, "outreach.send_unrestricted");
   if (unrestricted) {
@@ -652,10 +698,20 @@ export async function updateCampaign(
      * `fromEmail` in the compose form is exactly the request this refuses.
      */
     fromEmail?: string | null;
+    /**
+     * The contentVersion the editor was loaded at. When given, the save only
+     * lands if nobody else has saved since; otherwise it throws
+     * CampaignConflictError. Omit it to overwrite unconditionally, which is
+     * what an explicit "save anyway" does.
+     */
+    expectedVersion?: number;
   },
 ) {
   const existing = await prisma.emailCampaign.findUniqueOrThrow({ where: { id } });
   if (existing.status !== "DRAFT") throw new CampaignValidationError(["Cannot edit a campaign that has been sent."]);
+  if (input.expectedVersion !== undefined && existing.contentVersion !== input.expectedVersion) {
+    throw await conflictFor(id);
+  }
 
   if (!isAudience(input.audience)) {
     throw new CampaignValidationError(["Invalid audience"]);
@@ -703,8 +759,15 @@ export async function updateCampaign(
     senderData.fromEmailSetById = senderData.fromEmail ? actorId : null;
   }
 
-  return prisma.emailCampaign.update({
-    where: { id },
+  // Conditional on the version (and on still being a draft) in the UPDATE
+  // itself, not only in the read above: two saves racing past that read would
+  // otherwise both land, and the second would silently overwrite the first.
+  const { count } = await prisma.emailCampaign.updateMany({
+    where: {
+      id,
+      status: "DRAFT",
+      ...(input.expectedVersion !== undefined ? { contentVersion: input.expectedVersion } : {}),
+    },
     data: {
       ...(input.name !== undefined ? { name: input.name } : {}),
       subject,
@@ -712,8 +775,57 @@ export async function updateCampaign(
       audienceJson: input.audience as object,
       ...(input.sendOncePerPerson !== undefined ? { sendOncePerPerson: input.sendOncePerPerson } : {}),
       ...senderData,
+      updatedById: actorId,
+      contentVersion: { increment: 1 },
     },
   });
+  if (count === 0) {
+    const now = await prisma.emailCampaign.findUniqueOrThrow({ where: { id }, select: { status: true } });
+    if (now.status !== "DRAFT") throw new CampaignValidationError(["Cannot edit a campaign that has been sent."]);
+    throw await conflictFor(id);
+  }
+
+  const changed = (
+    [
+      ["name", input.name !== undefined && input.name !== existing.name],
+      ["subject", subject !== existing.subject],
+      ["body", body !== existing.body],
+      ["audience", stableJson(input.audience) !== stableJson(existing.audienceJson)],
+      ["sendOncePerPerson", input.sendOncePerPerson !== undefined && input.sendOncePerPerson !== existing.sendOncePerPerson],
+      ["sender", senderData.fromEmail !== undefined && senderData.fromEmail !== existing.fromEmail],
+    ] as const
+  )
+    .filter(([, didChange]) => didChange)
+    .map(([field]) => field);
+  if (changed.length > 0) {
+    await recordAudit({
+      actorPersonId: actorId,
+      action: "campaign.update",
+      entityType: "EmailCampaign",
+      entityId: id,
+      after: { fields: [...changed] },
+    });
+  }
+
+  return prisma.emailCampaign.findUniqueOrThrow({ where: { id } });
+}
+
+/** JSON with object keys sorted, so a tree read back from jsonb (which
+ *  reorders keys) compares equal to the same tree as the client sent it. */
+function stableJson(value: unknown): string {
+  return JSON.stringify(value, (_key, v: unknown) =>
+    v && typeof v === "object" && !Array.isArray(v)
+      ? Object.fromEntries(Object.entries(v as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)))
+      : v,
+  );
+}
+
+async function conflictFor(id: string): Promise<CampaignConflictError> {
+  const current = await prisma.emailCampaign.findUniqueOrThrow({
+    where: { id },
+    select: { updatedAt: true, updatedBy: { select: { name: true } } },
+  });
+  return new CampaignConflictError(current.updatedBy?.name ?? null, current.updatedAt);
 }
 
 /**
@@ -962,6 +1074,19 @@ export async function editManualLists(
   id: string,
   edit: ManualListEdit,
 ): Promise<void> {
+  await applyManualListEdit(id, edit);
+  // The op only, never the person id or addresses: the activity log is shown
+  // to every sender on the scope, and a pasted list is not theirs to read back.
+  await recordAudit({
+    actorPersonId: actorId,
+    action: "campaign.list_edit",
+    entityType: "EmailCampaign",
+    entityId: id,
+    after: { op: edit.op },
+  });
+}
+
+async function applyManualListEdit(id: string, edit: ManualListEdit): Promise<void> {
   const existing = await prisma.emailCampaign.findUniqueOrThrow({ where: { id } });
   if (existing.status !== "DRAFT") {
     throw new CampaignValidationError(["Cannot edit a campaign that has been sent."]);
@@ -1033,6 +1158,10 @@ export async function editManualLists(
 
 export async function testSend(actorId: string | null, id: string, toEmail: string) {
   const campaign = await prisma.emailCampaign.findUniqueOrThrow({ where: { id } });
+  const missing: string[] = [];
+  if (campaign.subject.trim() === "") missing.push("Add a subject before sending a test.");
+  if (campaign.body.trim() === "") missing.push("Add a message body before sending a test.");
+  if (missing.length > 0) throw new CampaignValidationError(missing);
   const sampleCtx: Record<string, string> = {};
   for (const v of PERSON_VARIABLES) {
     sampleCtx[v.name] = v.sampleValue;
@@ -1076,6 +1205,8 @@ export async function executeRun(
     claimWhere: Prisma.EmailCampaignWhereInput;
     statusUpdate: Prisma.EmailCampaignUpdateManyMutationInput;
     recipients?: Recipient[];
+    /** Throw CampaignEmptyAudienceError, before claiming, if nobody resolves. */
+    refuseEmpty?: boolean;
   },
 ): Promise<{ runId: string; recipientCount: number }> {
   const campaign = await prisma.emailCampaign.findUniqueOrThrow({ where: { id: campaignId } });
@@ -1100,6 +1231,7 @@ export async function executeRun(
       return true;
     });
   }
+  if (opts.refuseEmpty && deduped.length === 0) throw new CampaignEmptyAudienceError();
   const layoutSource = await loadLayoutSource();
   // Resolve the brand color ONCE up front. renderInlineEmail otherwise reads
   // branding.brandColor per recipient; a large audience rendered via Promise.all
@@ -1307,4 +1439,278 @@ export async function cancelCampaign(actorId: string | null, id: string): Promis
     throw new CampaignValidationError(["This campaign can no longer be cancelled (it may already have been dispatched)."]);
   }
   await recordAudit({ actorPersonId: actorId, action: "campaign.cancel", entityType: "EmailCampaign", entityId: id });
+}
+
+/**
+ * Takes a scheduled or recurring campaign off the schedule and back to an
+ * editable draft. The recoverable sibling of cancelCampaign, which is terminal:
+ * a typo spotted after scheduling used to mean rebuilding the whole campaign.
+ *
+ * Atomic on status for the same reason cancel is. If the dispatcher already
+ * claimed the campaign this matches nothing and reports that, instead of
+ * "unscheduling" something that has gone out. Runs that already happened (a
+ * recurring campaign's past sends) are kept, so sendOncePerPerson still
+ * recognises everyone those runs reached.
+ */
+export async function unscheduleCampaign(actorId: string | null, id: string): Promise<void> {
+  const { count } = await prisma.emailCampaign.updateMany({
+    where: { id, status: { in: ["SCHEDULED", "ACTIVE"] } },
+    data: { status: "DRAFT", scheduleType: "NOW", scheduledAt: null, cronExpr: null, nextRunAt: null },
+  });
+  if (count === 0) {
+    throw new CampaignValidationError([
+      "This campaign is no longer scheduled (it may already have been sent).",
+    ]);
+  }
+  await recordAudit({ actorPersonId: actorId, action: "campaign.unschedule", entityType: "EmailCampaign", entityId: id });
+}
+
+/**
+ * Copies a campaign into a new draft under the SAME scope: content, audience,
+ * and manual lists, but none of its runs or schedule. The caller must already
+ * have passed assertMayActOnScope for that scope.
+ *
+ * The From address is carried over only if the duplicating person may send as
+ * it. It was authorized for whoever chose it on the original, and copying it
+ * blindly would let a duplicate inherit an identity its new owner was never
+ * issued.
+ */
+export async function duplicateCampaign(actorId: string, id: string): Promise<{ id: string }> {
+  const source = await prisma.emailCampaign.findUniqueOrThrow({ where: { id } });
+  let fromEmail: string | null = null;
+  if (source.fromEmail) {
+    try {
+      const scope = source.scopeId ? await getScope(source.scopeId) : null;
+      fromEmail = (await resolveSenderIdentity(actorId, scope, source.fromEmail))?.address ?? null;
+    } catch {
+      fromEmail = null;
+    }
+  }
+  const copy = await prisma.emailCampaign.create({
+    data: {
+      name: `Copy of ${source.name}`,
+      recordType: source.recordType,
+      audienceJson: source.audienceJson as object,
+      subject: source.subject,
+      body: source.body,
+      status: "DRAFT",
+      sendOncePerPerson: source.sendOncePerPerson,
+      includePersonIds: source.includePersonIds,
+      excludePersonIds: source.excludePersonIds,
+      pastedEmails: source.pastedEmails,
+      applicantCycleIds: source.applicantCycleIds,
+      fromEmail,
+      fromEmailSetById: fromEmail ? actorId : null,
+      scopeId: source.scopeId,
+      createdById: actorId,
+      updatedById: actorId,
+    },
+  });
+  await recordAudit({
+    actorPersonId: actorId,
+    action: "campaign.duplicate",
+    entityType: "EmailCampaign",
+    entityId: copy.id,
+    after: { sourceId: id },
+  });
+  return { id: copy.id };
+}
+
+/**
+ * Deletes a draft that has never sent anything. A campaign with runs is kept
+ * whatever its status, because its EmailLog rows are the record of who was
+ * mailed; deleting it would orphan them. Conditional delete, so a draft sent in
+ * another tab between the click and here is refused rather than removed.
+ */
+export async function deleteDraftCampaign(actorId: string | null, id: string): Promise<void> {
+  const { count } = await prisma.emailCampaign.deleteMany({
+    where: { id, status: "DRAFT", runs: { none: {} } },
+  });
+  if (count === 0) {
+    throw new CampaignValidationError([
+      "Only a draft that has never been sent can be deleted.",
+    ]);
+  }
+  await recordAudit({ actorPersonId: actorId, action: "campaign.delete", entityType: "EmailCampaign", entityId: id });
+}
+
+/** How recently a heartbeat must have arrived for someone to count as editing. */
+export const PRESENCE_WINDOW_MS = 60_000;
+
+export type CampaignPresence = {
+  /** Other people with the editor open, by display name. Never the caller. */
+  editors: string[];
+  /** The compose form's current version, so a stale editor can say so. */
+  contentVersion: number;
+  savedByName: string | null;
+  savedAt: string;
+};
+
+/**
+ * Records that `personId` has this campaign open and reports who else does.
+ * Called on an interval by the editor page. One upsert and two small reads;
+ * stale rows are never cleaned up here because they cost nothing and expire by
+ * the window alone.
+ */
+export async function heartbeatPresence(
+  campaignId: string,
+  personId: string,
+  now: Date = new Date(),
+): Promise<CampaignPresence> {
+  await prisma.emailCampaignPresence.upsert({
+    where: { campaignId_personId: { campaignId, personId } },
+    create: { campaignId, personId, lastSeenAt: now },
+    update: { lastSeenAt: now },
+  });
+  const [others, campaign] = await Promise.all([
+    prisma.emailCampaignPresence.findMany({
+      where: {
+        campaignId,
+        personId: { not: personId },
+        lastSeenAt: { gte: new Date(now.getTime() - PRESENCE_WINDOW_MS) },
+      },
+      select: { person: { select: { name: true } } },
+      orderBy: { lastSeenAt: "desc" },
+    }),
+    prisma.emailCampaign.findUniqueOrThrow({
+      where: { id: campaignId },
+      select: { contentVersion: true, updatedAt: true, updatedBy: { select: { name: true } } },
+    }),
+  ]);
+  return {
+    editors: others.map((o) => o.person.name),
+    contentVersion: campaign.contentVersion,
+    savedByName: campaign.updatedBy?.name ?? null,
+    savedAt: campaign.updatedAt.toISOString(),
+  };
+}
+
+/** Drops the caller's presence row, e.g. when they leave the editor. */
+export async function leavePresence(campaignId: string, personId: string): Promise<void> {
+  await prisma.emailCampaignPresence.deleteMany({ where: { campaignId, personId } });
+}
+
+export type RunDelivery = {
+  runId: string;
+  queued: number;
+  sent: number;
+  failed: number;
+};
+
+export type FailedDelivery = {
+  id: string;
+  runId: string;
+  toEmail: string;
+  lastError: string | null;
+};
+
+/**
+ * Per-run delivery state for the campaign page: how many of each run's emails
+ * are still queued, sent, or failed, plus the failed rows themselves so the
+ * sender can see who did not get it and why. Previously this was only on
+ * /admin/email, behind a permission senders do not hold.
+ */
+export async function campaignDelivery(
+  campaignId: string,
+  opts: { failedLimit?: number } = {},
+): Promise<{ runs: RunDelivery[]; failed: FailedDelivery[]; failedTotal: number }> {
+  const runs = await prisma.emailCampaignRun.findMany({
+    where: { campaignId },
+    select: { id: true },
+  });
+  const runIds = runs.map((r) => r.id);
+  if (runIds.length === 0) return { runs: [], failed: [], failedTotal: 0 };
+
+  const [grouped, failed, failedTotal] = await Promise.all([
+    prisma.emailLog.groupBy({
+      by: ["campaignRunId", "status"],
+      where: { campaignRunId: { in: runIds } },
+      _count: { _all: true },
+    }),
+    prisma.emailLog.findMany({
+      where: { campaignRunId: { in: runIds }, status: "FAILED" },
+      select: { id: true, campaignRunId: true, toEmail: true, lastError: true },
+      orderBy: { toEmail: "asc" },
+      take: opts.failedLimit ?? 100,
+    }),
+    prisma.emailLog.count({ where: { campaignRunId: { in: runIds }, status: "FAILED" } }),
+  ]);
+
+  const byRun = new Map<string, RunDelivery>(
+    runIds.map((runId) => [runId, { runId, queued: 0, sent: 0, failed: 0 }]),
+  );
+  for (const g of grouped) {
+    const row = g.campaignRunId ? byRun.get(g.campaignRunId) : undefined;
+    if (!row) continue;
+    if (g.status === "QUEUED") row.queued = g._count._all;
+    else if (g.status === "SENT") row.sent = g._count._all;
+    else if (g.status === "FAILED") row.failed = g._count._all;
+  }
+  return {
+    runs: [...byRun.values()],
+    failed: failed.map((f) => ({
+      id: f.id,
+      runId: f.campaignRunId ?? "",
+      toEmail: f.toEmail,
+      lastError: f.lastError,
+    })),
+    failedTotal,
+  };
+}
+
+/**
+ * Puts every FAILED email of this campaign's runs back in the queue and asks
+ * for a drain. The campaign-scoped version of the admin page's retry: a sender
+ * fixing a transient outage should not need admin.manage_sync to resend their
+ * own campaign. Bounded to this campaign's runs by the where clause, so it
+ * cannot touch anyone else's mail.
+ */
+export async function retryFailedDeliveries(actorId: string | null, campaignId: string): Promise<number> {
+  const runIds = (
+    await prisma.emailCampaignRun.findMany({ where: { campaignId }, select: { id: true } })
+  ).map((r) => r.id);
+  if (runIds.length === 0) return 0;
+  const { count } = await prisma.emailLog.updateMany({
+    where: { campaignRunId: { in: runIds }, status: "FAILED" },
+    data: { status: "QUEUED", attempts: 0, lastError: null, lockedAt: null },
+  });
+  if (count === 0) return 0;
+  scheduleEmailDrain();
+  await recordAudit({
+    actorPersonId: actorId,
+    action: "campaign.retry_failed",
+    entityType: "EmailCampaign",
+    entityId: campaignId,
+    after: { count },
+  });
+  return count;
+}
+
+export type CampaignActivity = {
+  id: string;
+  at: Date;
+  actorName: string | null;
+  action: string;
+  after: unknown;
+};
+
+/** The campaign's audit trail, newest first, with actor names resolved. */
+export async function campaignActivity(campaignId: string, limit = 50): Promise<CampaignActivity[]> {
+  const rows = await prisma.auditLog.findMany({
+    where: { entityType: "EmailCampaign", entityId: campaignId },
+    orderBy: { createdAt: "desc" },
+    take: limit,
+  });
+  const actorIds = [...new Set(rows.flatMap((r) => (r.actorPersonId ? [r.actorPersonId] : [])))];
+  const people = actorIds.length
+    ? await prisma.person.findMany({ where: { id: { in: actorIds } }, select: { id: true, name: true } })
+    : [];
+  const names = new Map(people.map((p) => [p.id, p.name]));
+  return rows.map((r) => ({
+    id: r.id,
+    at: r.createdAt,
+    actorName: r.actorPersonId ? (names.get(r.actorPersonId) ?? null) : null,
+    action: r.action,
+    after: r.after,
+  }));
 }

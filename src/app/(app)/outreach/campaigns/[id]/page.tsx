@@ -5,12 +5,14 @@ import {
   assertMayActOnScope,
   previewAudience,
   senderIdentitiesForCampaign,
+  campaignDelivery,
+  campaignActivity,
   CampaignScopeError,
   CampaignValidationError,
   type AudiencePreview,
 } from "@/platform/email/campaigns/service";
 import { UnknownAudienceFieldError } from "@/platform/email/audience/person-fields";
-import { loadLayoutSource } from "@/platform/email/templates/renderEmail";
+import { loadLayoutSource, renderInlineEmail } from "@/platform/email/templates/renderEmail";
 import { getSetting } from "@/platform/settings/service";
 import { PERSON_FIELD_VIEWS } from "@/platform/email/audience/person-fields";
 import { PERSON_VARIABLES } from "@/platform/email/audience/variables";
@@ -20,6 +22,7 @@ import { loadAudienceBuilderOptions } from "@/platform/email/audience/builder-op
 import { DateTime } from "@/platform/dates/display";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { zoneLabel } from "@/platform/dates/zone";
+import { formatDateTime } from "@/platform/dates/format";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Button } from "@/platform/ui/button";
 import { Alert } from "@/platform/ui/alert";
@@ -36,6 +39,10 @@ import { EditorTabs, type EditorTab } from "./tabs";
 import { SenderPicker } from "./sender-picker";
 import { SetBreadcrumbLeaf } from "@/platform/ui/breadcrumb-context";
 import { SectionHeader } from "@/platform/ui/section-header";
+import { ConfirmButton } from "@/platform/ui/confirm-button";
+import { CampaignPresence } from "./campaign-presence";
+import { DeliveryRefresh } from "./delivery-refresh";
+import { ActivityLog } from "./activity-log";
 import {
   saveAction,
   previewAction,
@@ -51,6 +58,12 @@ import {
   scheduleLaterAction,
   scheduleRecurringAction,
   cancelAction,
+  unscheduleAction,
+  duplicateAction,
+  deleteAction,
+  retryFailedAction,
+  heartbeatAction,
+  leaveAction,
 } from "./actions";
 
 type Props = {
@@ -163,6 +176,25 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
   const recipientPreview =
     isDraft && activeTab === "audience" ? await loadRecipientPreview(id) : null;
 
+  const [delivery, activity] = await Promise.all([
+    campaignDelivery(id),
+    campaignActivity(id),
+  ]);
+  const deliveryByRun = new Map(delivery.runs.map((r) => [r.runId, r]));
+  const pending = delivery.runs.reduce((n, r) => n + r.queued, 0);
+
+  // A non-draft campaign can no longer be edited, so it gets a read-only render
+  // of what was (or will be) sent, with the same sample values the editor's
+  // preview uses. Before this only the subject was visible after sending.
+  const sentPreview = isDraft
+    ? null
+    : await renderInlineEmail(
+        { subject: campaign.subject, body: campaign.body },
+        Object.fromEntries(PERSON_VARIABLES.map((v) => [v.name, v.sampleValue])),
+        layoutSource,
+        brandColor,
+      );
+
   // ---------------------------------------------------------------------------
   // Server actions, bound to this campaign's id and scope. `.bind()` is the
   // sanctioned way to pass extra arguments to a Server Action referenced from
@@ -190,13 +222,19 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
   const boundScheduleLaterAction = scheduleLaterAction.bind(null, id, scopeId);
   const boundScheduleRecurringAction = scheduleRecurringAction.bind(null, id, scopeId);
   const boundCancelAction = cancelAction.bind(null, id, scopeId);
+  const boundUnscheduleAction = unscheduleAction.bind(null, id, scopeId);
+  const boundDuplicateAction = duplicateAction.bind(null, id, scopeId);
+  const boundDeleteAction = deleteAction.bind(null, id, scopeId);
+  const boundRetryFailedAction = retryFailedAction.bind(null, id, scopeId);
+  const boundHeartbeatAction = heartbeatAction.bind(null, id, scopeId);
+  const boundLeaveAction = leaveAction.bind(null, id);
 
   return (
     <div className="space-y-6">
       <SetBreadcrumbLeaf label={campaign.name} />
       <PageHeader
         title={campaign.name}
-        description={
+        description={`${
           isSent
             ? "This campaign has already been sent."
             : isScheduled
@@ -205,9 +243,35 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
                 ? "Recurring. Sends on a schedule."
                 : campaign.status === "CANCELLED"
                   ? "Cancelled."
-                  : "Draft"
+                  : "Draft."
+        }${
+          campaign.updatedBy
+            ? ` Last edited by ${campaign.updatedBy.name}, ${formatDateTime(campaign.updatedAt, zone)}.`
+            : ""
+        }`}
+        action={
+          <div className="flex flex-wrap items-center gap-2">
+            <form action={boundDuplicateAction}>
+              <Button type="submit" variant="outline" size="sm">
+                Duplicate
+              </Button>
+            </form>
+            {isDraft && campaign.runs.length === 0 && (
+              <form action={boundDeleteAction}>
+                <ConfirmButton size="sm" label="Delete draft" confirmLabel="Delete this draft?" />
+              </form>
+            )}
+          </div>
         }
       />
+
+      {isDraft && (
+        <CampaignPresence
+          heartbeat={boundHeartbeatAction}
+          leave={boundLeaveAction}
+          loadedVersion={campaign.contentVersion}
+        />
+      )}
 
       {/* Compose / Audience / Review tabs. Every section below stays mounted
           regardless of which tab is active (toggled with the `hidden`
@@ -220,7 +284,12 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
 
       {/* Main save form: editable only while a draft */}
       {isDraft && (
-        <ComposeForm id="campaign-compose" action={boundSaveAction}>
+        <ComposeForm
+          id="campaign-compose"
+          action={boundSaveAction}
+          savedAt={campaign.updatedAt.toISOString()}
+          contentVersion={campaign.contentVersion}
+        >
           {/* Tracks which tab was showing when Save was clicked, so a
               successful (or rejected) save redirects back to the same tab
               instead of always landing on Compose. */}
@@ -331,12 +400,23 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
       )}
 
       {/* Read-only summary for any non-draft campaign (sent / scheduled / recurring / cancelled) */}
-      {!isDraft && (
+      {!isDraft && sentPreview && (
         <div className="space-y-4">
           <Card className="space-y-2">
             <p className="text-sm font-medium text-foreground-soft">Subject</p>
             <p className="text-sm text-foreground-soft">{campaign.subject || <em className="text-subtle-foreground">No subject</em>}</p>
           </Card>
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-foreground-soft">Message (shown with sample data)</p>
+            {/* sandbox="" with no allowances: the body is staff-written HTML and
+                this frame has no reason to run anything. */}
+            <iframe
+              title="Campaign message"
+              sandbox=""
+              className="h-[34rem] w-full rounded-xl border border-border bg-surface"
+              srcDoc={sentPreview.html}
+            />
+          </div>
         </div>
       )}
 
@@ -381,11 +461,18 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
               )}
             </p>
           )}
-          <form action={boundCancelAction}>
-            <Button type="submit" variant="outline">
-              Cancel schedule
-            </Button>
-          </form>
+          <p className="text-sm text-brand-fg">
+            Need a change? Move it back to draft, edit, and schedule it again. Cancelling stops it
+            for good.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <form action={boundUnscheduleAction}>
+              <Button type="submit">Move back to draft</Button>
+            </form>
+            <form action={boundCancelAction}>
+              <ConfirmButton label="Cancel schedule" confirmLabel="Cancel this campaign for good?" />
+            </form>
+          </div>
         </div>
       )}
 
@@ -419,26 +506,89 @@ export default async function CampaignEditorPage({ params, searchParams }: Props
               columns below and resend if recipients are missing.
             </Alert>
           )}
+          {pending > 0 && (
+            <>
+              <DeliveryRefresh />
+              <p className="text-sm text-muted-foreground">
+                {pending} {pending === 1 ? "email is" : "emails are"} still being delivered. Large
+                sends go out at about 30 a minute; this page updates on its own.
+              </p>
+            </>
+          )}
           <Table>
             <THead>
               <TR>
                 <TH>Sent at</TH>
                 <TH>Recipients</TH>
                 <TH>Enqueued</TH>
+                <TH>Delivered</TH>
+                <TH>Pending</TH>
+                <TH>Failed</TH>
               </TR>
             </THead>
             <tbody>
-              {campaign.runs.map((run) => (
-                <TR key={run.id}>
-                  <TD className="text-foreground-soft"><DateTime value={run.runAt} /></TD>
-                  <TD className="text-foreground-soft">{run.recipientCount}</TD>
-                  <TD className={run.enqueuedCount < run.recipientCount ? "font-medium text-foreground" : "text-foreground-soft"}>
-                    {run.enqueuedCount}
-                  </TD>
-                </TR>
-              ))}
+              {campaign.runs.map((run) => {
+                const d = deliveryByRun.get(run.id);
+                return (
+                  <TR key={run.id}>
+                    <TD className="text-foreground-soft"><DateTime value={run.runAt} /></TD>
+                    <TD className="text-foreground-soft">{run.recipientCount}</TD>
+                    <TD className={run.enqueuedCount < run.recipientCount ? "font-medium text-foreground" : "text-foreground-soft"}>
+                      {run.enqueuedCount}
+                    </TD>
+                    <TD className="text-foreground-soft">{d?.sent ?? 0}</TD>
+                    <TD className="text-foreground-soft">{d?.queued ?? 0}</TD>
+                    <TD className={d && d.failed > 0 ? "font-medium text-critical-foreground" : "text-foreground-soft"}>
+                      {d?.failed ?? 0}
+                    </TD>
+                  </TR>
+                );
+              })}
             </tbody>
           </Table>
+
+          {delivery.failedTotal > 0 && (
+            <div className="space-y-3">
+              <Alert tone="error">
+                {delivery.failedTotal} {delivery.failedTotal === 1 ? "email" : "emails"} could not
+                be delivered after repeated attempts. A bad address will fail again; a temporary
+                outage usually succeeds on retry.
+              </Alert>
+              <Table>
+                <THead>
+                  <TR>
+                    <TH>Recipient</TH>
+                    <TH>Reason</TH>
+                  </TR>
+                </THead>
+                <tbody>
+                  {delivery.failed.map((f) => (
+                    <TR key={f.id}>
+                      <TD className="text-foreground-soft">{f.toEmail}</TD>
+                      <TD className="text-xs text-muted-foreground">{f.lastError ?? "Unknown error"}</TD>
+                    </TR>
+                  ))}
+                </tbody>
+              </Table>
+              {delivery.failedTotal > delivery.failed.length && (
+                <p className="text-xs text-muted-foreground">
+                  Showing the first {delivery.failed.length} of {delivery.failedTotal}.
+                </p>
+              )}
+              <form action={boundRetryFailedAction}>
+                <Button type="submit" variant="outline">
+                  Retry failed emails
+                </Button>
+              </form>
+            </div>
+          )}
+        </div>
+      )}
+
+      {activity.length > 0 && (
+        <div className="space-y-3 border-t border-border pt-6">
+          <SectionHeader level="title">Activity</SectionHeader>
+          <ActivityLog entries={activity} />
         </div>
       )}
     </div>

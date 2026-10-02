@@ -865,6 +865,40 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
     message: () => "Schedule cancelled.",
   },
   {
+    // outreach/campaigns/[id]/actions.ts (unscheduleAction).
+    params: ["unscheduled"],
+    pathnames: ["/outreach/campaigns/*"],
+    tone: "info",
+    message: () => "Moved back to draft. Edit it, then send or schedule it again.",
+  },
+  {
+    // outreach/campaigns/[id]/actions.ts (duplicateAction). Lands on the COPY.
+    params: ["duplicated"],
+    pathnames: ["/outreach/campaigns/*"],
+    tone: "success",
+    message: () => "Campaign duplicated. You are editing the copy.",
+  },
+  {
+    // outreach/campaigns/[id]/actions.ts (deleteAction), landing on the list.
+    params: ["deleted"],
+    pathnames: ["/outreach/campaigns"],
+    tone: "info",
+    message: () => "Draft deleted.",
+  },
+  {
+    // outreach/campaigns/[id]/actions.ts (retryFailedAction). A count, unlike
+    // admin/email's own `retried` flag, so scoped separately.
+    params: ["retried"],
+    pathnames: ["/outreach/campaigns/*"],
+    tone: "success",
+    message: (values) => {
+      const n = values.get("retried") ?? "0";
+      return n === "0"
+        ? "Nothing to retry: no failed emails left."
+        : `Re-queued ${n} failed ${n === "1" ? "email" : "emails"}.`;
+    },
+  },
+  {
     // admin/email/page.tsx:304-306 (retryAction). "Email re-queued.", distinct from
     // admin/notifications' own `retried` text below -- same param name, two owning pages, no
     // unscoped default, so it does nothing if it ever showed up somewhere else.

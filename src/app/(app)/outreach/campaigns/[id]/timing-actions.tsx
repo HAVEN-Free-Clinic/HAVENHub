@@ -15,8 +15,8 @@ type FormAction = (formData: FormData) => void | Promise<void>;
  *
  * Like Preview/Test/Send, scheduling reads the LAST SAVED campaign from the
  * database (scheduleCampaign re-fetches it), so scheduling with unsaved compose
- * edits would silently schedule stale content -- and once scheduled the campaign
- * can only be cancelled, never edited, so those edits are lost for good. We watch
+ * edits would silently schedule stale content, and the sender would not find
+ * out until it went out. We watch
  * the compose form and disable both submits (plus show a notice) while it is dirty,
  * exactly as ReviewActions does for sending.
  */
@@ -79,7 +79,11 @@ export function TimingActions({
             </SubmitButton>
           </FormRow>
         </form>
-        <p className="text-xs text-muted-foreground">The send time is interpreted in {zoneLabel}.</p>
+        <p className="text-xs text-muted-foreground">
+          The send time is interpreted in {zoneLabel}. Scheduled campaigns go out on the next
+          delivery pass, which runs every 30 minutes, so expect it up to 30 minutes after the time
+          you pick. The audience is worked out again at send time.
+        </p>
       </div>
 
       {/* Recurring */}
@@ -108,7 +112,7 @@ export function TimingActions({
       {dirty && (
         <Alert tone="warning">
           Save your changes before scheduling. Scheduling uses the last saved version of this
-          campaign, and a scheduled campaign can no longer be edited.
+          campaign. To edit it after scheduling, move it back to draft first.
         </Alert>
       )}
     </div>

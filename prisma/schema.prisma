@@ -269,6 +269,8 @@ model Person {
   campaignsCreated               EmailCampaign[]              @relation("campaignCreatedBy")
   /// Campaigns whose sending identity this person chose. See EmailCampaign.fromEmailSetById.
   campaignSendersChosen          EmailCampaign[]              @relation("campaignFromEmailSetBy")
+  campaignsLastEdited            EmailCampaign[]              @relation("campaignUpdatedBy")
+  campaignPresence               EmailCampaignPresence[]
   audienceScopesCreated          AudienceScope[]              @relation("audienceScopeCreatedBy")
   audienceScopeGrants            AudienceScopeGrant[]         @relation("audienceScopeGrantPerson")
   /// Addresses this person has been granted DIRECTLY. Not the whole answer to
@@ -1491,7 +1493,19 @@ model EmailCampaign {
   createdBy         Person?             @relation("campaignCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
+  /// Who last saved the compose form (name, subject, body, audience, sender).
+  /// Manual-list edits and status changes do not move it; the activity log
+  /// (AuditLog rows for this campaign) records those.
+  updatedById       String?
+  updatedBy         Person?             @relation("campaignUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  /// Optimistic-concurrency token for the compose form, bumped by every
+  /// updateCampaign. A save carries the version it was loaded at and is
+  /// refused if someone else saved in between, instead of silently
+  /// overwriting their edits. Deliberately NOT updatedAt: manual-list edits
+  /// bump updatedAt too, and those never conflict with the compose form.
+  contentVersion    Int                 @default(0)
   runs              EmailCampaignRun[]
+  presence          EmailCampaignPresence[]
   scopeId           String?
   scope             AudienceScope?      @relation(fields: [scopeId], references: [id], onDelete: Restrict)
 
@@ -1501,6 +1515,19 @@ model EmailCampaign {
   /// caught when generating the Phase 3 migration. The index is load-bearing:
   /// listCampaigns filters `scopeId IN (...)` on every scoped sender's list.
   @@index([scopeId])
+}
+
+/// Who has a campaign's editor open right now. Upserted by a heartbeat from
+/// the editor page; a row older than the presence window is simply stale, so
+/// closing the tab needs no cleanup.
+model EmailCampaignPresence {
+  campaignId String
+  campaign   EmailCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  personId   String
+  person     Person        @relation(fields: [personId], references: [id], onDelete: Cascade)
+  lastSeenAt DateTime      @default(now())
+
+  @@id([campaignId, personId])
 }
 
 model EmailCampaignRun {

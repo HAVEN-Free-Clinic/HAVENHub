@@ -52,6 +52,10 @@ const emailFlusher = createEnqueueFlusher(async () => {
  *  backstop calls drainEmailQueue directly. */
 export const flushEmailQueue = emailFlusher.flushNow;
 
+/** Ask for a drain soon, coalesced with any already pending. For callers that
+ *  put rows back to QUEUED without going through queueEmail (a retry). */
+export const scheduleEmailDrain = emailFlusher.schedule;
+
 /**
  * Append an email send job in the SAME transaction as the domain write, so a
  * rolled-back mutation never leaks a phantom send. Callers pass any Db handle

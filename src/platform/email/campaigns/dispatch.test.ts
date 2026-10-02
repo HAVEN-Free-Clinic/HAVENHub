@@ -106,4 +106,21 @@ describe("dispatchDueCampaigns", () => {
     const summary = await dispatchDueCampaigns(new Date("2026-06-10T12:01:00Z"));
     expect(summary.executed).toBe(0);
   });
+
+  it("returns an emptied one-off schedule to draft instead of sending it to nobody", async () => {
+    const sam = await prisma.person.create({ data: { name: "Sam Rivera", contactEmail: "sam@example.com", status: "ACTIVE" } });
+    const c = await readyCampaign("Emptied");
+    await scheduleCampaign(null, c.id, { scheduleType: "SCHEDULED", scheduledAt: new Date("2026-06-10T12:00:00Z") }, BEFORE_SEND);
+    // Everyone the audience matched has left by send time.
+    await prisma.person.update({ where: { id: sam.id }, data: { status: "OFFBOARDED" } });
+
+    const summary = await dispatchDueCampaigns(new Date("2026-06-10T12:00:30Z"));
+    expect(summary).toEqual({ executed: 0, errors: 0 });
+    const after = await prisma.emailCampaign.findUniqueOrThrow({ where: { id: c.id }, include: { runs: true } });
+    expect(after.status).toBe("DRAFT");
+    expect(after.nextRunAt).toBeNull();
+    expect(after.runs).toHaveLength(0);
+    const audit = await prisma.auditLog.findFirst({ where: { entityId: c.id, action: "campaign.dispatch_empty" } });
+    expect(audit).not.toBeNull();
+  });
 });

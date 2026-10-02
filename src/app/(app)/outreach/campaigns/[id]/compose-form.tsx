@@ -1,9 +1,10 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect } from "react";
 import { Alert } from "@/platform/ui/alert";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import type { FormProblems } from "./form-state";
+import { useFormDirty } from "./use-form-dirty";
 
 /**
  * The campaign editor's save form, and the only place a rejected save is shown.
@@ -25,16 +26,37 @@ import type { FormProblems } from "./form-state";
 export function ComposeForm({
   id,
   action,
+  savedAt,
+  contentVersion,
   children,
 }: {
   id: string;
   action: (prevState: FormProblems, formData: FormData) => Promise<FormProblems>;
+  /** The campaign's updatedAt, so the unsaved-changes guard resets on save. */
+  savedAt: string;
+  /** The version this editor was loaded at; see saveAction's conflict check. */
+  contentVersion: number;
   children: React.ReactNode;
 }) {
   const [state, formAction] = useActionState(action, null);
+  const dirty = useFormDirty(id, savedAt);
+
+  // Closing or reloading the tab with unsaved edits asks first. Everything
+  // unsaved here is client state (see above), so a stray Cmd-W used to discard
+  // a whole draft without a word. In-app link navigation is not covered: the
+  // browser offers no equivalent hook for a soft navigation.
+  useEffect(() => {
+    if (!dirty) return;
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [dirty]);
 
   return (
     <form id={id} action={formAction} className="space-y-8">
+      <input type="hidden" name="contentVersion" value={contentVersion} />
       {children}
 
       {/* Sticky save footer. Always visible (not tab-gated): Save is the only
@@ -55,7 +77,17 @@ export function ComposeForm({
             )}
           </Alert>
         )}
-        <SubmitButton pendingLabel="Saving…">Save</SubmitButton>
+        <div className="flex flex-wrap items-center gap-2">
+          <SubmitButton pendingLabel="Saving…">Save</SubmitButton>
+          {/* Only after a conflict. A submitter's name/value posts with the
+              form, so this sends overwrite=1 and saveAction skips the version
+              check; plain Save keeps refusing. */}
+          {state?.conflict && (
+            <SubmitButton name="overwrite" value="1" variant="danger" pendingLabel="Saving…">
+              Save anyway
+            </SubmitButton>
+          )}
+        </div>
       </div>
     </form>
   );

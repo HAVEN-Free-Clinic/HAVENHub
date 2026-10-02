@@ -326,6 +326,7 @@ model Person {
   /// Training absence excuses this person recorded for someone else.
   trainingExcusesRecorded        TrainingAbsenceExcuse[]      @relation("trainingExcuseRecorder")
   subcommitteeAssignments        Application[]                @relation("applicationSubcommitteeAssigner")
+  subcommitteeMemberships        SubcommitteeMembership[]
   formsCreated                   Form[]                       @relation("formCreatedBy")
   formsUpdated                   Form[]                       @relation("formUpdatedBy")
   formAssignments                FormAssignment[]             @relation("formAssignee")
@@ -629,15 +630,58 @@ model Department {
 /// recruitment team assigns post-acceptance. Soft-delete via isActive so
 /// historical rankings always resolve to a name.
 model Subcommittee {
-  id                   String        @id @default(cuid())
+  id                   String                   @id @default(cuid())
   name                 String
-  isActive             Boolean       @default(true)
-  order                Int           @default(0)
-  createdAt            DateTime      @default(now())
-  updatedAt            DateTime      @updatedAt
-  assignedApplications Application[] @relation("applicationAssignedSubcommittee")
+  /// Shown to volunteers on the sign-up page: what the subcommittee does.
+  description          String?
+  isActive             Boolean                  @default(true)
+  order                Int                      @default(0)
+  /// Most MEMBER sign-ups allowed. Leads never count against it, and staff
+  /// adds bypass it. Null means no limit.
+  capacity             Int?
+  /// Whether volunteers may join or leave on their own right now.
+  signupOpen           Boolean                  @default(false)
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
+  assignedApplications Application[]            @relation("applicationAssignedSubcommittee")
+  memberships          SubcommitteeMembership[]
 
   @@index([isActive, order])
+}
+
+enum SubcommitteeRole {
+  LEAD
+  MEMBER
+}
+
+enum SubcommitteeMembershipSource {
+  /// Bulk-added by staff from a pasted list (the director import).
+  IMPORT
+  /// Joined on their own from the sign-up page.
+  SIGNUP
+  /// Added one at a time by staff.
+  STAFF
+}
+
+/// Who is on a subcommittee now. Not term-scoped on purpose: a membership
+/// lasts until it is removed, and offboarding a person removes theirs (see
+/// offboarding.ts), the same way it ends their term memberships. A person may
+/// hold several, one per subcommittee.
+model SubcommitteeMembership {
+  id             String                       @id @default(cuid())
+  subcommitteeId String
+  subcommittee   Subcommittee                 @relation(fields: [subcommitteeId], references: [id], onDelete: Cascade)
+  personId       String
+  person         Person                       @relation(fields: [personId], references: [id], onDelete: Cascade)
+  role           SubcommitteeRole             @default(MEMBER)
+  source         SubcommitteeMembershipSource
+  /// Who added them, for staff adds. Null for a self sign-up.
+  addedById      String?
+  createdAt      DateTime                     @default(now())
+  updatedAt      DateTime                     @updatedAt
+
+  @@unique([subcommitteeId, personId])
+  @@index([personId])
 }
 
 /// One row per "manager department oversees managed department" edge. Used to

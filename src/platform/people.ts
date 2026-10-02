@@ -381,6 +381,8 @@ export async function setPersonStatusField(
   // set their ACTIVE memberships in every NON-ARCHIVED term to REMOVED in the
   // same transaction as the status flip, because the compliance, disciplinary,
   // and offboarding rosters all key off TermMembership.status, not Person.status.
+  // Subcommittee memberships are deleted in the same transaction for the same
+  // reason (they are not term-scoped, so there is nothing to mark REMOVED).
   // Reactivation is status-only -- it never restores memberships (which ones to
   // restore is ambiguous), matching the existing offboarding behavior.
   //
@@ -479,6 +481,10 @@ export async function setPersonStatusField(
         data: { status: "REMOVED" },
       });
       removedMemberships = count;
+
+      // Subcommittee seats go with the roster places: someone who has left
+      // must not keep holding a capped spot, or keep appearing as a lead.
+      await tx.subcommitteeMembership.deleteMany({ where: { personId } });
 
       // Cancel open access-granting requests. A person who has left should not
       // have a NEW/MODIFY/RENEW request lingering as actionable in the queue.

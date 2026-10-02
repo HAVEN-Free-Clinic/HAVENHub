@@ -139,7 +139,7 @@ describe("FieldPicker keyboard", () => {
       "Invited to interview in cycle",
       "Withdrew from cycle",
       "Applicant type",
-      "Assigned subcommittee",
+      "Subcommittee",
     ]);
     pressKey("ArrowDown");
     pressKey("Enter");

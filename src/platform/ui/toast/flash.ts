@@ -899,6 +899,20 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
     },
   },
   {
+    // my-info/subcommittees/actions.ts (joinAction).
+    params: ["joined"],
+    pathnames: ["/my-info/subcommittees"],
+    tone: "success",
+    message: () => "You joined the subcommittee. Its leads can now see you on their roster.",
+  },
+  {
+    // my-info/subcommittees/actions.ts (leaveAction).
+    params: ["left"],
+    pathnames: ["/my-info/subcommittees"],
+    tone: "info",
+    message: () => "You left the subcommittee.",
+  },
+  {
     // forms/[id]/actions.ts (saveFormAction).
     params: ["saved"],
     pathnames: ["/forms/*"],

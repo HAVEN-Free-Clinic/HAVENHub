@@ -37,6 +37,9 @@ import {
   epicOnboardingContext,
   epicActivationContext,
   epicPasswordResetContext,
+  epicRenewalContext,
+  epicModificationContext,
+  EPIC_TEMPLATE_REQUIRED_KIND,
   type EpicEmailParams,
   type EpicTemplateKey,
 } from "@/platform/email/templates/epic";
@@ -506,6 +509,15 @@ export async function sendEpicEmail(
   });
   if (!req) throw new EpicNotFoundError(`EpicRequest not found: ${requestId}`);
 
+  // epic-renewal / epic-modification state that a specific kind of request was
+  // completed; refuse them for any other kind rather than send a false email.
+  const requiredKind = EPIC_TEMPLATE_REQUIRED_KIND[template];
+  if (requiredKind && req.kind !== requiredKind) {
+    throw new EpicStateError(
+      `The ${template} email can only be sent for a ${requiredKind} request (this one is ${req.kind}).`
+    );
+  }
+
   const person = req.person;
   if (!person.contactEmail) {
     throw new EpicStateError("Person does not have a contactEmail.");
@@ -538,7 +550,7 @@ export async function sendEpicEmail(
     kind: req.kind === "DEACTIVATE" ? undefined : req.kind,
     // Read at send time, not baked into the template, so IT can update it the
     // moment YNHH rotates it instead of waiting on a deploy. Only the activation
-    // email uses it; the other two context builders ignore it.
+    // and password-reset emails use it; the other context builders ignore it.
     temporaryPassword: await getSetting<string>("epic.temporaryPassword"),
   };
 
@@ -546,6 +558,8 @@ export async function sendEpicEmail(
     "epic-onboarding": epicOnboardingContext,
     "epic-activation": epicActivationContext,
     "epic-password-reset": epicPasswordResetContext,
+    "epic-renewal": epicRenewalContext,
+    "epic-modification": epicModificationContext,
   };
   const { subject, html } = await renderEmail(template, contextBuilders[template](params));
 
@@ -553,6 +567,8 @@ export async function sendEpicEmail(
     "epic-onboarding": "Your Epic access onboarding has an update. Open HAVEN Hub for details.",
     "epic-activation": "Your Epic access has been activated. Open HAVEN Hub for details.",
     "epic-password-reset": "Your Epic password was reset. Open HAVEN Hub for details.",
+    "epic-renewal": "Your Epic access has been renewed. Your password is unchanged.",
+    "epic-modification": "Your Epic access has been updated. Your password is unchanged.",
   };
 
   // Global prisma client is intentional: there is no surrounding domain write to be transactional with.

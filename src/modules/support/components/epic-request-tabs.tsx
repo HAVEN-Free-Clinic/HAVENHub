@@ -36,6 +36,7 @@ import { TabRow, type TabItem } from "@/platform/ui/tab-row";
 import { TextLink } from "@/platform/ui/text-link";
 import { EPIC_KIND_LABELS, EPIC_STATUS_LABELS, EPIC_STATUS_TONE } from "@/modules/support/labels";
 import type { EpicRequestStatus } from "@prisma/client";
+import type { EpicTemplateKey } from "@/platform/email/templates/epic";
 import { FormActions } from "@/platform/ui/form";
 import { SectionHeader } from "@/platform/ui/section-header";
 import { SUPPORT_UPLOAD_ACCEPT } from "@/modules/support/upload-constants";
@@ -58,6 +59,20 @@ import type { TermOption } from "@/platform/terms/term-options";
 import { EmptyState } from "@/platform/ui/empty-state";
 
 type Tab = "generate" | "term-batch" | "pending" | "tracker" | "history";
+
+/**
+ * The Tracker's per-request email buttons. `kind` restricts a button to requests
+ * of that kind; mirrors EPIC_TEMPLATE_REQUIRED_KIND, which the service enforces.
+ * Kept local (type-only import) so this client bundle does not pull in the
+ * template module.
+ */
+const EPIC_EMAIL_BUTTONS: { template: EpicTemplateKey; label: string; kind?: "MODIFY" | "RENEW" }[] = [
+  { template: "epic-onboarding", label: "Onboarding" },
+  { template: "epic-activation", label: "Activation" },
+  { template: "epic-password-reset", label: "Password reset" },
+  { template: "epic-renewal", label: "Renewal complete", kind: "RENEW" },
+  { template: "epic-modification", label: "Modification complete", kind: "MODIFY" },
+];
 
 type IncidentPerson = { id: string; name: string };
 
@@ -416,13 +431,16 @@ function TrackerTable({
                         {/* Onboarding / activation / password-reset templates model NEW/MODIFY/RENEW
                             access requests, not a DEACTIVATE, whose email would send an
                             access-instructions message to a person being offboarded. */}
-                        {(["epic-onboarding", "epic-activation", "epic-password-reset"] as const).map((tpl) => {
-                          // Three look-alike buttons that each send a real email to the
+                        {EPIC_EMAIL_BUTTONS.filter(
+                          // Renewal / Modification announce that a request of that kind
+                          // finished without a password reset, so they are only offered
+                          // on that kind (sendEpicEmail refuses any other).
+                          (b) => !b.kind || b.kind === r.kind
+                        ).map(({ template: tpl, label: emailLabel }) => {
+                          // Look-alike buttons that each send a real email to the
                           // volunteer on one click. Arm-then-confirm so a misclick can't
                           // fire the wrong template at a real person, and the confirm
                           // names which email is about to go out.
-                          const emailLabel =
-                            tpl === "epic-onboarding" ? "Onboarding" : tpl === "epic-activation" ? "Activation" : "Password reset";
                           return (
                             <form key={tpl} action={sendEpicEmailFromTrackerAction}>
                               <input type="hidden" name="requestId" value={r.id} />

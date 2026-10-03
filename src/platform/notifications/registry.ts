@@ -37,6 +37,8 @@ export const NOTIFICATION_TYPES: NotificationType[] = [
   { key: "epic-onboarding", label: "Epic onboarding", defaultChannel: "email" },
   { key: "epic-activation", label: "Epic activation", defaultChannel: "email" },
   { key: "epic-password-reset", label: "Epic password reset", defaultChannel: "email" },
+  { key: "epic-renewal", label: "Epic renewal complete (no password reset)", defaultChannel: "email" },
+  { key: "epic-modification", label: "Epic modification complete (no password reset)", defaultChannel: "email" },
   { key: "recruitment.interview_assignment", label: "Recruitment: interview panel assignment", defaultChannel: "email" },
   { key: "recruitment.review_digest", label: "Recruitment: daily review digest (directors)", defaultChannel: "email" },
   { key: "recruitment.applicant_withdrew", label: "Recruitment: applicant withdrew (panel + directors)", defaultChannel: "email" },

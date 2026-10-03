@@ -11,6 +11,9 @@ import {
   epicOnboardingContext,
   epicActivationContext,
   epicPasswordResetContext,
+  epicRenewalContext,
+  epicModificationContext,
+  EPIC_TEMPLATE_REQUIRED_KIND,
   epicDescriptors,
   type EpicEmailParams,
   type EpicTemplateKey,
@@ -39,11 +42,13 @@ beforeEach(resetDb);
 // ---------------------------------------------------------------------------
 
 describe("epicDescriptors", () => {
-  it("has exactly the three expected keys", () => {
+  it("has exactly the expected keys", () => {
     expect(epicDescriptors.map((d) => d.key).sort()).toEqual([
       "epic-activation",
+      "epic-modification",
       "epic-onboarding",
       "epic-password-reset",
+      "epic-renewal",
     ]);
   });
 
@@ -316,12 +321,86 @@ describe("epic-password-reset", () => {
 });
 
 // ---------------------------------------------------------------------------
+// epic-renewal / epic-modification (via renderEmail)
+// ---------------------------------------------------------------------------
+
+describe.each([
+  ["epic-renewal", epicRenewalContext, "[HAVEN] Epic Account Renewed", "renewed by YNHH"],
+  ["epic-modification", epicModificationContext, "[HAVEN] Epic Account Modified", "modified by YNHH"],
+] as const)("%s", (key, context, subject, headline) => {
+  it("has the expected subject and headline", async () => {
+    const out = await renderEmail(key, context(baseline()));
+    expect(out.subject).toBe(subject);
+    expect(out.html).toContain(headline);
+  });
+
+  it("greets by first name and shows the Epic ID", async () => {
+    const out = await renderEmail(key, context(baseline()));
+    expect(out.html).toContain("Hello Alice,");
+    expect(out.html).toContain("Your Network/Epic ID is: ASMITH");
+  });
+
+  // The whole point of these two, versus epic-password-reset.
+  it("says the password was not reset and never quotes a temporary password", async () => {
+    const out = await renderEmail(key, context(baseline({ temporaryPassword: "SecureCare4u#25" })));
+    expect(out.html).toContain("Your password has <strong>not</strong> been reset");
+    expect(out.html).not.toContain("SecureCare4u#25");
+    expect(out.html).not.toContain("temporary password");
+  });
+
+  // The new-account walkthrough says you can't log in until training is done,
+  // which is false for an existing account.
+  it("does not carry the new-account training warning", async () => {
+    const out = await renderEmail(key, context(baseline()));
+    expect(out.html).not.toContain("until your training is completed");
+    expect(out.html).toContain("YM HAVEN FREE CLINIC [105370056]");
+  });
+
+  it("lists departments when present and omits them when not", async () => {
+    const withDepts = await renderEmail(key, context(baseline()));
+    expect(withDepts.html).toContain("Outreach, Triage");
+    const without = await renderEmail(key, context(baseline({ departmentNames: [] })));
+    expect(without.html).not.toContain("Department:");
+    expect(without.html).not.toContain(" for .");
+  });
+
+  it("uses 'pending assignment' fallback when epicId is null", async () => {
+    const out = await renderEmail(key, context(baseline({ epicId: null })));
+    expect(out.html).toContain("pending assignment");
+  });
+
+  it("HTML-escapes a malicious epicId and department name", async () => {
+    const out = await renderEmail(
+      key,
+      context(baseline({ epicId: '<img src="x">', departmentNames: ["<b>Triage</b>"] })),
+    );
+    expect(out.html).not.toContain("<img");
+    expect(out.html).not.toContain("<b>Triage");
+  });
+});
+
+describe("EPIC_TEMPLATE_REQUIRED_KIND", () => {
+  it("restricts renewal to RENEW and modification to MODIFY only", () => {
+    expect(EPIC_TEMPLATE_REQUIRED_KIND).toEqual({
+      "epic-renewal": "RENEW",
+      "epic-modification": "MODIFY",
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // EpicTemplateKey type check (compile-time guard via assignment)
 // ---------------------------------------------------------------------------
 
 describe("EpicTemplateKey", () => {
-  it("covers the three expected keys", () => {
-    const keys: EpicTemplateKey[] = ["epic-onboarding", "epic-activation", "epic-password-reset"];
-    expect(keys.length).toBe(3);
+  it("covers the expected keys", () => {
+    const keys: EpicTemplateKey[] = [
+      "epic-onboarding",
+      "epic-activation",
+      "epic-password-reset",
+      "epic-renewal",
+      "epic-modification",
+    ];
+    expect(keys.length).toBe(5);
   });
 });

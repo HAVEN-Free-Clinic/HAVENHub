@@ -844,6 +844,44 @@ describe("sendEpicEmail", () => {
 
     vi.restoreAllMocks();
   });
+
+  // epic-renewal / epic-modification state that a RENEW / MODIFY finished with
+  // the password unchanged; each is refused for any other kind.
+  it.each([
+    ["epic-renewal", "RENEW", "Your Epic account has been successfully renewed"],
+    ["epic-modification", "MODIFY", "Your Epic account has been successfully modified"],
+  ] as const)("%s sends for a %s request", async (template, kind, expected) => {
+    const actor = await createPerson("Manager", { netId: "mgr001" });
+    await grantPermission(actor.id, "support.manage_requests");
+    const target = await createPerson("Alice", { netId: "aaa001", contactEmail: "alice@yale.edu" });
+    await prisma.person.update({ where: { id: target.id }, data: { epicId: "ASMITH" } });
+    const req = await prisma.epicRequest.create({
+      data: { personId: target.id, kind, status: "COMPLETED", requestedById: target.id },
+    });
+
+    await sendEpicEmail(actor.id, req.id, template);
+
+    const log = await prisma.emailLog.findFirst({ where: { personId: target.id, template } });
+    expect(log?.html).toContain(expected);
+    expect(log?.html).toContain("ASMITH");
+  });
+
+  it.each([
+    ["epic-renewal", "MODIFY"],
+    ["epic-renewal", "NEW"],
+    ["epic-modification", "RENEW"],
+    ["epic-modification", "NEW"],
+  ] as const)("%s for a %s request -> EpicStateError, nothing sent", async (template, kind) => {
+    const actor = await createPerson("Manager", { netId: "mgr001" });
+    await grantPermission(actor.id, "support.manage_requests");
+    const target = await createPerson("Alice", { netId: "aaa001", contactEmail: "alice@yale.edu" });
+    const req = await prisma.epicRequest.create({
+      data: { personId: target.id, kind, status: "COMPLETED", requestedById: target.id },
+    });
+
+    await expect(sendEpicEmail(actor.id, req.id, template)).rejects.toBeInstanceOf(EpicStateError);
+    expect(await prisma.emailLog.count({ where: { personId: target.id } })).toBe(0);
+  });
 });
 
 describe("cancelEpicRequest", () => {

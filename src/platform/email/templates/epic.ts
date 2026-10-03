@@ -10,6 +10,10 @@
  * Note: the activation email's embedded YNHHS welcome-letter replica was
  * intentionally dropped and its password requirements inlined here.
  * This is flagged for review in the PR.
+ *
+ * epic-renewal and epic-modification are Hub-native (no Airtable predecessor):
+ * the "done, password unchanged" counterparts to epic-password-reset for a
+ * RENEW or MODIFY that YNHH completed without resetting the password.
  */
 
 import { esc } from "../render/escape";
@@ -36,8 +40,25 @@ export type EpicEmailParams = {
   temporaryPassword?: string | null;
 };
 
-/** The three epic template keys. */
-export type EpicTemplateKey = "epic-onboarding" | "epic-activation" | "epic-password-reset";
+/** The epic template keys. */
+export type EpicTemplateKey =
+  | "epic-onboarding"
+  | "epic-activation"
+  | "epic-password-reset"
+  | "epic-renewal"
+  | "epic-modification";
+
+/**
+ * The request kind a template is restricted to, for the templates that only make
+ * sense for one. epic-renewal and epic-modification announce that YNHH finished a
+ * RENEW or MODIFY *without* resetting the password, so sending either for the
+ * other kind (or a NEW) would tell the person something untrue about their
+ * account. Templates absent here may be sent for any NEW/MODIFY/RENEW request.
+ */
+export const EPIC_TEMPLATE_REQUIRED_KIND: Partial<Record<EpicTemplateKey, "MODIFY" | "RENEW">> = {
+  "epic-renewal": "RENEW",
+  "epic-modification": "MODIFY",
+};
 
 
 // ---------------------------------------------------------------------------
@@ -64,6 +85,27 @@ const EPIC_DOWNLOAD_AND_NOTES_HTML = `<h3>Downloading Epic</h3>
 <li>Since we are not on DUO, please select the SMS option. You may need to call the Helpdesk and press 1 if you don't receive a text message to reset your password.</li>
 <li>Everything you do and view within the Epic system is automatically tracked and logged for security purposes; to preserve HIPAA confidentiality, you should only view charts pertinent to your role at HAVEN.</li>
 <li>Your password may need to be updated every 60-90 days. You should log into <a href="https://passwordreset.ynhh.org/app/portal/">https://passwordreset.ynhh.org/app/portal/</a> and select "Change Password" to create a new one, or you will be prompted within the Epic browser to update it.</li>
+</ul>`;
+
+/**
+ * Logging-in reminder plus notes for someone who already has a working Epic
+ * account and password: shared by the renewal and modification emails. It is
+ * deliberately not EPIC_DOWNLOAD_AND_NOTES_HTML, whose steps assume a freshly
+ * changed password and pending training ("You will NOT be able to log into
+ * Hyperspace until your training is completed"), neither of which is true here.
+ */
+const EPIC_EXISTING_ACCOUNT_NOTES_HTML = `<h3>Logging in to Epic</h3>
+<ol>
+<li>Log in through <a href="https://myapps.ynhh.org/vpn/index.html">https://myapps.ynhh.org/vpn/index.html</a> with your Epic ID and your current password. Make sure you are on the Yale VPN if you are off campus.</li>
+<li>Click on the application "PRD". Run the ".ica" file that is automatically downloaded if needed. If Citrix Receiver is no longer installed on your device, download it again (but don't sign into it) at <a href="https://www.citrix.com/products/receiver/">https://www.citrix.com/products/receiver/</a>.</li>
+<li>Select the department "YM HAVEN FREE CLINIC [105370056]".</li>
+</ol>
+
+<p><strong>Additional Notes:</strong></p>
+<ul>
+<li>Do not select the department "HAVEN FREE CLINIC". This is different from "YM HAVEN FREE CLINIC".</li>
+<li>If you have forgotten your password or it has expired, reset it at <a href="https://passwordreset.ynhh.org/app/portal/">https://passwordreset.ynhh.org/app/portal/</a>, or call the YNHH Help Desk at 203-688-4357 (they are available 24/7).</li>
+<li>Everything you do and view within the Epic system is automatically tracked and logged for security purposes; to preserve HIPAA confidentiality, you should only view charts pertinent to your role at HAVEN.</li>
 </ul>`;
 
 // ---------------------------------------------------------------------------
@@ -159,6 +201,39 @@ export function epicPasswordResetContext(params: EpicEmailParams): Record<string
     // unset to the {{#if}} guards rather than announcing an empty password.
     temporaryPassword: temporaryPassword?.trim() ?? "",
   };
+}
+
+/**
+ * Shared by the renewal and modification contexts: both confirm a change to an
+ * existing account, so both need only the greeting, the Epic ID, and the
+ * departments the access is for.
+ */
+function epicExistingAccountContext(params: EpicEmailParams): Record<string, unknown> {
+  const { personName, epicId, departmentNames = [] } = params;
+  return {
+    personName,
+    personFirstName: firstNameOf(personName),
+    epicIdDisplay: epicId ? esc(epicId) : "pending assignment",
+    // Plain text, rendered through {{ }} so the engine escapes it.
+    departmentsDisplay: departmentNames.join(", "),
+  };
+}
+
+/**
+ * Build the flat render-engine context for the epic-renewal template: a RENEW
+ * that YNHH completed without resetting the password. The renewal that DID reset
+ * it is epic-password-reset.
+ */
+export function epicRenewalContext(params: EpicEmailParams): Record<string, unknown> {
+  return epicExistingAccountContext(params);
+}
+
+/**
+ * Build the flat render-engine context for the epic-modification template: a
+ * MODIFY that YNHH completed without resetting the password.
+ */
+export function epicModificationContext(params: EpicEmailParams): Record<string, unknown> {
+  return epicExistingAccountContext(params);
 }
 
 // ---------------------------------------------------------------------------
@@ -279,6 +354,65 @@ Your temporary password: <strong>{{ temporaryPassword }}</strong>{{/if}}</p>
 ${EPIC_DOWNLOAD_AND_NOTES_HTML}
 
 <p>If you have any questions or concerns, please do not hesitate to reach out by replying to this email.</p>
+
+<p>Thank you,<br>The HAVEN IT &amp; Communications Directors</p>`,
+  },
+  {
+    key: "epic-renewal",
+    name: "Epic: renewal complete (no password reset)",
+    category: "transactional",
+    group: "epic",
+    variables: [
+      { name: "personName", label: "Volunteer name", sampleValue: "Jane Doe" },
+      { name: "personFirstName", label: "What the volunteer goes by, for the greeting", sampleValue: "Jane" },
+      { name: "epicIdDisplay", label: "Epic/Network ID (or 'pending assignment')", sampleValue: "JDOE" },
+      { name: "departmentsDisplay", label: "Active-term departments, comma separated (empty if none)", sampleValue: "Triage, Outreach" },
+    ],
+    defaultSubject: "[HAVEN] Epic Account Renewed",
+    defaultBody: `<p>Hello {{ personFirstName }},</p>
+
+<p><strong>Your Epic account has been successfully renewed by YNHH through the coming term.</strong></p>
+
+<p>Your password has <strong>not</strong> been reset, so please keep logging in with your existing Epic ID and password. Because you are returning to your department, your permissions within Epic have not changed, and you do not need to re-complete Epic training.</p>
+
+<p>Your Network/Epic ID is: {{{ epicIdDisplay }}}{{#if departmentsDisplay}}<br>
+Department: {{ departmentsDisplay }}{{/if}}</p>
+
+<p>We recommend logging in soon to confirm your access works. If you have any issues with your access or have issues logging in, you can reply to this email or call the YNHH Help Desk directly at 203-688-4357 (they are available 24/7). If you have trouble logging in on your personal device, try using the Yale VPN or Yale Secure network to access Epic first.</p>
+
+${EPIC_EXISTING_ACCOUNT_NOTES_HTML}
+
+<p>If any of this information is incorrect, or you need additional permissions, please let us know by replying to this email.</p>
+
+<p>Thank you,<br>The HAVEN IT &amp; Communications Directors</p>`,
+  },
+  {
+    key: "epic-modification",
+    name: "Epic: modification complete (no password reset)",
+    category: "transactional",
+    group: "epic",
+    variables: [
+      { name: "personName", label: "Volunteer name", sampleValue: "Jane Doe" },
+      { name: "personFirstName", label: "What the volunteer goes by, for the greeting", sampleValue: "Jane" },
+      { name: "epicIdDisplay", label: "Epic/Network ID (or 'pending assignment')", sampleValue: "JDOE" },
+      { name: "departmentsDisplay", label: "Active-term departments, comma separated (empty if none)", sampleValue: "Triage, Outreach" },
+    ],
+    defaultSubject: "[HAVEN] Epic Account Modified",
+    defaultBody: `<p>Hello {{ personFirstName }},</p>
+
+<p><strong>Your Epic account has been successfully modified by YNHH.</strong> Your updated permissions{{#if departmentsDisplay}} for {{ departmentsDisplay }}{{/if}} are now active.</p>
+
+<p>Your password has <strong>not</strong> been reset, so please keep logging in with your existing Epic ID and password.</p>
+
+<p>Your Network/Epic ID is: {{{ epicIdDisplay }}}</p>
+
+<p>We recommend logging in soon to confirm your new access works as expected. If you can't see what your role needs, or have issues logging in, you can reply to this email or call the YNHH Help Desk directly at 203-688-4357 (they are available 24/7). If you have trouble logging in on your personal device, try using the Yale VPN or Yale Secure network to access Epic first.</p>
+
+<p>As a reminder, permissions to access Epic come with great responsibility as you have access to patient PHI. You must adhere to YNHH HIPAA policy and local and state laws when accessing this information.</p>
+
+${EPIC_EXISTING_ACCOUNT_NOTES_HTML}
+
+<p>If any of this information is incorrect, please let us know by replying to this email.</p>
 
 <p>Thank you,<br>The HAVEN IT &amp; Communications Directors</p>`,
   },

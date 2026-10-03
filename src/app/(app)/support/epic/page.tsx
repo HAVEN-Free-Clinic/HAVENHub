@@ -49,7 +49,13 @@ import { getActiveTerm } from "@/platform/terms/active-term";
 import { getWorkingTerm } from "@/platform/terms/working-term";
 import { listBatchTermOptions, loadTermEpicRollup } from "@/modules/support/services/epic-rollup";
 
-const EPIC_EMAIL_TEMPLATES: EpicTemplateKey[] = ["epic-onboarding", "epic-activation", "epic-password-reset"];
+const EPIC_EMAIL_TEMPLATES: EpicTemplateKey[] = [
+  "epic-onboarding",
+  "epic-activation",
+  "epic-password-reset",
+  "epic-renewal",
+  "epic-modification",
+];
 
 async function closeTicketAction(ticketId: string) {
   "use server";

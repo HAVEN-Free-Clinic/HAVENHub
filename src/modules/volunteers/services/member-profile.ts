@@ -15,6 +15,7 @@
 import { prisma } from "@/platform/db";
 import { getAccessTerm } from "@/platform/terms/access-term";
 import { verifiedLanguagesByPerson } from "@/platform/languages";
+import { specialtyInterestForPerson, type SpecialtyInterest } from "@/platform/recruitment/specialty-interest";
 
 export type MemberProfileBasics = {
   id: string;
@@ -40,6 +41,11 @@ export type MemberProfileBasics = {
    * "No active membership". Null when no term resolves.
    */
   termName: string | null;
+  /**
+   * Their answer to the SCTP/JCTP specialty clinic question on their
+   * application for that term, or null when it never asked them.
+   */
+  specialtyInterest: SpecialtyInterest | null;
 };
 
 export async function getMemberProfileBasics(
@@ -65,7 +71,7 @@ export async function getMemberProfileBasics(
   if (!person) return null;
 
   const term = await getAccessTerm(personId);
-  const [memberships, languages] = await Promise.all([
+  const [memberships, languages, specialtyInterest] = await Promise.all([
     term
       ? prisma.termMembership.findMany({
           where: { personId, termId: term.id, status: "ACTIVE" },
@@ -74,6 +80,7 @@ export async function getMemberProfileBasics(
         })
       : Promise.resolve([]),
     verifiedLanguagesByPerson([personId]),
+    term ? specialtyInterestForPerson({ personId, termId: term.id }) : Promise.resolve(null),
   ]);
 
   return {
@@ -86,5 +93,6 @@ export async function getMemberProfileBasics(
       kind: m.kind as "DIRECTOR" | "VOLUNTEER",
     })),
     termName: term?.name ?? null,
+    specialtyInterest,
   };
 }

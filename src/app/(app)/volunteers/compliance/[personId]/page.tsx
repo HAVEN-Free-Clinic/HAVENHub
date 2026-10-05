@@ -303,6 +303,11 @@ export default async function PersonCompliancePage({ params }: PageProps) {
                     </span>
                   )}
                 </DetailRow>
+                {/* Only people whose application asked (SCTP/JCTP). The
+                    schedule builder shows the same answer as a badge. */}
+                {person.specialtyInterest && (
+                  <DetailRow label="Specialty clinic interest">{person.specialtyInterest.answer}</DetailRow>
+                )}
               </DescriptionList>
             </div>
           </Card>

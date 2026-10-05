@@ -41,6 +41,7 @@ import type { BuilderMember, BuilderAssignmentEntry } from "@/modules/schedule/s
 import { sortClinicDates } from "./clinic-date-order";
 import { PROVISIONAL_BADGE_LABEL, PROVISIONAL_BADGE_TITLE } from "./provisional-labels";
 import { NewcomerBadge } from "./newcomer-badge";
+import { SpecialtyBadge } from "./specialty-badge";
 import { EmptyState } from "@/platform/ui/empty-state";
 import { useBuilderBoard, type BoardApi } from "./builder-board";
 import {
@@ -96,6 +97,8 @@ type GridRow = {
   status: "member" | "incoming" | "former";
   /** New or transferring in this term; null for a renewal or a former member. */
   newcomer: BuilderMember["newcomer"];
+  /** Application answer to the specialty clinic question; null for a former member. */
+  specialtyInterest: BuilderMember["specialtyInterest"];
   /**
    * Whether an EMPTY cell on this row offers to assign. False only for a former
    * member: their leftover shifts are still actionable, but they hold no place to
@@ -606,6 +609,7 @@ export function BuilderGrid({
       kind: m.kind,
       status: m.provisional ? ("incoming" as const) : ("member" as const),
       newcomer: m.newcomer,
+      specialtyInterest: m.specialtyInterest,
       // Members and incoming people alike, first-time applicants included: the
       // service keeps their drafts against the acceptance until roster build.
       assignable: true,
@@ -628,6 +632,7 @@ export function BuilderGrid({
         kind: null,
         status: "former",
         newcomer: null,
+        specialtyInterest: null,
         assignable: false,
         availabilityDates: [],
       });
@@ -759,6 +764,7 @@ export function BuilderGrid({
                         </Badge>
                       )}
                       <NewcomerBadge newcomer={row.newcomer} />
+                      <SpecialtyBadge interest={row.specialtyInterest} />
                       {row.status === "former" && (
                         // Former member (offboarded) who still holds a live
                         // assignment. Flagged so directors can clear the leftover

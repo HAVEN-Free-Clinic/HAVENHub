@@ -28,6 +28,7 @@ import { AlertTriangle } from "lucide-react";
 import { IntakeNotes } from "./intake-notes";
 import { PROVISIONAL_BADGE_LABEL, PROVISIONAL_STAGE_LABEL } from "./provisional-labels";
 import { NewcomerBadge } from "./newcomer-badge";
+import { SpecialtyBadge } from "./specialty-badge";
 import { isoDateKey } from "@/platform/dates";
 import { rolesForDept } from "@/modules/schedule/engine/capacity";
 import { compareBuilderMembers } from "@/modules/schedule/engine/member-order";
@@ -185,6 +186,7 @@ export function BuilderDayView({
         {/* New and transfer people too: "who on this Saturday is new" is how a
             director checks each one is paired with someone experienced. */}
         <NewcomerBadge newcomer={member?.newcomer ?? null} />
+        <SpecialtyBadge interest={member?.specialtyInterest ?? null} />
       </>
     );
   }
@@ -318,6 +320,7 @@ export function BuilderDayView({
             </>
           )}
           <NewcomerBadge newcomer={member.newcomer} />
+          <SpecialtyBadge interest={member.specialtyInterest} />
           {flagBadges(member.person)}
           {!available && <Badge tone="warning">not free</Badge>}
         </div>

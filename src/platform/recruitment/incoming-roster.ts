@@ -200,7 +200,7 @@ function stageFor(contractStatus: "PENDING" | "SUBMITTED" | "PROMOTED" | undefin
 }
 
 /** The membership kind roster build will give an acceptance off this cycle track. */
-function kindFor(track: string): "DIRECTOR" | "VOLUNTEER" {
+export function kindFor(track: string): "DIRECTOR" | "VOLUNTEER" {
   return track === "DIRECTOR" ? "DIRECTOR" : "VOLUNTEER";
 }
 

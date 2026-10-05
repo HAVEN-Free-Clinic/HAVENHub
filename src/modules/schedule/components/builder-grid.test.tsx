@@ -23,6 +23,7 @@ const member: BuilderMember = {
   intake: { preferredShifts: null, feedback: null },
   provisional: null,
   newcomer: null,
+  specialtyInterest: null,
 };
 
 const NO_TAGS = {

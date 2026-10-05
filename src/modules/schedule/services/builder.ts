@@ -29,6 +29,11 @@ import {
   listIncomingShiftDrafts,
 } from "@/platform/recruitment/incoming-roster";
 import type { IncomingShiftDraft, IncomingStage, Newcomer } from "@/platform/recruitment/incoming-roster";
+import {
+  specialtyInterestByApplication,
+  specialtyInterestByMember,
+  type SpecialtyInterest,
+} from "@/platform/recruitment/specialty-interest";
 import { resolveAvailability } from "../engine/availability";
 import type { ResolvedAvailability } from "../engine/availability";
 import { toScheduleEntries } from "../engine/map";
@@ -1382,6 +1387,13 @@ export type BuilderMember = {
    * a member with no application behind their membership (an import, a manual add).
    */
   newcomer: Newcomer | null;
+  /**
+   * Their application's answer to the SCTP/JCTP specialty clinic question, so
+   * the people building the schedule can staff neurology, nephrology and
+   * dermatology days. Null when the application never asked or they left it
+   * blank, and for a member with no application behind their membership.
+   */
+  specialtyInterest: SpecialtyInterest | null;
 };
 
 /**
@@ -1935,7 +1947,7 @@ export async function builderView(
   const intakeByKey = new Map(trainingRows.map((t) => [`${t.personId}:${t.track}`, t]));
   // The onboarding contract's scheduling answers for the same members, keyed the
   // same way.
-  const [onboardingNotes, promotedNewcomers] = await Promise.all([
+  const [onboardingNotes, promotedNewcomers, promotedSpecialty, unpromotedSpecialty] = await Promise.all([
     onboardingNotesByMember({
       termId: term.id,
       departmentCode: selectedDept.code,
@@ -1946,7 +1958,21 @@ export async function builderView(
       departmentCode: selectedDept.code,
       personIds: memberPersonIds,
     }),
+    specialtyInterestByMember({
+      termId: term.id,
+      departmentCode: selectedDept.code,
+      personIds: memberPersonIds,
+    }),
+    // Every live acceptance in the department: the incoming rows below, plus a
+    // roster member whose acceptance is still unpromoted (as for newcomers).
+    specialtyInterestByApplication(incomingAll.map((i) => i.applicationId)),
   ]);
+  const unpromotedSpecialtyByMember = new Map(
+    incomingAll.flatMap((i) => {
+      const interest = i.personId ? unpromotedSpecialty.get(i.applicationId) : undefined;
+      return interest ? [[`${i.personId}:${i.kind}`, interest] as const] : [];
+    }),
+  );
   // A roster member whose acceptance is still unpromoted (their membership came
   // down another path, see the filter above) answers from that acceptance.
   const unpromotedNewcomers = new Map(
@@ -2006,6 +2032,10 @@ export async function builderView(
         promotedNewcomers.get(`${m.person.id}:${m.kind}`) ??
         unpromotedNewcomers.get(`${m.person.id}:${m.kind}`) ??
         null,
+      specialtyInterest:
+        promotedSpecialty.get(`${m.person.id}:${m.kind}`) ??
+        unpromotedSpecialtyByMember.get(`${m.person.id}:${m.kind}`) ??
+        null,
     };
   });
 
@@ -2055,6 +2085,7 @@ export async function builderView(
       stage: i.stage,
     },
     newcomer: i.newcomer,
+    specialtyInterest: unpromotedSpecialty.get(i.applicationId) ?? null,
   }));
 
   const allBuilderMembers = [...builderMembers, ...incomingMembers];

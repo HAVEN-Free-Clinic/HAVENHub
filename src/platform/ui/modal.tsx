@@ -68,7 +68,7 @@ export function Modal({ open, onClose, title, ariaLabel, size = "default", child
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4" /* fixed dark scrim: must not theme-flip */
+      className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4 backdrop-blur-xs motion-safe:animate-fade-in"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -81,7 +81,7 @@ export function Modal({ open, onClose, title, ariaLabel, size = "default", child
         aria-label={!title ? ariaLabel : undefined}
         tabIndex={-1}
         className={cx(
-          "flex max-h-[90vh] w-full flex-col rounded-2xl glass-panel outline-none",
+          "flex max-h-[90vh] w-full flex-col rounded-2xl float-panel outline-none",
           modalSizeClass(size),
         )}
       >

@@ -72,7 +72,7 @@ export function AccountMenu({
       </button>
 
       {open && (
-        <div className="glass-panel absolute right-0 top-11 z-40 w-60 overflow-hidden rounded-xl p-1.5">
+        <div className="float-panel absolute right-0 top-11 z-40 w-60 overflow-hidden rounded-xl p-1.5">
           <div className="border-b border-border-subtle px-2.5 pb-2.5 pt-1.5">
             <p className="truncate text-sm font-semibold text-foreground">{person.name ?? "Signed in"}</p>
             {termLabel && <p className="mt-0.5 text-xs text-muted-foreground">{termLabel}</p>}

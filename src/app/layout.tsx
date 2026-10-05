@@ -18,6 +18,7 @@ import { getPersonThemePreference } from "@/platform/ui/theme-preference";
 import { ThemeListener } from "@/platform/ui/theme-listener";
 import { ToastProvider, ToastViewport } from "@/platform/ui/toast/toast";
 import { ListPendingProvider } from "@/platform/ui/list-pending";
+import { MotionProvider } from "@/platform/ui/motion-provider";
 import { FlashReader } from "@/platform/ui/toast/flash-reader";
 import { hostFromUrl } from "@/modules/recruitment/services/portal-routing";
 import { RouterCrashRecovery } from "@/platform/posthog/router-crash-recovery";
@@ -110,15 +111,14 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
             /get-started, none of which AppShell wraps. FlashReader and
             ToastViewport are siblings of TopProgressBar/children, floating
             independently of whatever the current page renders, exactly like
-            HelpLauncher already does outside app-shell.tsx's glass-bar toolbar
-            (backdrop-filter breaks `fixed` descendants; the root layout sits
-            outside every glass container by construction).
+            HelpLauncher already does outside app-shell.tsx's toolbar.
 
             InactivityTracker renders INSIDE ToastViewport rather than beside
             it, so its warning is a flex child directly above the toast stack.
             That is what makes the R12 fix hold: the two cannot overlap because
             they are in one flow, not because an offset was computed to keep
             them apart. */}
+        <MotionProvider>
         <ToastProvider>
           {/* ListPendingProvider wraps children so the shared Pagination and
               NavForm primitives can report a `?`-only navigation to whatever
@@ -134,6 +134,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
             <InactivityTracker authenticated={!!session?.user} />
           </ToastViewport>
         </ToastProvider>
+        </MotionProvider>
       </body>
     </html>
   );

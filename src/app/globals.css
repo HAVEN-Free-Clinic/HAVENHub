@@ -64,10 +64,46 @@
   --color-brand-fg: var(--color-brand);
   /* The toolbar logo. Brand in light; in dark it follows foreground rather than
      brand-fg, whose half-white mix is tuned for 11px text on muted and left the
-     thin logo lettering faint on the glass bar. */
+     thin logo lettering faint on the toolbar. */
   --color-logo: var(--color-brand);
 
   --font-sans: var(--font-hanken), ui-sans-serif, system-ui, sans-serif;
+
+  /* Elevation. Soft, low-contrast shadows: every elevated surface also carries the
+     1px border hairline, which does most of the work (and all of it in dark mode,
+     where a shadow on a near-black canvas barely reads). sm = cards, md = popovers,
+     menus and the toolbar, lg = dialogs. */
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.05);
+  --shadow-md: 0 8px 24px -8px rgb(0 0 0 / 0.12);
+  --shadow-lg: 0 24px 48px -12px rgb(0 0 0 / 0.18);
+
+  /* Behind dialogs. Light and blurred rather than a heavy dark wash. */
+  --color-scrim: oklch(0.2 0 0 / 0.25);
+
+  /* Motion. `--ease-spring` is a linear() sample of a critically damped spring
+     (no bounce), the same curve motion.ts gives Motion components, so CSS hovers
+     and presses settle like the animated parts. It is also the default for every
+     `transition-*` utility, at the snappy 200ms. See src/platform/ui/motion.ts. */
+  --ease-spring: linear(0, 0.1143, 0.3206, 0.5162, 0.6709, 0.7829, 0.86, 0.9112, 0.9444, 0.9656, 0.9789, 0.9871, 0.9922, 0.9953, 0.9972, 0.9983, 1);
+  --default-transition-duration: 200ms;
+  --default-transition-timing-function: var(--ease-spring);
+  --animate-pop-in: pop-in 350ms var(--ease-spring);
+  --animate-fade-in: fade-in 200ms var(--ease-spring);
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Floating surfaces (popovers, menus, dialogs) enter by scaling up from 0.96
+   while they fade in. Small distance, no bounce. */
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
 }
 
 /*
@@ -239,7 +275,7 @@ html.dark {
      resolves to #809ab5 and clears AA on all three (5.02 / 6.13 / 6.92).
 
      Lighter is monotonically safer here -- every dark-mode ground is darker than
-     the ink -- so this also helps the glass-bar nav legibility case. Guarded by
+     the ink. Guarded by
      theme-contrast.test.ts, which resolves this color-mix for the default brand. */
   --color-brand-fg: color-mix(in srgb, var(--color-brand) 50%, white);
   --color-logo: var(--color-foreground);
@@ -254,6 +290,10 @@ html.dark {
      muted-strong: subtle-foreground only reaches 3.4:1 on muted-strong. */
   --color-available: #0d3229;         /* 4.54:1 under subtle-foreground */
   --color-unavailable: #1e293b;       /* = muted; 4.76:1 under subtle-foreground */
+
+  /* A 25% wash disappears on a near-black canvas; dark mode needs more to set the
+     dialog apart. */
+  --color-scrim: oklch(0 0 0 / 0.55);
 }
 
 /* Tell the UA which native scheme to use (form controls, scrollbars). */
@@ -277,112 +317,33 @@ html.dark { color-scheme: dark; }
 }
 
 /*
- * Liquid Glass: the floating navigation / control material (Apple-style).
- * Applied only to the topmost nav bar and floating overlays (modals, popovers),
- * never to content. `.glass-bar` = pinned horizontal bars (bottom-edge emphasis);
- * `.glass-panel` = floating overlays (full border, leans opaque per Apple's
- * "expanded sheets become more opaque"). Dark + accessibility overrides follow.
+ * Floating surfaces. Solid, quiet, and lifted by a hairline plus a soft shadow:
+ * `.float-bar` is the pinned toolbar pill, `.float-panel` is anything that
+ * floats over content (popovers, menus, dialogs, the sign-in cards). These
+ * replaced the translucent "liquid glass" material, which is why there is no
+ * backdrop-filter here: without it a `fixed` descendant is no longer trapped by
+ * its panel, though overlays still portal out to escape `overflow` clipping.
+ *
+ * Panels pop in (scale 0.96 -> 1 with a fade) when they mount. Reduced motion
+ * skips it; the panel simply appears.
  */
 @layer components {
-  .glass-bar,
-  .glass-panel {
-    position: relative;
-    /* Alpha floor kept high enough that a dark section scrolling under the bar
-       can't drop nav text (foreground-soft) below WCAG AA; still translucent. */
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0.7));
-    -webkit-backdrop-filter: blur(18px) saturate(190%);
-    backdrop-filter: blur(18px) saturate(190%);
+  .float-bar,
+  .float-panel {
+    @apply border border-border bg-surface;
   }
 
-  /* Specular edge sheen. z-index:-1 sits it above the glass background but below content (backdrop-filter makes the element a stacking context). pointer-events:none so it never blocks clicks. */
-  .glass-bar::before,
-  .glass-panel::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    pointer-events: none;
-    z-index: -1;
-    background: linear-gradient(
-      105deg,
-      rgba(255, 255, 255, 0.5) 0%,
-      rgba(255, 255, 255, 0) 22%,
-      rgba(255, 255, 255, 0) 72%,
-      rgba(255, 255, 255, 0.28) 100%
-    );
+  .float-bar {
+    @apply shadow-md;
   }
 
-  .glass-bar {
-    /* Floating pill: full hairline border + a lift shadow so it reads as a
-       detached island, not a pinned edge-to-edge bar. */
-    border: 1px solid rgba(255, 255, 255, 0.6);
-    box-shadow:
-      0 1px 0 rgba(255, 255, 255, 0.9) inset,
-      0 10px 30px rgba(15, 23, 42, 0.16);
+  .float-panel {
+    @apply shadow-lg;
   }
 
-  .glass-panel {
-    /* Apple: expanded sheets lean opaque to keep focus. Higher alpha floor. */
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.82));
-    border: 1px solid rgba(255, 255, 255, 0.7);
-    box-shadow:
-      0 1px 0 rgba(255, 255, 255, 0.95) inset,
-      0 12px 34px rgba(15, 23, 42, 0.18);
-  }
-
-  /* Dark mode: tint derived from the surface token so it tracks the theme. */
-  html.dark .glass-bar,
-  html.dark .glass-panel {
-    background: linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--color-surface) 65%, transparent),
-      color-mix(in srgb, var(--color-surface) 55%, transparent)
-    );
-  }
-  html.dark .glass-bar::before,
-  html.dark .glass-panel::before {
-    background: linear-gradient(
-      105deg,
-      rgba(255, 255, 255, 0.12) 0%,
-      rgba(255, 255, 255, 0) 30%,
-      rgba(255, 255, 255, 0) 80%,
-      rgba(255, 255, 255, 0.08) 100%
-    );
-  }
-  html.dark .glass-bar {
-    border-color: rgba(255, 255, 255, 0.12);
-    box-shadow:
-      0 1px 0 rgba(255, 255, 255, 0.06) inset,
-      0 10px 30px rgba(0, 0, 0, 0.5);
-  }
-  html.dark .glass-panel {
-    background: linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--color-surface) 92%, transparent),
-      color-mix(in srgb, var(--color-surface) 86%, transparent)
-    );
-    border-color: rgba(255, 255, 255, 0.12);
-    box-shadow:
-      0 1px 0 rgba(255, 255, 255, 0.08) inset,
-      0 12px 34px rgba(0, 0, 0, 0.5);
-  }
-
-  /*
-   * Accessibility: drop translucency entirely and fall back to a solid surface
-   * when the user reduces transparency, raises contrast, or uses forced colors.
-   */
-  @media (prefers-reduced-transparency: reduce),
-    (prefers-contrast: more),
-    (forced-colors: active) {
-    .glass-bar,
-    .glass-panel {
-      background: var(--color-surface);
-      -webkit-backdrop-filter: none;
-      backdrop-filter: none;
-    }
-    .glass-bar::before,
-    .glass-panel::before {
-      display: none;
+  @media (prefers-reduced-motion: no-preference) {
+    .float-panel {
+      animation: var(--animate-pop-in);
     }
   }
 }

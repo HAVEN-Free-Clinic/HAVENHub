@@ -231,7 +231,7 @@ export function FieldPicker({
       )}
 
       {open && (
-        <div className="absolute left-0 top-full z-20 mt-1 w-72 overflow-hidden rounded-xl glass-panel">
+        <div className="absolute left-0 top-full z-20 mt-1 w-72 overflow-hidden rounded-xl float-panel">
           <input
             ref={inputRef}
             type="text"

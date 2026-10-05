@@ -154,9 +154,9 @@ function otherModalOpen(own: HTMLElement | null): boolean {
  * signed-in person. Entity results are filtered server-side by /api/search;
  * nothing here re-filters or could widen them.
  *
- * The dialog portals to document.body deliberately. The toolbar carries
- * `.glass-bar`, whose backdrop-filter establishes a containing block that
- * clips and mispositions fixed overlays rendered inside it (#304).
+ * The dialog portals to document.body deliberately, so no ancestor of the
+ * toolbar can clip or reposition it. The toolbar used to be a backdrop-filter
+ * glass bar, which made that concrete: it trapped fixed overlays (#304).
  *
  * Its dialog mechanics (portal, body-scroll lock, capture-phase Escape, Tab
  * trap, focus restoration) mirror src/platform/ui/modal.tsx rather than
@@ -386,7 +386,7 @@ export function CommandPalette({ items }: { items: NavModule[] }) {
       {open &&
         createPortal(
           <div
-            className="fixed inset-0 z-50 flex items-start justify-center bg-slate-900/50 p-4 pt-[12vh] backdrop-blur-sm" /* fixed dark scrim: must not theme-flip */
+            className="fixed inset-0 z-50 flex items-start justify-center bg-scrim p-4 pt-[12vh] backdrop-blur-xs motion-safe:animate-fade-in"
             onMouseDown={(e) => {
               if (e.target === e.currentTarget) close();
             }}
@@ -397,7 +397,7 @@ export function CommandPalette({ items }: { items: NavModule[] }) {
               aria-modal="true"
               aria-label="Search"
               tabIndex={-1}
-              className="glass-panel flex max-h-[70vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl outline-none"
+              className="float-panel flex max-h-[70vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl outline-none"
             >
               <div className="flex items-center gap-2 border-b border-border px-4 py-3">
                 <Search aria-hidden className="h-4 w-4 shrink-0 text-muted-foreground" />

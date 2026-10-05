@@ -27,7 +27,7 @@ export function Breadcrumbs({ modules }: { modules: BreadcrumbModule[] }) {
 
   return (
     // No solid band or border: the breadcrumb rides directly on the canvas as a
-    // quiet label beneath the floating glass nav (a full-width white strip would
+    // quiet label beneath the floating toolbar (a full-width white strip would
     // read as an orphaned band wedged between the pill and the content).
     <nav aria-label="Breadcrumb" className={`mx-auto w-full ${SHELL_WIDTH} px-6 pt-4 pb-1`}>
       <ol className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">

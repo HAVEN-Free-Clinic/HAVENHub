@@ -36,7 +36,7 @@ function themeBlock(): string {
  */
 function darkBlocks(): string {
   // `html\.dark\s*\{` deliberately requires the brace to follow the selector directly,
-  // so the descendant rules (`html.dark .glass-panel { ... }`) are not swept in.
+  // so the descendant rules (`html.dark .float-panel { ... }`) are not swept in.
   const out: string[] = [];
   for (const m of CSS.matchAll(/html\.dark\s*\{([^}]*)\}/g)) out.push(m[1]);
   if (out.length === 0) throw new Error("globals.css: no html.dark block found");

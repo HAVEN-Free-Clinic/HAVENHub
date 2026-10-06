@@ -37,7 +37,7 @@ export function OnboardingStepShell({
   const container = wide ? "max-w-6xl" : "max-w-3xl";
   return (
     <main className="min-h-screen bg-canvas">
-      <header className="sticky top-0 z-10 border-b border-border bg-canvas/85 backdrop-blur">
+      <header className="sticky top-0 z-10 border-b border-border bg-canvas">
         <div className={`mx-auto flex ${container} items-center justify-between gap-4 px-6 py-3.5`}>
           <Link
             href={backHref}

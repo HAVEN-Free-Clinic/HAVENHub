@@ -2,11 +2,12 @@
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, motion, useDragControls } from "motion/react";
 import { X } from "lucide-react";
 import { cx } from "@/platform/ui/cx";
 import { MorphHeight } from "@/platform/ui/morph";
 import { spring } from "@/platform/ui/motion";
+import { useMediaQuery } from "@/platform/ui/use-media-query";
 import { modalSizeClass, type ModalSize } from "@/platform/ui/modal-size";
 import { useFocusTrap } from "@/platform/ui/use-focus-trap";
 
@@ -33,6 +34,10 @@ type ModalProps = {
  * `open` goes false. The body is a MorphHeight, so content that changes inside
  * an open dialog (a ViewSwap step, an error appearing) resizes the panel with a
  * spring instead of snapping. Renders nothing once closed and the exit is done.
+ *
+ * Below the `sm` breakpoint the dialog is a bottom sheet: docked to the bottom
+ * edge, sliding up from it, and dismissable by dragging its header down. Only
+ * the header starts a drag, so scrolling the body never fights it.
  */
 export function Modal({ open, onClose, title, ariaLabel, size = "default", children, footer }: ModalProps) {
   const panelRef = useRef<HTMLDivElement>(null);
@@ -44,6 +49,10 @@ export function Modal({ open, onClose, title, ariaLabel, size = "default", child
   // the opening render already has the portal.
   const [present, setPresent] = useState(open);
   if (open && !present) setPresent(true);
+  // Matches Tailwind's `sm` breakpoint (40rem), so the JS motion and the CSS
+  // layout switch at the same width.
+  const sheet = useMediaQuery("(max-width: 39.999rem)");
+  const dragControls = useDragControls();
 
   const onCloseRef = useRef(onClose);
   useEffect(() => {
@@ -87,7 +96,7 @@ export function Modal({ open, onClose, title, ariaLabel, size = "default", child
       {open && (
         <motion.div
           key="scrim"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4 backdrop-blur-xs"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-scrim backdrop-blur-xs sm:items-center sm:p-4"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -103,17 +112,36 @@ export function Modal({ open, onClose, title, ariaLabel, size = "default", child
             aria-labelledby={title ? titleId : undefined}
             aria-label={!title ? ariaLabel : undefined}
             tabIndex={-1}
-            initial={{ opacity: 0, scale: 0.96 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.96 }}
+            initial={sheet ? { y: "100%" } : { opacity: 0, scale: 0.96 }}
+            animate={sheet ? { y: 0 } : { opacity: 1, scale: 1 }}
+            exit={sheet ? { y: "100%" } : { opacity: 0, scale: 0.96 }}
             transition={spring.default}
+            drag={sheet ? "y" : false}
+            dragControls={dragControls}
+            dragListener={false}
+            dragConstraints={{ top: 0, bottom: 0 }}
+            dragElastic={{ top: 0, bottom: 0.6 }}
+            onDragEnd={(_, info) => {
+              if (info.offset.y > 96 || info.velocity.y > 500) onClose();
+            }}
             className={cx(
               // animate-none: Motion owns this panel's entrance, so the CSS pop-in
               // that every other .float-panel gets must not run on top of it.
-              "flex max-h-[90vh] w-full flex-col rounded-2xl float-panel animate-none outline-none",
+              // pb-safe-area: the sheet sits on the screen's bottom edge, so its last
+              // row has to clear the iPhone home indicator.
+              "flex max-h-[90dvh] w-full flex-col rounded-t-2xl float-panel animate-none outline-none pb-[env(safe-area-inset-bottom)]",
+              "sm:max-h-[90vh] sm:rounded-b-2xl sm:pb-0",
               modalSizeClass(size),
             )}
           >
+            {/* The sheet's grab area: the handle and the title row both start a
+                drag on a phone. touch-none so the browser does not claim the
+                gesture as a scroll first. */}
+            <div
+              onPointerDown={sheet ? (e) => dragControls.start(e) : undefined}
+              className={cx(sheet && "touch-none")}
+            >
+            {sheet && <div aria-hidden className="mx-auto mt-2 h-1 w-9 rounded-full bg-border-strong" />}
             <div className="flex items-center justify-between border-b border-border px-5 py-3">
               <h2 id={titleId} className="min-w-0 truncate text-sm font-semibold text-foreground-soft">{title}</h2>
               <button
@@ -124,6 +152,7 @@ export function Modal({ open, onClose, title, ariaLabel, size = "default", child
               >
                 <X className="h-5 w-5" />
               </button>
+            </div>
             </div>
             {/* shrink + min-h-0: the animated height is a target, and the panel's
                 max-h still wins when content outgrows the viewport; the body then

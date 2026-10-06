@@ -1,4 +1,5 @@
 import { mkdirSync } from "node:fs";
+import { MotionGlobalConfig } from "motion/react";
 import { workerDatabaseUrl, workerSlot, workerUploadDir } from "./vitest.workers";
 
 // Tests run against a dedicated test database, never the dev one. Each worker
@@ -101,3 +102,10 @@ for (const key of [
 // negotiable by the surrounding environment. Tests that need to exercise the
 // graph or maileroo config pass it to loadConfig() directly.
 process.env.EMAIL_TRANSPORT = "log";
+
+// Motion animations finish instantly in tests. Exits otherwise keep a node in
+// the DOM for the length of a spring, and Motion's frame loop does not follow
+// vi.useFakeTimers, so "is it gone yet" would depend on wall-clock time.
+// Anything asserting on a final state sees it at once, as a reduced-motion
+// user would.
+MotionGlobalConfig.skipAnimations = true;

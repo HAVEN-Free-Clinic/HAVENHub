@@ -1,9 +1,12 @@
 "use client";
 
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { AnimatePresence, motion } from "motion/react";
 import { X } from "lucide-react";
 import { cx } from "@/platform/ui/cx";
+import { MorphHeight } from "@/platform/ui/morph";
+import { spring } from "@/platform/ui/motion";
 import { modalSizeClass, type ModalSize } from "@/platform/ui/modal-size";
 import { useFocusTrap } from "@/platform/ui/use-focus-trap";
 
@@ -22,12 +25,25 @@ type ModalProps = {
 /**
  * Accessible modal dialog. Renders via a portal to document.body, traps focus,
  * closes on Escape and backdrop click, locks body scroll while open, and restores
- * focus to the previously focused element on close. Renders nothing when closed.
+ * focus to the previously focused element on close.
+ *
+ * Motion: the panel scales up from 0.96 as the scrim fades in, and plays that in
+ * reverse on close, so the DOM node outlives `open` by the length of the exit.
+ * Focus restore and the scroll unlock do NOT wait for it; they run the moment
+ * `open` goes false. The body is a MorphHeight, so content that changes inside
+ * an open dialog (a ViewSwap step, an error appearing) resizes the panel with a
+ * spring instead of snapping. Renders nothing once closed and the exit is done.
  */
 export function Modal({ open, onClose, title, ariaLabel, size = "default", children, footer }: ModalProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const previouslyFocused = useRef<HTMLElement | null>(null);
   const titleId = useId();
+  // Whether the portal is in the DOM: true from the moment `open` flips on until
+  // the exit animation finishes. Adjusted during render (React's documented
+  // "storing information from previous renders" pattern), not in an effect, so
+  // the opening render already has the portal.
+  const [present, setPresent] = useState(open);
+  if (open && !present) setPresent(true);
 
   const onCloseRef = useRef(onClose);
   useEffect(() => {
@@ -64,46 +80,66 @@ export function Modal({ open, onClose, title, ariaLabel, size = "default", child
   // focus restore on close would silently do nothing.
   useFocusTrap(panelRef, open);
 
-  if (!open) return null;
+  if (!present) return null;
 
   return createPortal(
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4 backdrop-blur-xs motion-safe:animate-fade-in"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={title ? titleId : undefined}
-        aria-label={!title ? ariaLabel : undefined}
-        tabIndex={-1}
-        className={cx(
-          "flex max-h-[90vh] w-full flex-col rounded-2xl float-panel outline-none",
-          modalSizeClass(size),
-        )}
-      >
-        <div className="flex items-center justify-between border-b border-border px-5 py-3">
-          <h2 id={titleId} className="min-w-0 truncate text-sm font-semibold text-foreground-soft">{title}</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="rounded-lg p-1 text-muted-foreground transition-colors hover:bg-muted-strong hover:text-foreground"
+    <AnimatePresence onExitComplete={() => setPresent(false)}>
+      {open && (
+        <motion.div
+          key="scrim"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4 backdrop-blur-xs"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={spring.snappy}
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) onClose();
+          }}
+        >
+          <motion.div
+            ref={panelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={title ? titleId : undefined}
+            aria-label={!title ? ariaLabel : undefined}
+            tabIndex={-1}
+            initial={{ opacity: 0, scale: 0.96 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.96 }}
+            transition={spring.default}
+            className={cx(
+              // animate-none: Motion owns this panel's entrance, so the CSS pop-in
+              // that every other .float-panel gets must not run on top of it.
+              "flex max-h-[90vh] w-full flex-col rounded-2xl float-panel animate-none outline-none",
+              modalSizeClass(size),
+            )}
           >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-        <div className="min-h-0 flex-1 overflow-auto p-4">{children}</div>
-        {footer && (
-          <div className="flex items-center justify-end gap-2 border-t border-border px-5 py-3">
-            {footer}
-          </div>
-        )}
-      </div>
-    </div>,
+            <div className="flex items-center justify-between border-b border-border px-5 py-3">
+              <h2 id={titleId} className="min-w-0 truncate text-sm font-semibold text-foreground-soft">{title}</h2>
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Close"
+                className="rounded-lg p-1 text-muted-foreground transition-colors hover:bg-muted-strong hover:text-foreground"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            {/* shrink + min-h-0: the animated height is a target, and the panel's
+                max-h still wins when content outgrows the viewport; the body then
+                scrolls instead of pushing the footer off screen. */}
+            <MorphHeight className="min-h-0 shrink overflow-y-auto" innerClassName="p-4">
+              {children}
+            </MorphHeight>
+            {footer && (
+              <div className="flex items-center justify-end gap-2 border-t border-border px-5 py-3">
+                {footer}
+              </div>
+            )}
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>,
     document.body,
   );
 }

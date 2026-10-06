@@ -1,6 +1,7 @@
 import type { Ref } from "react";
 import Link from "next/link";
 import { ScrollFade } from "./scroll-fade";
+import { TabPill } from "./tab-pill";
 
 export type TabItem = { label: string; href: string; badge?: number };
 
@@ -87,10 +88,11 @@ export function TabRow({
               aria-label={item.badge === undefined ? undefined : `${item.label}, ${item.badge}`}
               className={
                 active
-                  ? "shrink-0 whitespace-nowrap rounded-lg bg-surface px-3 py-1.5 text-foreground shadow-sm"
-                  : "shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-muted-foreground hover:text-foreground"
+                  ? "relative isolate shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-foreground transition-colors"
+                  : "relative isolate shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-muted-foreground transition-colors hover:text-foreground"
               }
             >
+              {active && <TabPill layoutId={`tab-pill:${label}`} variant="segmented" />}
               {item.label}
               {item.badge !== undefined && (
                 <span aria-hidden className="ml-1.5 inline-block min-w-[1.375rem] rounded-md border border-border px-1.5 text-center text-[11px] font-semibold tabular-nums">
@@ -120,12 +122,16 @@ export function TabRow({
             href={item.href}
             aria-current={active ? "page" : undefined}
             aria-label={item.badge === undefined ? undefined : `${item.label}, ${item.badge}`}
+            // pb-2.5 on both: the 2px indicator is drawn inside the link now
+            // rather than as its border, so the padding absorbs it and active and
+            // inactive tabs keep one height.
             className={
               active
-                ? "shrink-0 whitespace-nowrap border-b-2 border-brand pb-2 text-brand-fg font-medium"
-                : "shrink-0 whitespace-nowrap pb-2 text-muted-foreground hover:text-foreground"
+                ? "relative isolate shrink-0 whitespace-nowrap pb-2.5 text-brand-fg font-medium transition-colors"
+                : "relative isolate shrink-0 whitespace-nowrap pb-2.5 text-muted-foreground transition-colors hover:text-foreground"
             }
           >
+            {active && <TabPill layoutId={`tab-pill:${label}`} variant="underline" />}
             {item.label}
             {item.badge !== undefined && (
               <span aria-hidden className="ml-1.5 inline-block min-w-[1.375rem] rounded-md border border-border px-1.5 text-center text-[11px] font-semibold tabular-nums">

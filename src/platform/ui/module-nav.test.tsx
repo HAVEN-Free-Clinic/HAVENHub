@@ -21,14 +21,14 @@ describe("ModuleNav characterization (must pass before and after the refactor)",
 
   it("marks the deep sub-page active, not the module root", () => {
     const out = renderToStaticMarkup(<ModuleNav items={ITEMS} />);
-    // Exactly one item carries the active border/colour classes.
-    expect(out.match(/border-b-2 border-brand/g)).toHaveLength(1);
+    // Exactly one item carries the active-tab indicator.
+    expect(out.match(/data-tab-indicator/g)).toHaveLength(1);
     // And it is on the People link, not the Overview (module root) link.
     const peopleSegment = out.slice(
       out.indexOf('href="/admin/people"') - 200,
       out.indexOf('href="/admin/people"') + 200,
     );
-    expect(peopleSegment).toContain("border-b-2 border-brand");
+    expect(peopleSegment).toContain("data-tab-indicator");
   });
 
   it("names the nav landmark \"Module\"", () => {
@@ -88,7 +88,7 @@ describe("ModuleNav with a tab nested under another tab", () => {
     expect(activeHrefs(out)).toEqual(["/admin/email/templates"]);
     // The parent tab is NOT also current: two aria-current tabs is what sent
     // scrollActiveTabIntoView (which takes the first match) to the wrong one.
-    expect(out.match(/border-b-2 border-brand/g)).toHaveLength(1);
+    expect(out.match(/data-tab-indicator/g)).toHaveLength(1);
   });
 
   it("still marks the parent tab on the parent's own page", () => {

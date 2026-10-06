@@ -13,7 +13,7 @@
  * Bare createRoot + act(), following use-focus-trap.test.tsx: this repo has no
  * @testing-library/react.
  */
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Modal } from "./modal";
@@ -68,7 +68,7 @@ describe("Modal", () => {
     expect(document.activeElement).toBe(dialog());
   });
 
-  it("restores focus to the control that opened it when it closes", () => {
+  it("restores focus to the control that opened it when it closes", async () => {
     mount();
     const trigger = byTestId("trigger");
     trigger?.focus();
@@ -80,7 +80,9 @@ describe("Modal", () => {
     expect(document.activeElement).toBe(dialog());
 
     act(() => closeButton()?.click());
-    expect(dialog()).toBeNull();
+    // Focus comes back at once; it does not wait for the exit animation.
     expect(document.activeElement).toBe(trigger);
+    // The panel itself leaves once the exit has played.
+    await vi.waitFor(() => expect(dialog()).toBeNull());
   });
 });

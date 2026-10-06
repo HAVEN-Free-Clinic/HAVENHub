@@ -76,6 +76,17 @@ function mount() {
   return container;
 }
 
+/**
+ * A dismissed toast leaves through AnimatePresence. Animations are instant in
+ * tests (vitest.setup.ts), but the removal still lands asynchronously, after
+ * the exit resolves, so it needs an async act to flush.
+ */
+async function finishExitAnimations() {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1000);
+  });
+}
+
 function click(container: HTMLElement, selector: string, times = 1) {
   const el = container.querySelector(selector) as HTMLButtonElement;
   for (let i = 0; i < times; i++) {
@@ -101,7 +112,7 @@ afterEach(() => {
 });
 
 describe("auto-dismiss vs. persistent toasts", () => {
-  it("auto-dismisses a success toast after ~4s", () => {
+  it("auto-dismisses a success toast after ~4s", async () => {
     const container = mount();
     click(container, '[data-action="success"]');
 
@@ -110,6 +121,7 @@ describe("auto-dismiss vs. persistent toasts", () => {
     act(() => {
       vi.advanceTimersByTime(AUTO_DISMISS_MS);
     });
+    await finishExitAnimations();
 
     expect(document.querySelector('[role="status"]')).toBeNull();
   });
@@ -129,7 +141,7 @@ describe("auto-dismiss vs. persistent toasts", () => {
 });
 
 describe("error toast close button", () => {
-  it("renders a close button and dismisses on click", () => {
+  it("renders a close button and dismisses on click", async () => {
     const container = mount();
     click(container, '[data-action="error"]');
 
@@ -141,6 +153,7 @@ describe("error toast close button", () => {
     act(() => {
       (closeButton as HTMLButtonElement).click();
     });
+    await finishExitAnimations();
 
     expect(document.querySelector('[role="alert"]')).toBeNull();
   });
@@ -164,7 +177,7 @@ describe("visible cap and queueing", () => {
     expect(rendered.length).toBe(3);
   });
 
-  it("promotes the queued 4th toast once a visible one is dismissed", () => {
+  it("promotes the queued 4th toast once a visible one is dismissed", async () => {
     const container = mount();
     click(container, '[data-action="warning"]', 4);
     expect(document.querySelectorAll('[role="alert"], [role="status"]').length).toBe(3);
@@ -174,6 +187,7 @@ describe("visible cap and queueing", () => {
     act(() => {
       (closeButtons[0] as HTMLButtonElement).click();
     });
+    await finishExitAnimations();
 
     // A slot freed up, so the previously-queued 4th toast should now be visible.
     expect(document.querySelectorAll('[role="alert"], [role="status"]').length).toBe(3);

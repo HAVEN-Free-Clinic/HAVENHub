@@ -10,8 +10,10 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
+import { AnimatePresence, motion } from "motion/react";
 import { AlertTriangle, CheckCircle2, Info, X, XCircle, type LucideIcon } from "lucide-react";
 import { cx } from "../cx";
+import { spring } from "../motion";
 import type { FlashToast, ToastTone } from "./flash";
 
 /**
@@ -51,9 +53,9 @@ import type { FlashToast, ToastTone } from "./flash";
  *   the design spec and the reference screenshot both call for a literal
  *   pill, distinct from the inline Alert this system exists to move away
  *   from.
- * - The enter transition (opacity/translate) respects prefers-reduced-motion
- *   via Tailwind's `motion-reduce:` variant, the same mechanism Spinner and
- *   Skeleton already use for their own animations.
+ * - Toasts rise 12px and fade in, leave the same way, and the rest of the
+ *   stack glides into the gap (Motion `layout`). Under reduced motion the
+ *   root MotionProvider drops the movement and keeps the fade.
  */
 
 const AUTO_DISMISS_MS = 4000;
@@ -154,20 +156,8 @@ function ToastItem({
   toast: ToastRecord;
   onDismiss: (id: string) => void;
 }) {
-  const [entered, setEntered] = useState(false);
   const Icon = toneIcon[toast.tone];
   const hasCloseButton = !autoDismisses(toast.tone);
-
-  // Deferred by one tick so the first paint is the "not entered" state and
-  // the transition classes below have something to animate from. Setting
-  // this directly in the effect body would be a synchronous
-  // setState-in-effect (react-hooks/set-state-in-effect is an error in this
-  // repo), so the setter runs from the timeout callback, not the effect body
-  // itself, the same pattern `help-launcher.tsx` uses for its token refresh.
-  useEffect(() => {
-    const timer = setTimeout(() => setEntered(true), 0);
-    return () => clearTimeout(timer);
-  }, []);
 
   useEffect(() => {
     if (!autoDismisses(toast.tone)) return;
@@ -176,7 +166,12 @@ function ToastItem({
   }, [toast.tone, toast.id, onDismiss]);
 
   return (
-    <div
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 12 }}
+      transition={spring.default}
       role={toast.tone === "error" ? "alert" : "status"}
       onClick={() => onDismiss(toast.id)}
       className={cx(
@@ -190,8 +185,6 @@ function ToastItem({
         // keeps the pill shape where it matters and a rounded card where it does not.
         "pointer-events-auto flex w-fit max-w-sm cursor-pointer items-start gap-2.5 rounded-3xl",
         "bg-brand-deep px-4 py-3 text-sm text-white shadow-lg",
-        "transition-[opacity,transform] duration-200 ease-out motion-reduce:transition-none",
-        entered ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0",
       )}
     >
       {/* The icon and the close button each sit in their own 20px box (h-5), which is
@@ -222,7 +215,7 @@ function ToastItem({
           </button>
         </span>
       )}
-    </div>
+    </motion.div>
   );
 }
 
@@ -293,9 +286,11 @@ export function ToastViewport({ children }: { children?: ReactNode }) {
   return createPortal(
     <div className="pointer-events-none fixed inset-x-0 bottom-24 z-50 flex flex-col items-center gap-2 px-4 sm:bottom-4">
       {children}
-      {visible.map((t) => (
-        <ToastItem key={t.id} toast={t} onDismiss={dismiss} />
-      ))}
+      <AnimatePresence initial={false}>
+        {visible.map((t) => (
+          <ToastItem key={t.id} toast={t} onDismiss={dismiss} />
+        ))}
+      </AnimatePresence>
     </div>,
     document.body,
   );

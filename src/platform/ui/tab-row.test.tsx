@@ -68,6 +68,19 @@ describe("TabRow", () => {
     expect(underline).not.toBe(segmented);
   });
 
+  it("draws one sliding indicator, inside the active tab only", () => {
+    for (const variant of ["underline", "segmented"] as const) {
+      const out = renderToStaticMarkup(
+        <TabRow items={ITEMS} isActive={(i) => i.href === "/x"} label="X" variant={variant} />,
+      );
+      expect(out.match(/data-tab-indicator/g)).toHaveLength(1);
+      const activeLink = /<a [^>]*aria-current="page"[^>]*>(.*?)<\/a>/.exec(out);
+      expect(activeLink?.[1]).toContain("data-tab-indicator");
+    }
+    const none = renderToStaticMarkup(<TabRow items={ITEMS} isActive={() => false} label="X" />);
+    expect(none).not.toContain("data-tab-indicator");
+  });
+
   it("hugs the segmented track to its labels, but runs the underline row full width", () => {
     // A segmented track stretched to the page is a long empty grey bar with a
     // few labels at one end. An underline row is the opposite: its baseline is

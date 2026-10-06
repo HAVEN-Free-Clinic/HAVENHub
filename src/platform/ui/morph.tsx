@@ -36,26 +36,45 @@ function useMeasuredHeight<T extends HTMLElement>() {
  * inner wrapper. Measuring the element being animated would feed each frame's
  * height back into the target and loop.
  *
- * `className` goes on the outer, clipping element (it is where a scroll
- * container's `overflow-auto` belongs); `innerClassName` on the measured one
+ * `clip` decides the outer element's overflow, and is a prop rather than a
+ * className because this repo has no tailwind-merge: two overflow utilities on
+ * one element resolve by stylesheet order, not by which was passed last.
+ *   - "always" (default): overflow hidden, so shrinking content never spills.
+ *   - "scroll": overflow-y auto, for a body that is also a scroll container.
+ *   - "while-animating": hidden only mid-resize, visible otherwise, so an
+ *     absolutely placed dropdown or a focus ring inside is not cut off once
+ *     the box has settled.
+ *
+ * `className` goes on the outer element, `innerClassName` on the measured one
  * (padding belongs there, so it is counted in the height).
  */
 export function MorphHeight({
   children,
+  clip = "always",
   className,
   innerClassName,
 }: {
   children: ReactNode;
+  clip?: "always" | "scroll" | "while-animating";
   className?: string;
   innerClassName?: string;
 }) {
   const [ref, height] = useMeasuredHeight<HTMLDivElement>();
+  const [animating, setAnimating] = useState(false);
+  const overflow =
+    clip === "scroll"
+      ? "overflow-y-auto"
+      : clip === "always" || animating
+        ? "overflow-hidden"
+        : "overflow-visible";
   return (
     <motion.div
       initial={false}
       animate={{ height: height ?? "auto" }}
       transition={spring.default}
-      className={cx("overflow-hidden", className)}
+      onAnimationStart={clip === "while-animating" ? () => setAnimating(true) : undefined}
+      onAnimationComplete={clip === "while-animating" ? () => setAnimating(false) : undefined}
+      className={cx(overflow, className)}
     >
       <div ref={ref} className={innerClassName}>
         {children}

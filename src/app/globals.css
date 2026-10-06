@@ -89,6 +89,29 @@
   --default-transition-timing-function: var(--ease-spring);
   --animate-pop-in: pop-in 350ms var(--ease-spring);
   --animate-fade-in: fade-in 200ms var(--ease-spring);
+  /* A step of a multi-step form arriving: forward slides in from the right,
+     back from the left, with the blur that keeps text from popping. CSS rather
+     than Motion because the apply wizard keeps every step mounted (their fields
+     must stay in the form) and only toggles `hidden`; a CSS animation replays
+     each time an element goes from display:none to shown, with no remount. */
+  --animate-step-forward: step-in-forward 350ms var(--ease-spring);
+  --animate-step-back: step-in-back 350ms var(--ease-spring);
+}
+
+@keyframes step-in-forward {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+    filter: blur(4px);
+  }
+}
+
+@keyframes step-in-back {
+  from {
+    opacity: 0;
+    transform: translateX(-24px);
+    filter: blur(4px);
+  }
 }
 
 @keyframes fade-in {

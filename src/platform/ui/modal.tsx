@@ -128,7 +128,7 @@ export function Modal({ open, onClose, title, ariaLabel, size = "default", child
             {/* shrink + min-h-0: the animated height is a target, and the panel's
                 max-h still wins when content outgrows the viewport; the body then
                 scrolls instead of pushing the footer off screen. */}
-            <MorphHeight className="min-h-0 shrink overflow-y-auto" innerClassName="p-4">
+            <MorphHeight clip="scroll" className="min-h-0 shrink" innerClassName="p-4">
               {children}
             </MorphHeight>
             {footer && (

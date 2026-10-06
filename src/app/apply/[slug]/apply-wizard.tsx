@@ -9,6 +9,7 @@ import { WizardProgress } from "./wizard-progress";
 import { WizardReview, formatFieldValue, reviewLabel, type ReviewGroup } from "./wizard-review";
 import { applicantTypeLabel, type ApplicantType } from "@/modules/recruitment/engine/visibility";
 import { Alert } from "@/platform/ui/alert";
+import { MorphHeight } from "@/platform/ui/morph";
 import { Button } from "@/platform/ui/button";
 import { Select } from "@/platform/ui/select";
 import { Field, ReadonlyField } from "@/platform/ui/input";
@@ -157,6 +158,9 @@ export function ApplyWizard({
   // a signature storage throw), so the banner shows wherever they are: the review.
   const [errorStepIndex, setErrorStepIndex] = useState<number | null>(null);
   const [stepIndex, setStepIndex] = useState(0);
+  // Which way the last move went, so the arriving step slides in from the
+  // matching side. Set in goTo alongside the index, never on its own.
+  const [direction, setDirection] = useState<1 | -1>(1);
   const [editingReturn, setEditingReturn] = useState(false);
   const [reviewGroups, setReviewGroups] = useState<ReviewGroup[]>([]);
 
@@ -395,6 +399,7 @@ export function ApplyWizard({
     requestAnimationFrame(() => headingRef.current?.focus());
   }
   function goTo(index: number) {
+    setDirection(index < stepIndex ? -1 : 1);
     setStepIndex(index);
     focusHeading();
   }
@@ -484,6 +489,10 @@ export function ApplyWizard({
   }
 
   const current = steps[stepIndex];
+  // On whichever block is the current step. Section steps stay mounted and only
+  // toggle `hidden`, which replays a CSS animation without a remount; intro and
+  // review mount fresh, which plays it too.
+  const stepIn = direction === 1 ? "motion-safe:animate-step-forward" : "motion-safe:animate-step-back";
   const showContinue = !(current.kind === "intro" && renewalGate) && current.kind !== "review";
 
   return (
@@ -506,8 +515,13 @@ export function ApplyWizard({
           <p className={`text-xs ${saveState === "error" ? "text-critical-foreground" : "text-muted-foreground"}`} aria-live="polite">{saveState === "saving" ? "Saving…" : saveState === "error" ? "Couldn't save your draft, check your connection" : "Saved"}</p>
         )}
 
+        {/* The step stage. Its height follows the current step, so moving between
+            a short step and a long one, or a conditional field appearing, eases
+            the buttons below into place instead of jumping them. Clipped only
+            while resizing, so open dropdowns are not cut off. */}
+        <MorphHeight clip="while-animating" innerClassName="space-y-5">
         {current.kind === "intro" && (
-          <>
+          <div className={cx("space-y-5", stepIn)}>
             <Card className="space-y-4">
               <FormSection
                 // With one option there is no question to ask: offering a single
@@ -565,7 +579,7 @@ export function ApplyWizard({
                 <YaleSignInButton next={`/apply/${def.slug}?type=renewal`} className="w-full sm:w-fit" />
               </Card>
             )}
-          </>
+          </div>
         )}
 
         {current.kind === "section" && signedIn && (applicantType === "RENEWAL" ? eligible : applicantType === "TRANSFER" ? isReturning : false) && signedInName && (
@@ -578,7 +592,7 @@ export function ApplyWizard({
             conditionally. */}
         {steps.map((st, i) =>
           st.kind === "section" ? (
-            <div key={st.id} className={cx("space-y-4", i === stepIndex ? "block" : "hidden")}>
+            <div key={st.id} className={cx("space-y-4", i === stepIndex ? cx("block", stepIn) : "hidden")}>
               <Card className="space-y-4">
                 <FormSection description={st.section.description ? linkifyUrls(st.section.description) : undefined}>
                   {visibleFields(st.section.fields, effectiveAnswers).map((f) =>
@@ -633,7 +647,12 @@ export function ApplyWizard({
           </Alert>
         )}
 
-        {current.kind === "review" && <WizardReview groups={reviewGroups} onEdit={editStep} />}
+        {current.kind === "review" && (
+          <div className={stepIn}>
+            <WizardReview groups={reviewGroups} onEdit={editStep} />
+          </div>
+        )}
+        </MorphHeight>
 
         <div className="flex items-center justify-between gap-3 border-t border-border-subtle pt-5">
           {stepIndex > 0 ? (

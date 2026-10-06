@@ -166,7 +166,7 @@ test("the toolbar does not overflow its own width on a phone", async ({ page }) 
   await page.setViewportSize({ width: 375, height: 812 });
 
   const overflow = await page.evaluate(() => {
-    const bar = document.querySelector(".glass-bar") as HTMLElement | null;
+    const bar = document.querySelector(".float-bar") as HTMLElement | null;
     if (!bar) return null;
     return {
       barOverflow: bar.scrollWidth - bar.clientWidth,
@@ -174,7 +174,7 @@ test("the toolbar does not overflow its own width on a phone", async ({ page }) 
     };
   });
 
-  expect(overflow, "expected a .glass-bar toolbar to be present").not.toBeNull();
+  expect(overflow, "expected a .float-bar toolbar to be present").not.toBeNull();
   expect(overflow!.barOverflow, "toolbar contents overflow the toolbar at 375px").toBeLessThanOrEqual(0);
   expect(overflow!.documentOverflow, "page scrolls horizontally at 375px").toBeLessThanOrEqual(0);
 });

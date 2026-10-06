@@ -169,8 +169,8 @@ export function HelpLauncher({
   return (
     <>
       {/* Persistent floating help bubble, bottom-right on every authenticated page.
-          Rendered outside the glass-bar toolbar (see AppShell), so `fixed` anchors to
-          the viewport rather than the toolbar's backdrop-filter containing block. */}
+          Rendered outside the toolbar (see AppShell), so `fixed` always anchors to
+          the viewport. */}
       <button
         type="button"
         onClick={toggle}
@@ -203,7 +203,7 @@ export function HelpLauncher({
               open ? "" : "hidden"
             }`}
           >
-          <div className="glass-panel flex h-[70vh] max-h-[calc(100dvh-8rem)] w-full flex-col overflow-hidden rounded-2xl sm:h-[600px] sm:w-[400px]">
+          <div className="float-panel flex h-[70vh] max-h-[calc(100dvh-8rem)] w-full flex-col overflow-hidden rounded-2xl sm:h-[600px] sm:w-[400px]">
             <div className="flex items-center justify-between border-b border-border-subtle px-4 py-2.5">
               <span className="text-sm font-semibold text-foreground">Help</span>
               <div className="flex items-center gap-1">

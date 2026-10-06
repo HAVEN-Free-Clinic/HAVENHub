@@ -79,11 +79,10 @@ export async function AppShell({
       >
         Skip to content
       </a>
-      {/* Floating glass nav: a transparent sticky wrapper holds a centered pill
-          that detaches from the top/sides so canvas shows around it and page
-          content blurs beneath it on scroll. */}
+      {/* Floating nav: a transparent sticky wrapper holds a centered pill
+          that detaches from the top/sides so canvas shows around it. */}
       <header className="sticky top-0 z-30 px-3 pt-3 sm:px-4">
-        <div className={`glass-bar mx-auto flex ${SHELL_WIDTH} items-center gap-2 rounded-full h-14 px-3 sm:gap-4 sm:px-6`}>
+        <div className={`float-bar mx-auto flex ${SHELL_WIDTH} items-center gap-2 rounded-full h-14 px-3 sm:gap-4 sm:px-6`}>
           <div className="flex shrink-0 items-center gap-2">
             <Link href="/" aria-label="Go to hub home" className="flex items-center hover:opacity-80 transition-opacity">
               <HavenLogo className="h-8 text-logo" />

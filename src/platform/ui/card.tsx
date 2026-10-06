@@ -3,9 +3,9 @@ import { cx } from "./cx";
 
 type CardSize = "default" | "compact";
 
-const interactiveClasses =
-  "transition-[transform,box-shadow,border-color] duration-150 " +
-  "hover:-translate-y-0.5 hover:border-border-strong hover:shadow-md";
+// The surface stays put and the shadow lifts. A translate on hover made dense
+// tile grids shimmer as the pointer crossed them.
+const interactiveClasses = "transition hover:border-border-strong hover:shadow-md";
 
 /**
  * Canonical surface classes. `default` is the 16px-radius, soft-shadow content
@@ -44,7 +44,7 @@ export function cardClasses({
 type CardProps = ComponentProps<"div"> & {
   /** Surface size. Default is the 16px content card; compact is a 12px dense surface. */
   size?: CardSize;
-  /** Adds the hover-lift used on clickable tiles (translateY + stronger shadow/border). */
+  /** Adds the hover-lift used on clickable tiles (stronger shadow and border). */
   interactive?: boolean;
   /** The inset: true for the default (p-5, or p-3 when compact), "tight" for the
    *  dense panel inset, false to manage padding via className. */

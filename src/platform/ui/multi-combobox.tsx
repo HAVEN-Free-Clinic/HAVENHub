@@ -204,7 +204,7 @@ export function MultiCombobox({
         <ul
           id={listId}
           role="listbox"
-          className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-xl glass-panel py-1"
+          className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-xl float-panel py-1"
         >
           {filtered.length === 0 && (
             <li className="px-3 py-2 text-sm text-subtle-foreground">{emptyLabel}</li>

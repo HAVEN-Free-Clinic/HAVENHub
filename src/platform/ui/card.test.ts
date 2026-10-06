@@ -24,8 +24,10 @@ describe("cardClasses", () => {
     expect(cardClasses({ size: "compact", pad: false })).not.toContain("p-3");
   });
 
-  it("adds the hover-lift when interactive", () => {
-    expect(cardClasses({ interactive: true })).toContain("hover:-translate-y-0.5");
+  it("lifts the shadow, not the surface, when interactive", () => {
+    const classes = cardClasses({ interactive: true });
+    expect(classes).toContain("hover:shadow-md");
+    expect(classes).not.toContain("translate");
   });
 });
 

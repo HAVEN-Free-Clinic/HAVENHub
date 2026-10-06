@@ -44,7 +44,7 @@ export default async function PortalHome({ searchParams }: { searchParams: Promi
     return (
       <div className="relative flex min-h-screen flex-col items-center justify-center gap-6 overflow-hidden p-6">
         <BrandBackdrop />
-        <div className="glass-panel relative z-10 w-full max-w-md rounded-2xl p-8 shadow-xl">
+        <div className="float-panel relative z-10 w-full max-w-md rounded-2xl p-8">
           <HavenLogo className="mx-auto h-8 text-brand-fg" />
           <h1
             className="mt-5 text-center font-bold tracking-tight text-foreground"

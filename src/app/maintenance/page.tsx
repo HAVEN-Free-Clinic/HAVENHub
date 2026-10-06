@@ -71,7 +71,7 @@ export default async function MaintenancePage() {
         className="absolute inset-0 bg-gradient-to-br from-brand-deep/45 via-transparent to-transparent"
       />
 
-      <div className="glass-panel relative z-10 w-full max-w-md rounded-2xl p-8 shadow-xl">
+      <div className="float-panel relative z-10 w-full max-w-md rounded-2xl p-8">
         <HavenLogo className="mx-auto h-8 text-brand-fg" />
 
         <div className="mt-6 flex justify-center">

@@ -1,5 +1,5 @@
 /**
- * The one measure every piece of the signed-in shell shares: the glass toolbar,
+ * The one measure every piece of the signed-in shell shares: the toolbar,
  * the breadcrumb row, the main column, the mobile nav panel and the footer. They
  * were five `max-w-6xl` literals, which is how a shell drifts: widen one and the
  * breadcrumb stops lining up with the heading under it.

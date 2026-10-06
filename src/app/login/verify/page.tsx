@@ -55,7 +55,7 @@ export default async function MemberVerifyPage({
 
   return (
     <div className="relative flex min-h-dvh items-center justify-center bg-canvas p-6">
-      <div className="glass-panel relative z-10 w-full max-w-sm rounded-2xl p-8 shadow-xl">
+      <div className="float-panel relative z-10 w-full max-w-sm rounded-2xl p-8">
         <HavenLogo className="mx-auto h-10 w-auto" />
         {!peeked ? (
           <div className="mt-6 text-center">

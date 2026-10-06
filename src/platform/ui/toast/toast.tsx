@@ -232,10 +232,9 @@ function ToastItem({
  * own dismiss timer, once a slot frees up, so a queued toast's countdown
  * begins when it becomes visible, not when it was pushed.
  *
- * Portalled to `document.body`, the same fix `HelpLauncher` already applies
- * to its panel: a `fixed` descendant of a `.glass-bar`/`.glass-panel`
- * ancestor loses its viewport anchor because `backdrop-filter` creates a
- * containing block.
+ * Portalled to `document.body`, the same as `HelpLauncher`'s panel, so no
+ * ancestor's transform, filter or overflow can take its viewport anchor away
+ * (the old backdrop-filter glass surfaces did exactly that, #304).
  *
  * Gating the portal on a `mounted` flag flipped after the first paint,
  * rather than on `typeof document === "undefined"` directly, is load-bearing,

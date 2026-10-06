@@ -63,7 +63,7 @@ export default async function LoginPage({
         className="object-cover object-center"
       />
       {/* Airy brand wash: lighter than the old side panel, so the photo reads as
-          atmospheric brand texture. Center stays brighter for the glass card. */}
+          atmospheric brand texture. Center stays brighter behind the card. */}
       <div aria-hidden="true" className="absolute inset-0 bg-brand/30" />
       <div
         aria-hidden="true"
@@ -75,8 +75,8 @@ export default async function LoginPage({
         className="absolute inset-0 bg-gradient-to-br from-brand-deep/45 via-transparent to-transparent"
       />
 
-      {/* Centered glass card */}
-      <div className="glass-panel relative z-10 w-full max-w-sm rounded-2xl p-8 shadow-xl">
+      {/* Centered card */}
+      <div className="float-panel relative z-10 w-full max-w-sm rounded-2xl p-8">
         {/* Brand lockup at the top of the card.
 
             h-14 rather than h-8: at 32px the lockup sat well under the size of

@@ -173,14 +173,14 @@ export function BlockerGate({ appId, supportEmail }: { appId: string; supportEma
       </p>
       {failed ? (
         // Above the help bubble and the toast viewport, both of which sit at z-50.
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-scrim p-4 backdrop-blur-xs motion-safe:animate-fade-in">
           <div
             ref={panelRef}
             role="dialog"
             aria-modal="true"
             aria-labelledby={titleId}
             tabIndex={-1}
-            className="glass-panel flex max-h-[90vh] w-full max-w-lg flex-col gap-4 overflow-auto rounded-2xl p-6 outline-none"
+            className="float-panel flex max-h-[90vh] w-full max-w-lg flex-col gap-4 overflow-auto rounded-2xl p-6 outline-none"
           >
             <div className="flex items-start gap-3">
               <ShieldAlert aria-hidden className="mt-0.5 h-6 w-6 shrink-0 text-brand-fg" />

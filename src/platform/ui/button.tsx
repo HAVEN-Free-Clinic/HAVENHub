@@ -33,7 +33,10 @@ export function buttonClasses(
   extra?: string,
 ): string {
   return cx(
-    "inline-flex items-center justify-center rounded-lg text-sm font-medium transition-colors",
+    // `transition` (not transition-colors) so the press scale rides the same
+    // spring easing as the hover colour; see --ease-spring in globals.css.
+    "inline-flex items-center justify-center rounded-lg text-sm font-medium transition",
+    "active:scale-97 disabled:active:scale-100",
     "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand",
     "disabled:opacity-50 disabled:cursor-not-allowed",
     variantClasses[variant],

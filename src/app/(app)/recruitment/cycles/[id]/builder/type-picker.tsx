@@ -49,7 +49,7 @@ export function TypePicker({
         <Plus className="h-4 w-4" aria-hidden /> {label}
       </Button>
       {open && (
-        <div className="absolute left-0 z-20 mt-1 max-h-80 w-64 overflow-auto rounded-xl glass-panel p-2">
+        <div className="absolute left-0 z-20 mt-1 max-h-80 w-64 overflow-auto rounded-xl float-panel p-2">
           {groups.map(({ group, groupTypes }) => (
             <div key={group ?? "__all"} className="mb-1">
               {group && (

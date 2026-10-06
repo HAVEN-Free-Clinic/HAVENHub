@@ -96,6 +96,18 @@
      each time an element goes from display:none to shown, with no remount. */
   --animate-step-forward: step-in-forward 350ms var(--ease-spring);
   --animate-step-back: step-in-back 350ms var(--ease-spring);
+  /* A page arriving after navigation: a fade, an 8px rise, and the swap blur.
+     Played by the route templates on the main area only; the shell around it
+     never re-animates. */
+  --animate-page-in: page-in 350ms var(--ease-spring);
+}
+
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+    filter: blur(4px);
+  }
 }
 
 @keyframes step-in-forward {

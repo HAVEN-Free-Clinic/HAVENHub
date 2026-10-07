@@ -46,6 +46,10 @@ import { accountEmailForPerson, mailingEmailForPerson } from "@/platform/auth/ma
 import { can, permissionDepartmentIds } from "@/platform/rbac/engine";
 import { personNameSearchClauses } from "@/platform/person-name";
 import { PERSON_NAME_ORDER } from "@/platform/person-name";
+import {
+  specialtyInterestByMember,
+  type SpecialtyInterest,
+} from "@/platform/recruitment/specialty-interest";
 
 /** Only ACTIVE people in ACTIVE memberships are on the roster. A REMOVED
  *  membership is a seat someone has left; an OFFBOARDED person has left the
@@ -72,14 +76,33 @@ export type DirectoryScope = { departmentIds: string[] } | null;
  * permissionDepartmentIds instead, which keeps each assignment's own target --
  * for the kind-targeted Director role that is the departments the person
  * DIRECTS, not every department they belong to.
+ * The scoped half then follows one hop of DepartmentDelegation, so a director
+ * sees the departments their department manages, as compliance already does.
  */
 export async function directoryScopeFor(personId: string): Promise<DirectoryScope> {
   if (await can(personId, "volunteers.view_directory")) return null;
+
+  const directed = await permissionDepartmentIds(
+    personId,
+    "volunteers.view_directory_own_dept",
+  );
+  // Fail closed: a scoped viewer whose grant reaches no department sees nobody,
+  // and there is nothing to delegate from.
+  if (directed.length === 0) return { departmentIds: [] };
+
+  // One hop of DepartmentDelegation, matching manageableDepartmentIds in
+  // platform/departments.ts: a PCAR director oversees SCTP and JCTP for
+  // compliance, schedules, and strikes, so their roster is in scope too.
+  // Exactly one hop; the managed departments' own delegations are not followed.
+  const delegations = await prisma.departmentDelegation.findMany({
+    where: { managerDepartmentId: { in: directed } },
+    select: { managedDepartmentId: true },
+  });
+
   return {
-    departmentIds: await permissionDepartmentIds(
-      personId,
-      "volunteers.view_directory_own_dept",
-    ),
+    departmentIds: [
+      ...new Set([...directed, ...delegations.map((d) => d.managedDepartmentId)]),
+    ],
   };
 }
 
@@ -476,6 +499,76 @@ export async function directoryEmails(
     orderBy: PERSON_NAME_ORDER,
   });
   return [...new Set(rows.map(mailingEmailForPerson).filter((email) => email !== ""))];
+}
+
+/**
+ * The SCTP/JCTP application's specialty clinic answer, per person, for the
+ * given people's seats. specialtyInterestByMember answers one department at a
+ * time, so people are grouped by the departments of their seats. Only
+ * departments whose application asked the question return anything. A yes on
+ * any seat wins over a no on another.
+ */
+export async function specialtyByPerson(
+  termId: string | null,
+  people: Awaited<ReturnType<typeof directoryPeopleAll>>,
+): Promise<Map<string, SpecialtyInterest>> {
+  const out = new Map<string, SpecialtyInterest>();
+  if (!termId) return out;
+
+  const idsByDept = new Map<string, Set<string>>();
+  for (const p of people) {
+    for (const s of p.seats) {
+      if (!idsByDept.has(s.departmentCode)) idsByDept.set(s.departmentCode, new Set());
+      idsByDept.get(s.departmentCode)!.add(p.id);
+    }
+  }
+
+  const byDept = new Map(
+    await Promise.all(
+      [...idsByDept].map(
+        async ([departmentCode, ids]) =>
+          [
+            departmentCode,
+            await specialtyInterestByMember({ termId, departmentCode, personIds: [...ids] }),
+          ] as const,
+      ),
+    ),
+  );
+
+  for (const p of people) {
+    for (const s of p.seats) {
+      const hit = byDept.get(s.departmentCode)?.get(`${p.id}:${s.kind}`);
+      if (!hit) continue;
+      const prev = out.get(p.id);
+      if (!prev || (!prev.interested && hit.interested)) out.set(p.id, hit);
+    }
+  }
+  return out;
+}
+
+/**
+ * The copyable address list narrowed to people whose SCTP/JCTP application
+ * said yes to specialty clinic, in either form. Same filters and scope as
+ * directoryEmails, so it is always a subset of that list. Filters after
+ * loading because the answer lives on the application, not on Person; safe
+ * here because this list is never paginated.
+ */
+export async function directorySpecialtyEmails(
+  termId: string | null,
+  filters: DirectoryFilters,
+  scope: DirectoryScope,
+): Promise<string[]> {
+  if (!termId) return [];
+  const people = await directoryPeopleAll(termId, filters, scope);
+  const specialty = await specialtyByPerson(termId, people);
+  return [
+    ...new Set(
+      people
+        .filter((p) => specialty.get(p.id)?.interested)
+        .map(mailingEmailForPerson)
+        .filter((email) => email !== ""),
+    ),
+  ];
 }
 
 /**

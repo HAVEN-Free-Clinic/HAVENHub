@@ -25,6 +25,7 @@ import {
   directoryEmails,
   directoryAttendings,
   directoryScopeFor,
+  directorySpecialtyEmails,
 } from "./directory";
 
 async function createTerm(status: "ACTIVE" | "PLANNING" = "ACTIVE", code = "FA26") {
@@ -329,6 +330,25 @@ describe("directoryScopeFor", () => {
     // Bo directs NURS and volunteers in TRIA. A kind-targeted grant reaches the
     // directorship only, which is the whole reason this is not can().
     expect(await directoryScopeFor(both.id)).toEqual({ departmentIds: [nurs.id] });
+  }); 
+  it("follows exactly one hop of DepartmentDelegation from the directed departments", async () => {
+    const { nurs, both } = await seedRoster();
+    await grantToDirectorKind("volunteers.view_directory_own_dept");
+
+    // NURS manages MGD, and MGD manages HOP2. Bo directs NURS, so MGD is in
+    // scope (the PCAR -> SCTP/JCTP shape) and HOP2 is not: one hop only,
+    // matching manageableDepartmentIds.
+    const managed = await prisma.department.create({ data: { code: "MGD", name: "Managed" } });
+    const twoHops = await prisma.department.create({ data: { code: "HOP2", name: "Two hops" } });
+    await prisma.departmentDelegation.createMany({
+      data: [
+        { managerDepartmentId: nurs.id, managedDepartmentId: managed.id },
+        { managerDepartmentId: managed.id, managedDepartmentId: twoHops.id },
+      ],
+    });
+
+    const scope = await directoryScopeFor(both.id);
+    expect(scope?.departmentIds.slice().sort()).toEqual([nurs.id, managed.id].sort());
   });
 });
 
@@ -491,5 +511,19 @@ describe("directoryEmails", () => {
 
   it("returns nothing rather than throwing when no term is active", async () => {
     expect(await directoryEmails(null, {}, null)).toEqual([]);
+  });
+});
+
+describe("directorySpecialtyEmails", () => {
+  it("copies nobody whose application never answered the specialty question", async () => {
+    const { term } = await seedRoster();
+    // The seeded roster has addresses but no applications, so the full list is
+    // non-empty and the specialty list must still be empty.
+    expect(await directoryEmails(term.id, {}, null)).not.toEqual([]);
+    expect(await directorySpecialtyEmails(term.id, {}, null)).toEqual([]);
+  });
+
+  it("returns nothing rather than throwing when no term is active", async () => {
+    expect(await directorySpecialtyEmails(null, {}, null)).toEqual([]);
   });
 });

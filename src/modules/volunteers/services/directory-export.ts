@@ -27,9 +27,11 @@ import { accountEmailForPerson } from "@/platform/auth/match-person";
 import {
   directoryPeopleAll,
   directoryAttendings,
+  specialtyByPerson,
   type DirectoryFilters,
   type DirectoryScope,
 } from "./directory";
+import type { SpecialtyInterest } from "@/platform/recruitment/specialty-interest";
 
 export type DirectoryExportRequest =
   | ({ scope: "people" } & DirectoryFilters)
@@ -43,9 +45,17 @@ const PEOPLE_HEADERS = [
   "Phone",
   "Departments",
   "Role",
+  "Specialty interest"
 ];
 
 const ATTENDING_HEADERS = ["Name", "Credentials", "Specialty", "Email", "Phone"];
+
+
+function specialtyCell(interest: SpecialtyInterest | undefined): string {
+  if (!interest) return "";
+  if (!interest.interested) return "No";
+  return interest.only ? "Yes (specialty only)" : "Yes";
+}
 
 /**
  * One row per PERSON, not per seat: a mailing list must not contain the same
@@ -65,6 +75,7 @@ const ATTENDING_HEADERS = ["Name", "Credentials", "Specialty", "Email", "Phone"]
  */
 function peopleRows(
   people: Awaited<ReturnType<typeof directoryPeopleAll>>,
+  specialty: Map<string, SpecialtyInterest>,
 ): string[][] {
   return people.map((p) => {
     const codes = [...new Set(p.seats.map((s) => s.departmentCode))].sort();
@@ -78,6 +89,7 @@ function peopleRows(
       formatPhone(p.phone) ?? "",
       codes.join(";"),
       role,
+      specialtyCell(specialty.get(p.id)),
     ];
   });
 }
@@ -133,7 +145,8 @@ export async function buildDirectoryCsv(
 
   const { scope: _scope, ...filters } = input;
   const people = await directoryPeopleAll(ctx.termId, filters, viewerScope);
-  const rows = peopleRows(people);
+  const specialty = await specialtyByPerson(ctx.termId, people);
+  const rows = peopleRows(people, specialty);
   return {
     // No active term means no roster to export. The header row still ships, so
     // the download opens as an empty list rather than a broken file.

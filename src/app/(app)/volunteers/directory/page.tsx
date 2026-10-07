@@ -47,6 +47,7 @@ import {
   departmentBreakdown,
   directoryPeople,
   directoryEmails,
+  directorySpecialtyEmails,
   directoryAttendings,
   directoryScopeFor,
   type DirectoryFilters,
@@ -93,12 +94,13 @@ export default async function DirectoryPage({ searchParams }: PageProps) {
   const activeTerm = await getActiveTerm();
   const termId = activeTerm?.id ?? null;
 
-  const [summary, breakdown, people, emails, attendings, departments, canOpenProfile] =
+  const [summary, breakdown, people, emails, specialtyEmails, attendings, departments, canOpenProfile] =
     await Promise.all([
       directorySummary(termId, scope),
       departmentBreakdown(termId, scope),
       directoryPeople(termId, filters, scope, pageNum, PAGE_SIZE),
       directoryEmails(termId, filters, scope),
+      directorySpecialtyEmails(termId, filters, scope),
       directoryAttendings(scope),
       prisma.department.findMany({
         // The picker offers only what the viewer may select. A scoped director
@@ -228,7 +230,20 @@ export default async function DirectoryPage({ searchParams }: PageProps) {
             }
           />
         </div>
-
+        {/* The same list narrowed to people whose SCTP/JCTP application said
+            yes to specialty clinic. Hidden when nobody in view qualifies, which
+            is every department whose application did not ask the question. */}
+        {specialtyEmails.length > 0 && (
+          <div className="mt-4 rounded-xl border border-border-subtle bg-muted px-3 py-3">
+            <EmailList
+              emails={specialtyEmails}
+              label="Interested in specialty clinic"
+              rows={3}
+              hint="From the specialty clinic question on their application. Same filters as above."
+              emptyLabel="No one in view said yes to specialty clinic."
+            />
+          </div>
+        )}
         {/* Without this, the "also" lines read as a filter that leaks: the row
             was selected on one department and is showing another. Say once that
             they are context, not matches. Rendered only when a row actually has

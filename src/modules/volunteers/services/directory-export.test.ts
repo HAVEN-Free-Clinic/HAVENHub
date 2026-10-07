@@ -66,11 +66,11 @@ describe("buildDirectoryCsv, people scope", () => {
 
     expect(rowCount).toBe(1);
     const body = lines(csv);
-    expect(body[0]).toBe("Name,Email,NetID,Contact email,Phone,Departments,Role");
+    expect(body[0]).toBe("Name,Email,NetID,Contact email,Phone,Departments,Role,Specialty interest");
     // Yale address from the NetID, the phone in the screen's one format, both
     // departments in one cell, and DIRECTOR winning the role tie-break.
     expect(body[1]).toBe(
-      "Bo Both,bb333@yale.edu,bb333,bo@example.com,(203) 555-0101,NURS;TRIA,DIRECTOR",
+      "Bo Both,bb333@yale.edu,bb333,bo@example.com,(203) 555-0101,NURS;TRIA,DIRECTOR,",
     );
   });
 
@@ -99,7 +99,7 @@ describe("buildDirectoryCsv, people scope", () => {
     expect(body[1]).toContain("No NetId,reachme@example.com,,reachme@example.com,");
     // A person we cannot reach stays in the file with a visible gap rather than
     // silently vanishing from a list someone is about to work.
-    expect(body[2]).toBe("Zed Unreachable,,,,,NURS,VOLUNTEER");
+    expect(body[2]).toBe("Zed Unreachable,,,,,NURS,VOLUNTEER,");
   });
 
   it("exports exactly the filtered rows, not the whole clinic", async () => {
@@ -182,7 +182,7 @@ describe("buildDirectoryCsv, people scope", () => {
     );
 
     expect(rowCount).toBe(0);
-    expect(lines(csv)).toEqual(["Name,Email,NetID,Contact email,Phone,Departments,Role"]);
+    expect(lines(csv)).toEqual(["Name,Email,NetID,Contact email,Phone,Departments,Role,Specialty interest"]);
     expect(filename).toBe("haven-directory-no-term-2026-09-01.csv");
   });
 });
@@ -274,7 +274,7 @@ describe("buildDirectoryCsv, viewer scope", () => {
     );
 
     expect(rowCount).toBe(0);
-    expect(lines(csv)).toEqual(["Name,Email,NetID,Contact email,Phone,Departments,Role"]);
+    expect(lines(csv)).toEqual(["Name,Email,NetID,Contact email,Phone,Departments,Role,Specialty interest"]);
   });
 
   it("gives a scoped viewer no attendings, who belong to no department", async () => {

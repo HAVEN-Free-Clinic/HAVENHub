@@ -72,14 +72,33 @@ export type DirectoryScope = { departmentIds: string[] } | null;
  * permissionDepartmentIds instead, which keeps each assignment's own target --
  * for the kind-targeted Director role that is the departments the person
  * DIRECTS, not every department they belong to.
+ * The scoped half then follows one hop of DepartmentDelegation, so a director
+ * sees the departments their department manages, as compliance already does.
  */
 export async function directoryScopeFor(personId: string): Promise<DirectoryScope> {
   if (await can(personId, "volunteers.view_directory")) return null;
+
+  const directed = await permissionDepartmentIds(
+    personId,
+    "volunteers.view_directory_own_dept",
+  );
+  // Fail closed: a scoped viewer whose grant reaches no department sees nobody,
+  // and there is nothing to delegate from.
+  if (directed.length === 0) return { departmentIds: [] };
+
+  // One hop of DepartmentDelegation, matching manageableDepartmentIds in
+  // platform/departments.ts: a PCAR director oversees SCTP and JCTP for
+  // compliance, schedules, and strikes, so their roster is in scope too.
+  // Exactly one hop; the managed departments' own delegations are not followed.
+  const delegations = await prisma.departmentDelegation.findMany({
+    where: { managerDepartmentId: { in: directed } },
+    select: { managedDepartmentId: true },
+  });
+
   return {
-    departmentIds: await permissionDepartmentIds(
-      personId,
-      "volunteers.view_directory_own_dept",
-    ),
+    departmentIds: [
+      ...new Set([...directed, ...delegations.map((d) => d.managedDepartmentId)]),
+    ],
   };
 }
 

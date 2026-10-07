@@ -310,7 +310,10 @@ export async function executeOffboard(actorPersonId: string, personId: string): 
  *   asc; each row includes the flaggedByName and the person's active-term
  *   department names. null when the viewer lacks the permission.
  */
-export async function offboardingView(viewerPersonId: string): Promise<{
+export async function offboardingView(
+  viewerPersonId: string,
+  opts: { departmentId?: string } = {},
+): Promise<{
   departments: DepartmentOffboarding[];
   flagged: FlaggedRow[] | null;
 }> {
@@ -318,7 +321,15 @@ export async function offboardingView(viewerPersonId: string): Promise<{
   if (!activeTerm) return { departments: [], flagged: null };
 
   // --- Director cards ---
-  const deptIds = await manageableDepartmentIds(viewerPersonId);
+  // Only offboard_any_department (granted through Platform Admin) may open any
+  // department's card; everyone else sees only what they manage, and a
+  // departmentId passed by a non-executor is ignored rather than honoured. An
+  // id that matches no department finds no rows and shows nothing.
+  const canPickAnyDepartment = await can(viewerPersonId, "volunteers.offboard_any_department");
+  const deptIds =
+    canPickAnyDepartment && opts.departmentId
+      ? [opts.departmentId]
+      : await manageableDepartmentIds(viewerPersonId);
 
   let departments: DepartmentOffboarding[] = [];
 

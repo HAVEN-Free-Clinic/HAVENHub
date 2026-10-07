@@ -28,6 +28,8 @@ import { getActiveTerm } from "@/platform/terms/active-term";
 import { getNextTerm } from "@/platform/terms/next-term";
 import { can } from "@/platform/rbac/engine";
 import { prisma } from "@/platform/db";
+import { Button } from "@/platform/ui/button";
+import { Select } from "@/platform/ui/select";
 
 // The volunteers layout gates module access. Here we additionally require
 // volunteers.view for the page render and use volunteers.manage_offboarding
@@ -261,25 +263,16 @@ export default async function OffboardingPage({
               <input type="hidden" name="tab" value="departments" />
               <label className="flex flex-col text-sm">
                 <span className="mb-1 text-foreground-soft">Department</span>
-                <select
-                  name="dept"
-                  defaultValue={dept ?? ""}
-                  className="rounded-md border border-border-subtle bg-canvas px-2 py-1.5"
-                >
+                <Select name="dept" defaultValue={dept ?? ""} className="sm:max-w-xs">
                   <option value="">My departments</option>
                   {pickableDepartments.map((d) => (
                     <option key={d.id} value={d.id}>
                       {d.code} · {d.name}
                     </option>
                   ))}
-                </select>
+                </Select>
               </label>
-              <button
-                type="submit"
-                className="rounded-md border border-border-subtle px-3 py-1.5 text-sm"
-              >
-                Show
-              </button>
+              <Button type="submit">Show</Button>
             </form>
           )}
           <DepartmentTab

@@ -201,6 +201,7 @@ export const MODULES: ModuleManifest[] = [
       "volunteers.view_compliance",
       "volunteers.manage_compliance",
       "volunteers.manage_offboarding",
+      "volunteers.offboard_any_department",
       "volunteers.verify_spanish",
       "volunteers.manage_board_attendance",
       // Clinic-wide: the directory answers "how many people does the clinic

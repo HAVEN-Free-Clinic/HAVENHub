@@ -240,6 +240,10 @@
               "type": "boolean",
               "description": "Whether the visitor holds the volunteers.manage_offboarding permission in HAVEN Hub."
             },
+            "offboard_any_department": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the volunteers.offboard_any_department permission in HAVEN Hub."
+            },
             "verify_spanish": {
               "type": "boolean",
               "description": "Whether the visitor holds the volunteers.verify_spanish permission in HAVEN Hub."

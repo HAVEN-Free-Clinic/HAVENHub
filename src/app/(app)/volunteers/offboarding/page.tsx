@@ -27,6 +27,9 @@ import { TransitionTab } from "@/modules/volunteers/components/transition-tab";
 import { getActiveTerm } from "@/platform/terms/active-term";
 import { getNextTerm } from "@/platform/terms/next-term";
 import { can } from "@/platform/rbac/engine";
+import { prisma } from "@/platform/db";
+import { Button } from "@/platform/ui/button";
+import { Select } from "@/platform/ui/select";
 
 // The volunteers layout gates module access. Here we additionally require
 // volunteers.view for the page render and use volunteers.manage_offboarding
@@ -39,10 +42,10 @@ type OffboardingTab = "transition" | "departments" | "flagged";
 export default async function OffboardingPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string; error?: string }>;
+  searchParams: Promise<{ tab?: string; error?: string; dept?: string }>;
 }) {
   const viewer = await requirePermission("volunteers.view");
-  const { tab: rawTab } = await searchParams;
+  const { tab: rawTab, dept } = await searchParams;
 
   const [nextTerm, canExecute, activeTerm] = await Promise.all([
     getNextTerm(),
@@ -65,8 +68,21 @@ export default async function OffboardingPage({
   // department cards or flagged queue, so a director opening Transition
   // during a rollover, now the default tab, does not pay for that query.
   const { departments, flagged } =
-    tab === "transition" ? { departments: [], flagged: null } : await offboardingView(viewer.personId);
+    tab === "transition" ? { departments: [], flagged: null } : await offboardingView(viewer.personId, { departmentId: dept });
   const transition = tab === "transition" ? await transitionView(viewer.personId) : null;
+  const canPickAnyDepartment = await can(viewer.personId, "volunteers.offboard_any_department");
+
+    // Every department, for the executor's picker on the By department tab.
+  // Directors without manage_offboarding never get the picker.
+  const pickableDepartments =
+    canPickAnyDepartment && tab === "departments"
+      ? await prisma.department.findMany({
+          where: { isActive: true },
+          select: { id: true, code: true, name: true },
+          orderBy: { code: "asc" },
+        })
+      : [];
+
 
   const items = [
     { label: "Transition", href: `${BASE}?tab=transition` },
@@ -241,11 +257,30 @@ export default async function OffboardingPage({
       )}
 
       {tab === "departments" && (
-        <DepartmentTab
-          departments={departments}
-          flagAction={flagAction}
-          unflagAction={unflagAction}
-        />
+        <>
+          {canPickAnyDepartment && (
+            <form method="get" action={BASE} className="mt-6 flex flex-wrap items-end gap-2">
+              <input type="hidden" name="tab" value="departments" />
+              <label className="flex flex-col text-sm">
+                <span className="mb-1 text-foreground-soft">Department</span>
+                <Select name="dept" defaultValue={dept ?? ""} className="sm:max-w-xs">
+                  <option value="">My departments</option>
+                  {pickableDepartments.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.code} · {d.name}
+                    </option>
+                  ))}
+                </Select>
+              </label>
+              <Button type="submit">Show</Button>
+            </form>
+          )}
+          <DepartmentTab
+            departments={departments}
+            flagAction={flagAction}
+            unflagAction={unflagAction}
+          />
+        </>
       )}
 
       {tab === "flagged" && flagged !== null && (

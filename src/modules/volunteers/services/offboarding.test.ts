@@ -544,3 +544,54 @@ describe("offboardingView", () => {
     expect(result.flagged).toBeNull();
   });
 });
+
+describe("offboardingView department picker", () => {
+  it("shows a holder of offboard_any_department the department they pick", async () => {
+    const term = await createTerm();
+    const own = await createDepartment("ITCM");
+    const other = await createDepartment("LCC");
+    const admin = await createPerson("Admin", "adm001");
+    const target = await createPerson("Target", "tgt001");
+
+    await createMembership(admin.id, term.id, own.id, "DIRECTOR");
+    await grantPermission(admin.id, "volunteers.offboard_any_department");
+    await createMembership(target.id, term.id, other.id, "VOLUNTEER");
+
+    const { departments } = await offboardingView(admin.id, { departmentId: other.id });
+    // Compared as text so the test does not depend on the card's field names.
+    expect(JSON.stringify(departments)).toContain(target.id);
+    expect(JSON.stringify(departments)).not.toContain(admin.id);
+  });
+
+  it("ignores a picked department for an executor who only holds manage_offboarding", async () => {
+    const term = await createTerm();
+    const own = await createDepartment("SRR");
+    const other = await createDepartment("LCC");
+    const manager = await createPerson("Manager", "mgr101");
+    const outsider = await createPerson("Outsider", "out101");
+
+    await createMembership(manager.id, term.id, own.id, "DIRECTOR");
+    await grantPermission(manager.id, "volunteers.manage_offboarding");
+    await createMembership(outsider.id, term.id, other.id, "VOLUNTEER");
+
+    // Processing flags clinic-wide is not the same as browsing every roster.
+    const { departments } = await offboardingView(manager.id, { departmentId: other.id });
+    expect(JSON.stringify(departments)).toContain(manager.id);
+    expect(JSON.stringify(departments)).not.toContain(outsider.id);
+  });
+
+  it("ignores a picked department for a plain director", async () => {
+    const term = await createTerm();
+    const own = await createDepartment("ITCM");
+    const other = await createDepartment("LCC");
+    const director = await createPerson("Director", "dir101");
+    const outsider = await createPerson("Outsider", "out102");
+
+    await createMembership(director.id, term.id, own.id, "DIRECTOR");
+    await createMembership(outsider.id, term.id, other.id, "VOLUNTEER");
+
+    const { departments } = await offboardingView(director.id, { departmentId: other.id });
+    expect(JSON.stringify(departments)).toContain(director.id);
+    expect(JSON.stringify(departments)).not.toContain(outsider.id);
+  });
+});

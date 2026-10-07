@@ -27,13 +27,11 @@ import { accountEmailForPerson } from "@/platform/auth/match-person";
 import {
   directoryPeopleAll,
   directoryAttendings,
+  specialtyByPerson,
   type DirectoryFilters,
   type DirectoryScope,
 } from "./directory";
-import {
-  specialtyInterestByMember,
-  type SpecialtyInterest,
-} from "@/platform/recruitment/specialty-interest";
+import type { SpecialtyInterest } from "@/platform/recruitment/specialty-interest";
 
 export type DirectoryExportRequest =
   | ({ scope: "people" } & DirectoryFilters)
@@ -52,50 +50,6 @@ const PEOPLE_HEADERS = [
 
 const ATTENDING_HEADERS = ["Name", "Credentials", "Specialty", "Email", "Phone"];
 
-/**
- * The SCTP/JCTP application's specialty clinic answer, per person, for the
- * seats in this export. specialtyInterestByMember answers one department at a
- * time, so people are grouped by the departments of their matched seats. Only
- * departments whose application asked the question return anything; everyone
- * else gets a blank cell. A yes on any seat wins over a no on another.
- */
-async function specialtyByPerson(
-  termId: string | null,
-  people: Awaited<ReturnType<typeof directoryPeopleAll>>,
-): Promise<Map<string, SpecialtyInterest>> {
-  const out = new Map<string, SpecialtyInterest>();
-  if (!termId) return out;
-
-  const idsByDept = new Map<string, Set<string>>();
-  for (const p of people) {
-    for (const s of p.seats) {
-      if (!idsByDept.has(s.departmentCode)) idsByDept.set(s.departmentCode, new Set());
-      idsByDept.get(s.departmentCode)!.add(p.id);
-    }
-  }
-
-  const byDept = new Map(
-    await Promise.all(
-      [...idsByDept].map(
-        async ([departmentCode, ids]) =>
-          [
-            departmentCode,
-            await specialtyInterestByMember({ termId, departmentCode, personIds: [...ids] }),
-          ] as const,
-      ),
-    ),
-  );
-
-  for (const p of people) {
-    for (const s of p.seats) {
-      const hit = byDept.get(s.departmentCode)?.get(`${p.id}:${s.kind}`);
-      if (!hit) continue;
-      const prev = out.get(p.id);
-      if (!prev || (!prev.interested && hit.interested)) out.set(p.id, hit);
-    }
-  }
-  return out;
-}
 
 function specialtyCell(interest: SpecialtyInterest | undefined): string {
   if (!interest) return "";

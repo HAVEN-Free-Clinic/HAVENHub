@@ -25,6 +25,7 @@ import {
   directoryEmails,
   directoryAttendings,
   directoryScopeFor,
+  directorySpecialtyEmails,
 } from "./directory";
 
 async function createTerm(status: "ACTIVE" | "PLANNING" = "ACTIVE", code = "FA26") {
@@ -510,5 +511,19 @@ describe("directoryEmails", () => {
 
   it("returns nothing rather than throwing when no term is active", async () => {
     expect(await directoryEmails(null, {}, null)).toEqual([]);
+  });
+});
+
+describe("directorySpecialtyEmails", () => {
+  it("copies nobody whose application never answered the specialty question", async () => {
+    const { term } = await seedRoster();
+    // The seeded roster has addresses but no applications, so the full list is
+    // non-empty and the specialty list must still be empty.
+    expect(await directoryEmails(term.id, {}, null)).not.toEqual([]);
+    expect(await directorySpecialtyEmails(term.id, {}, null)).toEqual([]);
+  });
+
+  it("returns nothing rather than throwing when no term is active", async () => {
+    expect(await directorySpecialtyEmails(null, {}, null)).toEqual([]);
   });
 });

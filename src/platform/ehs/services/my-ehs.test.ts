@@ -3,6 +3,7 @@ import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
 import { getMyEhsStatus } from "./my-ehs";
 import { createTraining, setTrainingDepartments } from "./trainings";
+import { markEhsComplete } from "./completion";
 import { WORKDAY_LEARNING_URL, HEALTH_ON_TRACK_URL } from "@/platform/external-links";
 
 beforeEach(resetDb);
@@ -70,5 +71,48 @@ describe("getMyEhsStatus", () => {
     const items = await getMyEhsStatus(person.id, term.id);
 
     expect(items.find((i) => i.id === flag.id)!.completionUrl).toBeNull();
+  });
+});
+
+describe("getMyEhsStatus with a provisional grant", () => {
+  const DAY = 24 * 60 * 60 * 1000;
+
+  it("opens the gate on a live grant and says when it lapses", async () => {
+    const { actor, person, term } = await buildMember();
+    const tb = await createTraining({ name: "TB Screening", requiredForAll: true }, actor.id);
+    const expiresAt = new Date(Date.now() + 7 * DAY);
+    await prisma.ehsProvisionalClearance.create({
+      data: {
+        personId: person.id,
+        trainingId: tb.id,
+        grantedById: actor.id,
+        reason: "TB test taken, result pending",
+        expiresAt,
+      },
+    });
+
+    const item = (await getMyEhsStatus(person.id, term.id)).find((i) => i.id === tb.id)!;
+    expect(item.complete).toBe(true);
+    expect(item.completedAt).toBeNull();
+    expect(item.provisionalUntil?.getTime()).toBe(expiresAt.getTime());
+  });
+
+  it("drops the provisional label once the real completion is on file", async () => {
+    const { actor, person, term } = await buildMember();
+    const tb = await createTraining({ name: "TB Screening", requiredForAll: true }, actor.id);
+    await prisma.ehsProvisionalClearance.create({
+      data: {
+        personId: person.id,
+        trainingId: tb.id,
+        grantedById: actor.id,
+        reason: "TB test taken, result pending",
+        expiresAt: new Date(Date.now() + 7 * DAY),
+      },
+    });
+    await markEhsComplete(person.id, tb.id, actor.id);
+
+    const item = (await getMyEhsStatus(person.id, term.id)).find((i) => i.id === tb.id)!;
+    expect(item.complete).toBe(true);
+    expect(item.provisionalUntil).toBeNull();
   });
 });

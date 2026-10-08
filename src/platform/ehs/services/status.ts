@@ -167,6 +167,7 @@ export async function loadEhsMissingMap(
   activeTermId: string
 ): Promise<Map<string, string[]>> {
   const catalog = await loadCatalog();
+  
 
   const memberships = (await prisma.termMembership.findMany({
     where: { termId: activeTermId, status: "ACTIVE" },
@@ -177,6 +178,7 @@ export async function loadEhsMissingMap(
         select: {
           yaleAffiliation: true,
           ehsCompletions: { select: { trainingId: true } },
+          ehsProvisionalClearances: liveProvisionalSelect(new Date()),
         },
       },
     },
@@ -186,6 +188,7 @@ export async function loadEhsMissingMap(
     person: {
       yaleAffiliation: string | null;
       ehsCompletions: { trainingId: string }[];
+      ehsProvisionalClearances: { trainingId: string }[];
     };
   }>;
 
@@ -198,7 +201,10 @@ export async function loadEhsMissingMap(
     if (!completedByPerson.has(m.personId)) {
       completedByPerson.set(
         m.personId,
-        new Set(m.person.ehsCompletions.map((c) => c.trainingId))
+        new Set([
+          ...m.person.ehsCompletions.map((c) => c.trainingId),
+          ...m.person.ehsProvisionalClearances.map((p) => p.trainingId),
+        ])
       );
       affiliationByPerson.set(m.personId, m.person.yaleAffiliation);
     }
@@ -216,6 +222,18 @@ export async function loadEhsMissingMap(
     out.set(personId, missing.map((m) => m.name));
   }
   return out;
+}
+
+/**
+ * The provisional grants that count right now: not revoked and not yet expired.
+ * Evaluated at read time, so a grant stops counting the moment it lapses, with
+ * no job involved. Shared by every EHS read that decides clearance.
+ */
+function liveProvisionalSelect(now: Date) {
+  return {
+    where: { revokedAt: null, expiresAt: { gt: now } },
+    select: { trainingId: true },
+  };
 }
 
 /**
@@ -237,13 +255,14 @@ export async function loadEhsItemsMap(
         select: {
           yaleAffiliation: true,
           ehsCompletions: { select: { trainingId: true } },
+          ehsProvisionalClearances: liveProvisionalSelect(new Date()),
         },
       },
     },
   })) as Array<{
     personId: string;
     departmentId: string;
-    person: { yaleAffiliation: string | null; ehsCompletions: { trainingId: string }[] };
+    person: { yaleAffiliation: string | null; ehsCompletions: { trainingId: string }[]; ehsProvisionalClearances: { trainingId: string }[] }; 
   }>;
 
   const deptsByPerson = new Map<string, Set<string>>();
@@ -253,7 +272,13 @@ export async function loadEhsItemsMap(
     if (!deptsByPerson.has(m.personId)) deptsByPerson.set(m.personId, new Set());
     deptsByPerson.get(m.personId)!.add(m.departmentId);
     if (!completedByPerson.has(m.personId)) {
-      completedByPerson.set(m.personId, new Set(m.person.ehsCompletions.map((c) => c.trainingId)));
+      completedByPerson.set(
+        m.personId,
+        new Set([
+          ...m.person.ehsCompletions.map((c) => c.trainingId),
+          ...m.person.ehsProvisionalClearances.map((p) => p.trainingId),
+        ])
+      );
       affiliationByPerson.set(m.personId, m.person.yaleAffiliation);
     }
   }

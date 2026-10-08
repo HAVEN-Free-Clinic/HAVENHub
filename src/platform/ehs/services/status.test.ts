@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
-import { getEhsDashboard, loadEhsItemsMap } from "./status";
+import { getEhsDashboard, loadEhsItemsMap, loadEhsMissingMap } from "./status";
 import { createTraining, setTrainingDepartments } from "./trainings";
 import { markEhsComplete } from "./completion";
 
@@ -183,5 +183,61 @@ describe("loadEhsItemsMap", () => {
     // No active trainings created, so nothing is required.
     const map = await loadEhsItemsMap(term.id);
     expect(map.get(person.id)).toEqual([]);
+  });
+});
+
+describe("provisional clearance", () => {
+  const DAY = 24 * 60 * 60 * 1000;
+
+  async function grant(
+    personId: string,
+    trainingId: string,
+    grantedById: string,
+    opts: { expiresInDays: number; revoked?: boolean },
+  ) {
+    return prisma.ehsProvisionalClearance.create({
+      data: {
+        personId,
+        trainingId,
+        grantedById,
+        reason: "TB test taken, result pending",
+        expiresAt: new Date(Date.now() + opts.expiresInDays * DAY),
+        revokedAt: opts.revoked ? new Date() : null,
+        revokedById: opts.revoked ? grantedById : null,
+      },
+    });
+  }
+
+  it("counts a live grant as complete for clearance and blockers", async () => {
+    const { actor, term, person } = await buildBaseFixtures();
+    const training = await createTraining({ name: "TB Screening", requiredForAll: true }, actor.id);
+    await grant(person.id, training.id, actor.id, { expiresInDays: 7 });
+
+    const items = await loadEhsItemsMap(term.id);
+    expect(items.get(person.id)!.find((i) => i.id === training.id)!.complete).toBe(true);
+
+    const missing = await loadEhsMissingMap(term.id);
+    expect(missing.get(person.id)).not.toContain("TB Screening");
+  });
+
+  it("stops counting a grant once it has expired", async () => {
+    const { actor, term, person } = await buildBaseFixtures();
+    const training = await createTraining({ name: "TB Screening", requiredForAll: true }, actor.id);
+    await grant(person.id, training.id, actor.id, { expiresInDays: -1 });
+
+    const items = await loadEhsItemsMap(term.id);
+    expect(items.get(person.id)!.find((i) => i.id === training.id)!.complete).toBe(false);
+
+    const missing = await loadEhsMissingMap(term.id);
+    expect(missing.get(person.id)).toContain("TB Screening");
+  });
+
+  it("ignores a revoked grant even before it expires", async () => {
+    const { actor, term, person } = await buildBaseFixtures();
+    const training = await createTraining({ name: "TB Screening", requiredForAll: true }, actor.id);
+    await grant(person.id, training.id, actor.id, { expiresInDays: 7, revoked: true });
+
+    const items = await loadEhsItemsMap(term.id);
+    expect(items.get(person.id)!.find((i) => i.id === training.id)!.complete).toBe(false);
   });
 });

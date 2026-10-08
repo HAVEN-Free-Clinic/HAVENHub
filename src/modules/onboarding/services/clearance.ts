@@ -32,6 +32,8 @@ export type ClearanceSummary = {
   tasks: ClearanceTask[];
   /** Task keys not satisfied (i.e. neither COMPLETE nor NOT_REQUIRED). */
   missing: OnboardingTaskKey[];
+  /** Cleared, but at least one EHS item stands on a provisional grant. */
+  provisional: boolean;
 };
 
 /**
@@ -217,7 +219,13 @@ export async function loadClearanceMap(
 
     const { onboarded, cleared } = computeGating(tasks);
     const missing = tasks.filter((t) => !isSatisfied(t.state)).map((t) => t.key);
-    out.set(personId, { onboarded, cleared, tasks, missing });
+    out.set(personId, {
+      onboarded,
+      cleared,
+      tasks,
+      missing,
+      provisional: cleared && ehsItems.some((i) => i.provisional),
+    });
   }
 
   return out;

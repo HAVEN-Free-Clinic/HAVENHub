@@ -49,6 +49,12 @@ import {
 } from "@/modules/my-info/components/clearance-card";
 import { EhsPanel } from "@/modules/my-info/components/ehs-panel";
 import { markEhsComplete, unmarkEhsComplete } from "@/platform/ehs/services/completion";
+import {
+  grantProvisionalClearance,
+  revokeLiveProvisional,
+  endOfClinicDay,
+  PROVISIONAL_PERMISSION,
+} from "@/platform/ehs/services/provisional";
 import { CertificateViewer } from "@/modules/my-info/components/certificate-viewer";
 import {
   setCompletionDateAsManager,
@@ -96,13 +102,14 @@ export default async function PersonCompliancePage({ params }: PageProps) {
   // the live term instead read an incoming member as having no EHS
   // requirements under a Summer heading.
   const accessTerm = await getAccessTerm(personId);
-  const [onboarding, certificates, ehsItems, courses, isManager, isAdmin] = await Promise.all([
+  const [onboarding, certificates, ehsItems, courses, isManager, isAdmin, canGrantProvisional] = await Promise.all([
     getOnboardingStatus(personId),
     listMyCertificates(personId),
     getMyEhsStatus(personId, accessTerm?.id),
     getMyCourses(personId),
     can(viewer.personId, "volunteers.manage_compliance"),
     can(viewer.personId, "admin.access"),
+    can(viewer.personId, PROVISIONAL_PERMISSION),
   ]);
 
   // The newest cert drives the DOCUMENT panel below (its date/file/expiry).
@@ -217,6 +224,31 @@ export default async function PersonCompliancePage({ params }: PageProps) {
     revalidatePath(`/volunteers/compliance/${personId}`);
     revalidatePath("/volunteers/ehs");
   }
+
+
+  // Provisional EHS clearance, Platform Admin only. The service re-checks the
+  // permission and every limit; the person is bound from the route.
+  async function grantProvisionalAction(formData: FormData): Promise<void> {
+    "use server";
+    const actor = await requirePermission(PROVISIONAL_PERMISSION);
+    await grantProvisionalClearance(actor.personId, {
+      personId,
+      trainingId: String(formData.get("trainingId")),
+      expiresAt: endOfClinicDay(String(formData.get("expiresOn") ?? "")),
+      reason: String(formData.get("reason") ?? ""),
+    });
+    revalidatePath(`/volunteers/compliance/${personId}`);
+    revalidatePath("/volunteers/ehs");
+  }
+
+  async function revokeProvisionalAction(formData: FormData): Promise<void> {
+    "use server";
+    const actor = await requirePermission(PROVISIONAL_PERMISSION);
+    await revokeLiveProvisional(actor.personId, personId, String(formData.get("trainingId")));
+    revalidatePath(`/volunteers/compliance/${personId}`);
+    revalidatePath("/volunteers/ehs");
+  }
+
 
   const certReq = certRequirement(status, "staff");
   const expiresAt = newestCert?.completionDate ? certExpiresAt(newestCert.completionDate) : null;
@@ -368,7 +400,15 @@ export default async function PersonCompliancePage({ params }: PageProps) {
           <EhsPanel
             items={ehsItems}
             manage={
-              isManager ? { personName: person.name, toggleAction: toggleEhsAction } : undefined
+              isManager
+                ? {
+                    personName: person.name,
+                    toggleAction: toggleEhsAction,
+                    provisional: canGrantProvisional
+                      ? { grantAction: grantProvisionalAction, revokeAction: revokeProvisionalAction }
+                      : undefined,
+                  }
+                : undefined
             }
           />
         </section>

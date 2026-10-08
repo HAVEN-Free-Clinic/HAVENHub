@@ -35,7 +35,7 @@ export type { ClearanceSummary };
 
 /** Placeholder used before loadClearanceMap fills the real value; also the value
  *  for a person the map has no entry for (should not happen for active members). */
-const EMPTY_CLEARANCE: ClearanceSummary = { onboarded: true, cleared: true, tasks: [], missing: [] };
+const EMPTY_CLEARANCE: ClearanceSummary = { onboarded: true, cleared: true, tasks: [], missing: [],provisional: false, };
 
 // ---------------------------------------------------------------------------
 // Typed errors

@@ -12,7 +12,7 @@ function director(id: string, name: string, dept: DigestDirector["department"]):
   return { department: dept, person: { id, name, contactEmail: `${id}@x.org`, entraObjectId: null } };
 }
 function summary(cleared: boolean, missing: ClearanceSummary["missing"] = []): ClearanceSummary {
-  return { onboarded: true, cleared, tasks: [], missing };
+  return { onboarded: true, cleared, tasks: [], missing, provisional: false };
 }
 
 describe("buildShiftClearanceDigests", () => {

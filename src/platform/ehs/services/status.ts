@@ -13,6 +13,8 @@ export type EhsDashboardCell = {
   trainingId: string;
   state: EhsCellState;
   completedAt: Date | null;
+  /** End of a live provisional grant on a MISSING cell; null otherwise. */
+  provisionalUntil: Date | null;
 };
 export type EhsDashboardRow = {
   personId: string;
@@ -75,6 +77,10 @@ export async function getEhsDashboard(termIdOverride?: string): Promise<EhsDashb
           addedToEhs: true,
           yaleAffiliation: true,
           ehsCompletions: { select: { trainingId: true, completedAt: true } },
+          ehsProvisionalClearances: {
+            where: { revokedAt: null, expiresAt: { gt: new Date() } },
+            select: { trainingId: true, expiresAt: true },
+          },
         },
       },
       department: { select: { code: true } },
@@ -89,6 +95,7 @@ export async function getEhsDashboard(termIdOverride?: string): Promise<EhsDashb
       addedToEhs: boolean;
       yaleAffiliation: string | null;
       ehsCompletions: { trainingId: string; completedAt: Date | null }[];
+      ehsProvisionalClearances: { trainingId: string; expiresAt: Date }[];
     };
     department: { code: string };
   }>;
@@ -105,6 +112,7 @@ export async function getEhsDashboard(termIdOverride?: string): Promise<EhsDashb
       departmentIds: Set<string>;
       departmentCodes: Set<string>;
       completions: Map<string, Date | null>;
+      provisional: Map<string, Date>;
     }
   >();
 
@@ -121,6 +129,9 @@ export async function getEhsDashboard(termIdOverride?: string): Promise<EhsDashb
         departmentCodes: new Set(),
         completions: new Map(
           m.person.ehsCompletions.map((c) => [c.trainingId, c.completedAt])
+        ),
+        provisional: new Map(
+          m.person.ehsProvisionalClearances.map((p) => [p.trainingId, p.expiresAt])
         ),
       };
       byPerson.set(m.personId, agg);
@@ -140,12 +151,14 @@ export async function getEhsDashboard(termIdOverride?: string): Promise<EhsDashb
       );
       const cells: EhsDashboardCell[] = catalog.map((t) => {
         if (!required.has(t.id))
-          return { trainingId: t.id, state: "NA", completedAt: null };
+          return { trainingId: t.id, state: "NA", completedAt: null, provisionalUntil: null };
         const done = agg.completions.has(t.id);
         return {
           trainingId: t.id,
           state: done ? "COMPLETE" : "MISSING",
           completedAt: done ? (agg.completions.get(t.id) ?? null) : null,
+          // A real completion wins, so the label disappears once EHS confirms it.
+          provisionalUntil: done ? null : (agg.provisional.get(t.id) ?? null),
         };
       });
       return {
@@ -167,6 +180,7 @@ export async function loadEhsMissingMap(
   activeTermId: string
 ): Promise<Map<string, string[]>> {
   const catalog = await loadCatalog();
+  
 
   const memberships = (await prisma.termMembership.findMany({
     where: { termId: activeTermId, status: "ACTIVE" },
@@ -177,6 +191,7 @@ export async function loadEhsMissingMap(
         select: {
           yaleAffiliation: true,
           ehsCompletions: { select: { trainingId: true } },
+          ehsProvisionalClearances: liveProvisionalSelect(new Date()),
         },
       },
     },
@@ -186,6 +201,7 @@ export async function loadEhsMissingMap(
     person: {
       yaleAffiliation: string | null;
       ehsCompletions: { trainingId: string }[];
+      ehsProvisionalClearances: { trainingId: string }[];
     };
   }>;
 
@@ -198,7 +214,10 @@ export async function loadEhsMissingMap(
     if (!completedByPerson.has(m.personId)) {
       completedByPerson.set(
         m.personId,
-        new Set(m.person.ehsCompletions.map((c) => c.trainingId))
+        new Set([
+          ...m.person.ehsCompletions.map((c) => c.trainingId),
+          ...m.person.ehsProvisionalClearances.map((p) => p.trainingId),
+        ])
       );
       affiliationByPerson.set(m.personId, m.person.yaleAffiliation);
     }
@@ -219,13 +238,32 @@ export async function loadEhsMissingMap(
 }
 
 /**
+ * The provisional grants that count right now: not revoked and not yet expired.
+ * Evaluated at read time, so a grant stops counting the moment it lapses, with
+ * no job involved. Shared by every EHS read that decides clearance.
+ */
+function liveProvisionalSelect(now: Date) {
+  return {
+    where: { revokedAt: null, expiresAt: { gt: now } },
+    select: { trainingId: true },
+  };
+}
+
+/**
  * Batched sibling of loadEhsMissingMap: per active-term member, the EHS trainings
  * required of them, each flagged complete. Returns [] for members with no required
  * trainings. Used by the clearance engine to derive the EHS onboarding task in bulk.
+/**
+ * Batched sibling of loadEhsMissingMap: per active-term member, the EHS trainings
+ * required of them, each flagged complete. Returns [] for members with no required
+ * trainings. Used by the clearance engine to derive the EHS onboarding task in bulk.
+ *
+ * `provisional` marks an item that counts as complete only because of a live
+ * provisional grant, so the clearance badge can say "Provisionally cleared".
  */
 export async function loadEhsItemsMap(
   activeTermId: string
-): Promise<Map<string, { id: string; name: string; complete: boolean }[]>> {
+): Promise<Map<string, { id: string; name: string; complete: boolean; provisional: boolean }[]>> {
   const catalog = await loadCatalog();
 
   const memberships = (await prisma.termMembership.findMany({
@@ -237,28 +275,44 @@ export async function loadEhsItemsMap(
         select: {
           yaleAffiliation: true,
           ehsCompletions: { select: { trainingId: true } },
+          ehsProvisionalClearances: liveProvisionalSelect(new Date()),
         },
       },
     },
   })) as Array<{
     personId: string;
     departmentId: string;
-    person: { yaleAffiliation: string | null; ehsCompletions: { trainingId: string }[] };
+    person: {
+      yaleAffiliation: string | null;
+      ehsCompletions: { trainingId: string }[];
+      ehsProvisionalClearances: { trainingId: string }[];
+    };
   }>;
 
   const deptsByPerson = new Map<string, Set<string>>();
   const completedByPerson = new Map<string, Set<string>>();
+  const provisionalOnlyByPerson = new Map<string, Set<string>>();
   const affiliationByPerson = new Map<string, string | null>();
   for (const m of memberships) {
     if (!deptsByPerson.has(m.personId)) deptsByPerson.set(m.personId, new Set());
     deptsByPerson.get(m.personId)!.add(m.departmentId);
     if (!completedByPerson.has(m.personId)) {
-      completedByPerson.set(m.personId, new Set(m.person.ehsCompletions.map((c) => c.trainingId)));
+      const real = new Set(m.person.ehsCompletions.map((c) => c.trainingId));
+      const provisional = m.person.ehsProvisionalClearances.map((p) => p.trainingId);
+      completedByPerson.set(m.personId, new Set([...real, ...provisional]));
+      // A real completion wins, so an item EHS has confirmed is never "provisional".
+      provisionalOnlyByPerson.set(
+        m.personId,
+        new Set(provisional.filter((id) => !real.has(id)))
+      );
       affiliationByPerson.set(m.personId, m.person.yaleAffiliation);
     }
   }
 
-  const out = new Map<string, { id: string; name: string; complete: boolean }[]>();
+  const out = new Map<
+    string,
+    { id: string; name: string; complete: boolean; provisional: boolean }[]
+  >();
   for (const [personId, deptSet] of deptsByPerson) {
     const isStudent = isStudentAffiliation(affiliationByPerson.get(personId));
     const required = requiredTrainingsForMember({
@@ -267,9 +321,15 @@ export async function loadEhsItemsMap(
       isStudent,
     });
     const completed = completedByPerson.get(personId) ?? new Set<string>();
+    const provisionalOnly = provisionalOnlyByPerson.get(personId) ?? new Set<string>();
     out.set(
       personId,
-      required.map((t) => ({ id: t.id, name: t.name, complete: completed.has(t.id) }))
+      required.map((t) => ({
+        id: t.id,
+        name: t.name,
+        complete: completed.has(t.id),
+        provisional: provisionalOnly.has(t.id),
+      }))
     );
   }
   return out;

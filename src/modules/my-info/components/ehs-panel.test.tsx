@@ -21,6 +21,7 @@ const item = (over: Partial<MyEhsItem> = {}): MyEhsItem => ({
   description: null,
   complete: false,
   completedAt: null,
+  provisionalUntil: null,
   completionUrl: WORKDAY,
   ...over,
 });

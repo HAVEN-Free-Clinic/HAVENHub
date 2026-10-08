@@ -43,6 +43,7 @@ const ehsItem = (over: Partial<MyEhsItem> = {}): MyEhsItem => ({
   description: null,
   complete: false,
   completedAt: null,
+  provisionalUntil: null,
   completionUrl: "https://www.myworkday.com/yale/learning",
   ...over,
 });

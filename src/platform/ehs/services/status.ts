@@ -13,6 +13,8 @@ export type EhsDashboardCell = {
   trainingId: string;
   state: EhsCellState;
   completedAt: Date | null;
+  /** End of a live provisional grant on a MISSING cell; null otherwise. */
+  provisionalUntil: Date | null;
 };
 export type EhsDashboardRow = {
   personId: string;
@@ -75,6 +77,10 @@ export async function getEhsDashboard(termIdOverride?: string): Promise<EhsDashb
           addedToEhs: true,
           yaleAffiliation: true,
           ehsCompletions: { select: { trainingId: true, completedAt: true } },
+          ehsProvisionalClearances: {
+            where: { revokedAt: null, expiresAt: { gt: new Date() } },
+            select: { trainingId: true, expiresAt: true },
+          },
         },
       },
       department: { select: { code: true } },
@@ -89,6 +95,7 @@ export async function getEhsDashboard(termIdOverride?: string): Promise<EhsDashb
       addedToEhs: boolean;
       yaleAffiliation: string | null;
       ehsCompletions: { trainingId: string; completedAt: Date | null }[];
+      ehsProvisionalClearances: { trainingId: string; expiresAt: Date }[];
     };
     department: { code: string };
   }>;
@@ -105,6 +112,7 @@ export async function getEhsDashboard(termIdOverride?: string): Promise<EhsDashb
       departmentIds: Set<string>;
       departmentCodes: Set<string>;
       completions: Map<string, Date | null>;
+      provisional: Map<string, Date>;
     }
   >();
 
@@ -121,6 +129,9 @@ export async function getEhsDashboard(termIdOverride?: string): Promise<EhsDashb
         departmentCodes: new Set(),
         completions: new Map(
           m.person.ehsCompletions.map((c) => [c.trainingId, c.completedAt])
+        ),
+        provisional: new Map(
+          m.person.ehsProvisionalClearances.map((p) => [p.trainingId, p.expiresAt])
         ),
       };
       byPerson.set(m.personId, agg);
@@ -140,12 +151,14 @@ export async function getEhsDashboard(termIdOverride?: string): Promise<EhsDashb
       );
       const cells: EhsDashboardCell[] = catalog.map((t) => {
         if (!required.has(t.id))
-          return { trainingId: t.id, state: "NA", completedAt: null };
+          return { trainingId: t.id, state: "NA", completedAt: null, provisionalUntil: null };
         const done = agg.completions.has(t.id);
         return {
           trainingId: t.id,
           state: done ? "COMPLETE" : "MISSING",
           completedAt: done ? (agg.completions.get(t.id) ?? null) : null,
+          // A real completion wins, so the label disappears once EHS confirms it.
+          provisionalUntil: done ? null : (agg.provisional.get(t.id) ?? null),
         };
       });
       return {

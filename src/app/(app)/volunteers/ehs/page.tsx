@@ -25,6 +25,7 @@ import { TermSwitcher } from "@/platform/ui/term-switcher";
 import { Alert } from "@/platform/ui/alert";
 import { toggleEhsCompletionAction, toggleAddedToEhsAction } from "./actions";
 import { EmptyState } from "@/platform/ui/empty-state";
+import { DateOnly } from "@/platform/dates/display";
 
 const PAGE_SIZE = 25;
 
@@ -143,7 +144,11 @@ export default async function EhsDashboardPage({
                           // buttons below convey, so the grid still answers
                           // "who has done what" without offering a write.
                           <span className="text-xs text-foreground-soft">
-                            {cell.state === "COMPLETE" ? "✓ Complete" : "Incomplete"}
+                              {cell.state === "COMPLETE"
+                              ? "✓ Complete"
+                              : cell.provisionalUntil
+                                ? "Provisional"
+                                : "Incomplete"}
                           </span>
                         ) : cell.state === "COMPLETE" ? (
                           // Unmarking hard-deletes the completion and its provenance, so
@@ -161,19 +166,26 @@ export default async function EhsDashboardPage({
                             />
                           </form>
                         ) : (
-                          <form action={toggleEhsCompletionAction} className="inline">
-                            <input type="hidden" name="personId" value={row.personId} />
-                            <input type="hidden" name="trainingId" value={cell.trainingId} />
-                            <input type="hidden" name="complete" value="1" />
-                            <SubmitButton
-                              size="sm"
-                              variant="outline"
-                              aria-label={`Mark ${trainingName} complete for ${row.name}`}
-                              pendingLabel="Saving…"
-                            >
-                              Mark
-                            </SubmitButton>
-                          </form>
+                          <>
+                            <form action={toggleEhsCompletionAction} className="inline">
+                              <input type="hidden" name="personId" value={row.personId} />
+                              <input type="hidden" name="trainingId" value={cell.trainingId} />
+                              <input type="hidden" name="complete" value="1" />
+                              <SubmitButton
+                                size="sm"
+                                variant="outline"
+                                aria-label={`Mark ${trainingName} complete for ${row.name}`}
+                                pendingLabel="Saving…"
+                              >
+                                Mark
+                              </SubmitButton>
+                            </form>
+                            {cell.provisionalUntil && (
+                              <p className="mt-1 text-xs text-warning-foreground">
+                                Provisional until <DateOnly value={cell.provisionalUntil} />
+                              </p>
+                            )}
+                          </>
                         )}
                       </TD>
                     );

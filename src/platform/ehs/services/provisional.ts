@@ -60,7 +60,7 @@ export async function grantProvisionalClearance(
       "Provisional clearance is only for items that take days to come back, like the TB blood test or a mask fit.",
     );
   }
-  
+
   // Nothing to stand in for once the real completion is on file.
   const done = await prisma.ehsCompletion.findUnique({
     where: { personId_trainingId: { personId: input.personId, trainingId: input.trainingId } },
@@ -177,4 +177,44 @@ export async function revokeLiveProvisional(
   });
   if (!live) throw new ProvisionalInvalidError("This provisional clearance is not active.");
   await revokeProvisionalClearance(actorId, live.id, now);
+}
+
+/**
+ * Live grants ending within `withinDays`, soonest first, for the reminder box on
+ * the EHS page. Drops any that EHS has since confirmed, since there is nothing
+ * left to chase.
+ */
+export async function provisionalEndingSoon(now: Date = new Date(), withinDays = 2) {
+  const rows = await prisma.ehsProvisionalClearance.findMany({
+    where: {
+      revokedAt: null,
+      expiresAt: { gt: now, lte: new Date(now.getTime() + withinDays * DAY_MS) },
+    },
+    orderBy: { expiresAt: "asc" },
+    select: {
+      id: true,
+      personId: true,
+      trainingId: true,
+      expiresAt: true,
+      person: { select: { name: true } },
+      training: { select: { name: true } },
+    },
+  });
+  if (rows.length === 0) return [];
+
+  const confirmed = await prisma.ehsCompletion.findMany({
+    where: { OR: rows.map((r) => ({ personId: r.personId, trainingId: r.trainingId })) },
+    select: { personId: true, trainingId: true },
+  });
+  const done = new Set(confirmed.map((c) => `${c.personId}:${c.trainingId}`));
+
+  return rows
+    .filter((r) => !done.has(`${r.personId}:${r.trainingId}`))
+    .map((r) => ({
+      id: r.id,
+      personId: r.personId,
+      personName: r.person.name,
+      trainingName: r.training.name,
+      expiresAt: r.expiresAt,
+    }));
 }

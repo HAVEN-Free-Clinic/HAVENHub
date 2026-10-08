@@ -26,6 +26,7 @@ import { Alert } from "@/platform/ui/alert";
 import { toggleEhsCompletionAction, toggleAddedToEhsAction } from "./actions";
 import { EmptyState } from "@/platform/ui/empty-state";
 import { DateOnly } from "@/platform/dates/display";
+import { ProvisionalEndingSoon } from "@/modules/volunteers/components/provisional-ending-soon";
 
 const PAGE_SIZE = 25;
 
@@ -62,6 +63,7 @@ export default async function EhsDashboardPage({
         title="EHS training"
         description="Environmental Health and Safety training completion."
       />
+      <ProvisionalEndingSoon viewerPersonId={viewer.personId} />
       {liveTerm && nextTerm && (
         <div className="mt-4 space-y-3">
           <TermSwitcher

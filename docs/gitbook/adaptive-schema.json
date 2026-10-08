@@ -224,6 +224,10 @@
           "type": "object",
           "description": "Whether the visitor can access the Volunteers area and its actions in HAVEN Hub.",
           "properties": {
+            "grant_provisional_ehs": {
+              "type": "boolean",
+              "description": "Whether the visitor holds the volunteers.grant_provisional_ehs permission in HAVEN Hub."
+            },
             "manage_board_attendance": {
               "type": "boolean",
               "description": "Whether the visitor holds the volunteers.manage_board_attendance permission in HAVEN Hub."

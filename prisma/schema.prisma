@@ -348,6 +348,9 @@ model Person {
   addedToEhs                     Boolean                      @default(false)
   ehsCompletions                 EhsCompletion[]              @relation("ehsCompletionPerson")
   ehsCompletionsMarked           EhsCompletion[]              @relation("ehsCompletionMarkedBy")
+  ehsProvisionalClearances EhsProvisionalClearance[] @relation("ehsProvisionalPerson")
+  ehsProvisionalGranted    EhsProvisionalClearance[] @relation("ehsProvisionalGrantedBy")
+  ehsProvisionalRevoked    EhsProvisionalClearance[] @relation("ehsProvisionalRevokedBy")
   /// Shift requests this person raised.
   shiftRequests                  ShiftRequest[]               @relation("shiftRequestRequester")
   /// Shift requests targeting this person as the swap partner.
@@ -3906,7 +3909,9 @@ model EhsTraining {
   updatedAt      DateTime                @updatedAt
   departments    EhsTrainingDepartment[]
   completions    EhsCompletion[]
+  provisionalClearances EhsProvisionalClearance[]
 }
+
 
 model EhsTrainingDepartment {
   id           String      @id @default(cuid())
@@ -3937,6 +3942,34 @@ model EhsCompletion {
 
   @@unique([personId, trainingId])
   @@index([trainingId])
+}
+
+/// A temporary stand-in for an EHS completion while the real one is pending,
+/// e.g. a TB test taken but not yet resulted, or a mask fit awaiting an
+/// appointment. While live (not revoked, expiresAt in the future) it counts as
+/// complete everywhere EHS is read: clearance, attendance blockers, and the
+/// dashboard. Nothing deletes it on expiry; it simply stops counting, so access
+/// ends on time with no job involved. Kept apart from EhsCompletion because the
+/// import writes there and would overwrite who granted this and why.
+model EhsProvisionalClearance {
+  id          String      @id @default(cuid())
+  personId    String
+  trainingId  String
+  expiresAt   DateTime
+  reason      String
+  grantedById String?
+  grantedAt   DateTime    @default(now())
+  /// Set when the expiry reminder goes out, so it sends once.
+  remindedAt  DateTime?
+  revokedAt   DateTime?
+  revokedById String?
+  person      Person      @relation("ehsProvisionalPerson", fields: [personId], references: [id], onDelete: Cascade)
+  grantedBy   Person?     @relation("ehsProvisionalGrantedBy", fields: [grantedById], references: [id], onDelete: SetNull)
+  revokedBy   Person?     @relation("ehsProvisionalRevokedBy", fields: [revokedById], references: [id], onDelete: SetNull)
+  training    EhsTraining @relation(fields: [trainingId], references: [id], onDelete: Cascade)
+
+  @@index([personId, trainingId])
+  @@index([expiresAt])
 }
 
 /// Single-use, hashed, expiring magic-link token for the applicant portal.

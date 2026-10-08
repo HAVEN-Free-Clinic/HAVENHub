@@ -5,6 +5,7 @@ import { ExternalLinkButton } from "@/platform/ui/external-link-button";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { ehsCompletionLabel } from "@/platform/ehs/completion-link";
+import { ProvisionalGrantForm } from "./provisional-grant-form";
 
 /**
  * The member's EHS items, in two modes.
@@ -23,6 +24,10 @@ import { ehsCompletionLabel } from "@/platform/ehs/completion-link";
  * can fix it there instead of hunting that person down in the grid. Unmarking
  * hard-deletes the completion and its provenance, so it keeps the grid's two-click
  * confirm.
+ *
+ * Provisional clearance (Platform Admin only, via manage.provisional) adds a grant
+ * form on outstanding items and an end control on provisional ones. Everyone sees
+ * the "Provisional" label and its end date, including the member on /my-info.
  */
 export function EhsPanel({
   items,
@@ -33,6 +38,11 @@ export function EhsPanel({
     /** For the buttons' accessible names only; the action binds the person itself. */
     personName: string;
     toggleAction: (formData: FormData) => Promise<void>;
+    /** Present only for holders of volunteers.grant_provisional_ehs. */
+    provisional?: {
+      grantAction: (formData: FormData) => Promise<void>;
+      revokeAction: (formData: FormData) => Promise<void>;
+    };
   };
 }) {
   if (items.length === 0) {
@@ -53,7 +63,9 @@ export function EhsPanel({
           <li key={item.id} className="flex items-start justify-between gap-4 text-sm">
             <div className="min-w-0">
               <span className="flex flex-wrap items-center gap-2">
-                {item.complete ? (
+                {item.provisionalUntil ? (
+                  <span className="text-warning-foreground font-medium">Provisional</span>
+                ) : item.complete ? (
                   <span className="text-success-foreground font-medium">Done</span>
                 ) : (
                   <span className="text-subtle-foreground">Needed</span>
@@ -65,6 +77,35 @@ export function EhsPanel({
                   {item.description}
                 </p>
               )}
+              {item.provisionalUntil && (
+                <p className="mt-0.5 text-xs text-subtle-foreground">
+                  Cleared provisionally until <DateOnly value={item.provisionalUntil} />
+                </p>
+              )}
+              {manage?.provisional && !item.complete && (
+                <details className="mt-1">
+                  <summary className="cursor-pointer text-xs text-brand">
+                    Grant provisional clearance
+                  </summary>
+                  <ProvisionalGrantForm
+                    action={manage.provisional.grantAction}
+                    trainingId={item.id}
+                    itemName={item.name}
+                    personName={manage.personName}
+                  />
+                </details>
+              )}
+              {manage?.provisional && item.provisionalUntil && (
+                <form action={manage.provisional.revokeAction} className="mt-1">
+                  <input type="hidden" name="trainingId" value={item.id} />
+                  <ConfirmButton
+                    size="sm"
+                    label="End provisional clearance"
+                    confirmLabel="End it?"
+                    aria-label={`End provisional ${item.name} clearance for ${manage.personName}`}
+                  />
+                </form>
+              )}
             </div>
             <div className="flex shrink-0 items-center gap-3">
               {item.complete && item.completedAt && (
@@ -75,8 +116,8 @@ export function EhsPanel({
               {manage ? (
                 <form action={manage.toggleAction}>
                   <input type="hidden" name="trainingId" value={item.id} />
-                  <input type="hidden" name="complete" value={item.complete ? "0" : "1"} />
-                  {item.complete ? (
+                  <input type="hidden" name="complete" value={item.complete && !item.provisionalUntil ? "0" : "1"} />
+                  {item.complete && !item.provisionalUntil ? (
                     <ConfirmButton
                       size="sm"
                       label="Unmark"

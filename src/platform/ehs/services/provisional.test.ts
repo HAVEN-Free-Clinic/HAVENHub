@@ -67,7 +67,7 @@ describe("grantProvisionalClearance", () => {
   it("refuses an end date more than 30 days out", async () => {
     const { actor, person, training } = await setup();
     await expect(
-      grantProvisionalClearance(actor.id, input(person.id, training.id, inDays(31))),
+      grantProvisionalClearance(actor.id, input(person.id, training.id, inDays(32))),
     ).rejects.toBeInstanceOf(ProvisionalInvalidError);
   });
 

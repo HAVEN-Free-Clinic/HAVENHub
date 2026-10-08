@@ -12,6 +12,7 @@
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { can } from "@/platform/rbac/engine";
+import { DEFAULT_TIME_ZONE } from "@/platform/dates/zone";
 
 export const PROVISIONAL_PERMISSION = "volunteers.grant_provisional_ehs";
 export const MAX_PROVISIONAL_DAYS = 30;
@@ -43,7 +44,7 @@ export async function grantProvisionalClearance(
   if (input.expiresAt.getTime() <= now.getTime()) {
     throw new ProvisionalInvalidError("The end date must be in the future.");
   }
-  if (input.expiresAt.getTime() > now.getTime() + MAX_PROVISIONAL_DAYS * DAY_MS) {
+  if (input.expiresAt.getTime() > now.getTime() + (MAX_PROVISIONAL_DAYS + 1) * DAY_MS) {
     throw new ProvisionalInvalidError(
       `Provisional clearance can last at most ${MAX_PROVISIONAL_DAYS} days.`,
     );
@@ -126,4 +127,43 @@ export async function revokeProvisionalClearance(
       expiresAt: existing.expiresAt,
     },
   });
+}
+
+/**
+ * 23:59:59 on `ymd` (YYYY-MM-DD) in the clinic's time zone, so a grant "until
+ * Oct 14" lasts through the evening of Oct 14 in New Haven rather than ending at
+ * midnight UTC the night before. Tries both Eastern offsets and keeps the one
+ * that lands on that date at 23:00 local, which handles daylight saving.
+ */
+export function endOfClinicDay(ymd: string): Date {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) throw new ProvisionalInvalidError("Pick an end date.");
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: DEFAULT_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    hourCycle: "h23",
+  });
+  for (const offset of ["-04:00", "-05:00"]) {
+    const candidate = new Date(`${ymd}T23:59:59${offset}`);
+    const parts = Object.fromEntries(fmt.formatToParts(candidate).map((p) => [p.type, p.value]));
+    if (`${parts.year}-${parts.month}-${parts.day}` === ymd && parts.hour === "23") return candidate;
+  }
+  return new Date(`${ymd}T23:59:59-05:00`);
+}
+
+/** Ends whichever grant is live for this person and item, from the profile page. */
+export async function revokeLiveProvisional(
+  actorId: string,
+  personId: string,
+  trainingId: string,
+  now: Date = new Date(),
+): Promise<void> {
+  const live = await prisma.ehsProvisionalClearance.findFirst({
+    where: { personId, trainingId, revokedAt: null, expiresAt: { gt: now } },
+    select: { id: true },
+  });
+  if (!live) throw new ProvisionalInvalidError("This provisional clearance is not active.");
+  await revokeProvisionalClearance(actorId, live.id, now);
 }

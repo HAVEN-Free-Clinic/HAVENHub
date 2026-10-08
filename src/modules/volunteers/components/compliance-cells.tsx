@@ -108,7 +108,11 @@ export function ComplianceCells({ row }: { row: ComplianceRowData }) {
       <TaskCell state={taskState(row.clearance, "learning")} />
       <TaskCell state={taskState(row.clearance, "ehs")} />
       <TD>
-        <StatusBadge {...clearanceLabel(row.clearance.cleared ? "CLEARED" : "NOT_CLEARED")} />
+        <StatusBadge
+          {...clearanceLabel(row.clearance.cleared ? "CLEARED" : "NOT_CLEARED", {
+            provisional: row.clearance.provisional,
+          })}
+        />
       </TD>
       {/* One line each: on production every Expires date and most Completed
           dates wrapped to "Sep 11, / 2025" in 104px columns, doubling each

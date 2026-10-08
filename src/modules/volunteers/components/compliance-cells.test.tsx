@@ -69,7 +69,7 @@ describe("ComplianceCells", () => {
   it("takes the clearance words from clearanceLabel too", () => {
     expect(render(row())).toContain(clearanceLabel("NOT_CLEARED").label);
     const cleared = row();
-    cleared.clearance = { onboarded: true, cleared: true, missing: [], tasks: cleared.clearance.tasks };
+    cleared.clearance = { onboarded: true, cleared: true, missing: [], tasks: cleared.clearance.tasks, provisional: false };
     expect(render(cleared)).toContain(clearanceLabel("CLEARED").label);
   });
 

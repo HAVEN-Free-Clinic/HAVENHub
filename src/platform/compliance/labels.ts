@@ -192,8 +192,16 @@ export function trainingPartLabel(part: TrainingPartStatus | null): StatusLabel 
  * started, and those are two different follow-ups -- chase a certificate, or
  * chase a contract.
  */
-export function clearanceLabel(value: OverallClearance | "NOT_ONBOARDED"): StatusLabel {
+export function clearanceLabel(
+  value: OverallClearance | "NOT_ONBOARDED",
+  opts: { provisional?: boolean } = {},
+): StatusLabel {
   if (value === "NOT_ONBOARDED") return { label: "Not onboarded", tone: "warning" };
+  // Cleared, but standing on a provisional EHS grant: still works shifts, and the
+  // director can see the real result is pending.
+  if (value === "CLEARED" && opts.provisional) {
+    return { label: "Provisionally cleared", tone: "warning" };
+  }
   return value === "CLEARED"
     ? { label: "Cleared", tone: "success" }
     : { label: "Not cleared", tone: "critical" };

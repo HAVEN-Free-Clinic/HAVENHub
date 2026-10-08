@@ -170,6 +170,7 @@ describe("loadEhsItemsMap", () => {
       id: training.id,
       name: "BBP Clinical",
       complete: false,
+      provisional: false,
     });
 
     await markEhsComplete(person.id, training.id, actor.id);
@@ -215,6 +216,7 @@ describe("provisional clearance", () => {
 
     const items = await loadEhsItemsMap(term.id);
     expect(items.get(person.id)!.find((i) => i.id === training.id)!.complete).toBe(true);
+    expect(items.get(person.id)!.find((i) => i.id === training.id)!.provisional).toBe(true);
 
     const missing = await loadEhsMissingMap(term.id);
     expect(missing.get(person.id)).not.toContain("TB Screening");

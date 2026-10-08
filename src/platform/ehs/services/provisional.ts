@@ -50,6 +50,17 @@ export async function grantProvisionalClearance(
     );
   }
 
+
+    const training = await prisma.ehsTraining.findUnique({
+    where: { id: input.trainingId },
+    select: { allowsProvisional: true },
+  });
+  if (!training?.allowsProvisional) {
+    throw new ProvisionalInvalidError(
+      "Provisional clearance is only for items that take days to come back, like the TB blood test or a mask fit.",
+    );
+  }
+  
   // Nothing to stand in for once the real completion is on file.
   const done = await prisma.ehsCompletion.findUnique({
     where: { personId_trainingId: { personId: input.personId, trainingId: input.trainingId } },

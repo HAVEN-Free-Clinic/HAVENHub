@@ -18,6 +18,8 @@ export type MyEhsItem = {
   provisionalUntil: Date | null;
   /** Where to go and do it, or null when a coordinator records it for you. */
   completionUrl: string | null;
+  /** Whether a Platform Admin may clear this item provisionally (TB blood test, mask fit). */
+  allowsProvisional?: boolean;
 };
 
 export async function getMyEhsStatus(personId: string, termIdOverride?: string): Promise<MyEhsItem[]> {
@@ -50,15 +52,21 @@ export async function getMyEhsStatus(personId: string, termIdOverride?: string):
     isActive: boolean;
     requiredForAll: boolean;
     completionUrl: string | null;
+    allowsProvisional: boolean;
     departments: { departmentId: string }[];
   }>;
 
   // The applicability engine only needs the scoping fields, so the presentation
-  // ones (description, link) ride alongside in a lookup rather than widening it.
+  // ones (description, link, provisional) ride alongside in a lookup rather than
+  // widening it.
   const detailsById = new Map(
     catalogRows.map((r) => [
       r.id,
-      { description: r.description, completionUrl: ehsCompletionUrl(r.completionUrl) },
+      {
+        description: r.description,
+        completionUrl: ehsCompletionUrl(r.completionUrl),
+        allowsProvisional: r.allowsProvisional,
+      },
     ])
   );
 
@@ -79,7 +87,6 @@ export async function getMyEhsStatus(personId: string, termIdOverride?: string):
 
   const completions = new Map(completionRows.map((c) => [c.trainingId, c.completedAt]));
 
-
   // A live provisional grant stands in for a completion until it lapses, so a
   // member's own gate agrees with the clearance and blocker reads in status.ts.
   const provisionalRows = await prisma.ehsProvisionalClearance.findMany({
@@ -93,7 +100,6 @@ export async function getMyEhsStatus(personId: string, termIdOverride?: string):
   });
   const provisionalUntil = new Map(provisionalRows.map((p) => [p.trainingId, p.expiresAt]));
 
-
   return required.map((t) => {
     const done = completions.has(t.id);
     return {
@@ -105,6 +111,7 @@ export async function getMyEhsStatus(personId: string, termIdOverride?: string):
       // A real completion wins: once EHS confirms it, the item stops reading provisional.
       provisionalUntil: done ? null : (provisionalUntil.get(t.id) ?? null),
       completionUrl: detailsById.get(t.id)?.completionUrl ?? null,
+      allowsProvisional: detailsById.get(t.id)?.allowsProvisional ?? false,
     };
   });
 }

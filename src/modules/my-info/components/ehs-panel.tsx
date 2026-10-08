@@ -82,7 +82,7 @@ export function EhsPanel({
                   Cleared provisionally until <DateOnly value={item.provisionalUntil} />
                 </p>
               )}
-              {manage?.provisional && !item.complete && (
+              {manage?.provisional && !item.complete && item.allowsProvisional && (
                 <details className="mt-1">
                   <summary className="cursor-pointer text-xs text-brand">
                     Grant provisional clearance

@@ -3905,6 +3905,10 @@ model EhsTraining {
   /// Workday Learning, but the health requirements (TB baseline, HepB immunity)
   /// are done in HealthOnTrack. Null falls back to Workday.
   completionUrl  String?
+  /// Whether this item can be cleared provisionally while its result is pending.
+  /// Only the health items that take days to come back (the TB blood test, the
+  /// mask fit) set this; online courses never do. Checked on every grant.
+  allowsProvisional Boolean                 @default(false)
   createdAt      DateTime                @default(now())
   updatedAt      DateTime                @updatedAt
   departments    EhsTrainingDepartment[]

@@ -21,6 +21,7 @@ async function setup({ admin = true }: { admin?: boolean } = {}) {
   const actor = await prisma.person.create({ data: { name: "Admin", status: "ACTIVE" } });
   const person = await prisma.person.create({ data: { name: "Juan", status: "ACTIVE" } });
   const training = await createTraining({ name: "TB Screening", requiredForAll: true }, actor.id);
+    await prisma.ehsTraining.update({ where: { id: training.id }, data: { allowsProvisional: true } });
   if (admin) {
     const role = await prisma.role.create({
       data: { name: "Test admin", grants: { create: [{ permission: PROVISIONAL_PERMISSION }] } },
@@ -83,6 +84,17 @@ describe("grantProvisionalClearance", () => {
     await markEhsComplete(person.id, training.id, actor.id);
     await expect(
       grantProvisionalClearance(actor.id, input(person.id, training.id, inDays(7))),
+    ).rejects.toBeInstanceOf(ProvisionalInvalidError);
+  });
+
+    it("refuses an item that does not allow provisional clearance", async () => {
+    const { actor, person } = await setup();
+    const course = await createTraining(
+      { name: "Chemical - Hazard Communication", requiredForAll: true },
+      actor.id,
+    );
+    await expect(
+      grantProvisionalClearance(actor.id, input(person.id, course.id, inDays(7))),
     ).rejects.toBeInstanceOf(ProvisionalInvalidError);
   });
 

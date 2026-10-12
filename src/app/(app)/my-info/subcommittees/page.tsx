@@ -27,12 +27,16 @@ export default async function SubcommitteeSignupPage() {
   ]);
   const mine = options.filter((o) => o.myRole !== null);
 
+  // The subcommittee they already joined as a member, if any. Self sign-up is
+  // limited to one, so the other Join buttons are disabled and say why.
+  const joined = options.find((o) => o.myRole === "MEMBER") ?? null;
+
   return (
     <div className="space-y-8">
       <SetBreadcrumbLeaf label="Subcommittees" />
       <PageHeader
         title="Subcommittees"
-        description="Join a subcommittee to help run HAVEN beyond clinic shifts. You can join more than one."
+        description="Join a subcommittee to help run HAVEN beyond clinic shifts. Each volunteer can join one."
       />
 
       {!eligible && (
@@ -113,11 +117,16 @@ export default async function SubcommitteeSignupPage() {
                         <ConfirmButton size="sm" label="Leave" confirmLabel={`Leave ${o.name}?`} />
                       </form>
                     ) : o.myRole === null && o.signupOpen ? (
-                      <form action={joinAction}>
+                      <form action={joinAction} className="space-y-1">
                         <input type="hidden" name="subcommitteeId" value={o.id} />
-                        <Button type="submit" size="sm" disabled={!eligible || full}>
+                        <Button type="submit" size="sm" disabled={!eligible || full || joined !== null}>
                           {full ? "Full" : "Join"}
                         </Button>
+                        {joined && (
+                          <p className="text-xs text-muted-foreground">
+                            You&apos;re on {joined.name}. Leave it first if you&apos;d like to switch.
+                          </p>
+                        )}
                       </form>
                     ) : o.myRole === "LEAD" ? (
                       <Link href={`/my-info/subcommittees/${o.id}`} className={buttonClasses("outline", "sm")}>

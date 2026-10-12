@@ -278,9 +278,7 @@ export async function signupOptions(personId: string): Promise<SignupOption[]> {
 }
 
 /**
- * Self sign-up. The capacity check and the insert run in one transaction that
- * first locks the subcommittee row, so two people taking the last seat at the
- * same moment cannot both get it.
+ * Self sign-up, one subcommittee per volunteer. The checks and the insert run in one transaction that
  */
 export async function joinSubcommittee(personId: string, subcommitteeId: string): Promise<void> {
   if (!(await canSelfSignup(personId))) {
@@ -297,6 +295,26 @@ export async function joinSubcommittee(personId: string, subcommitteeId: string)
       where: { subcommitteeId_personId: { subcommitteeId, personId } },
     });
     if (already) return;
+    // One self sign-up per volunteer. Locking the person row makes two joins
+    // by the same person run one after the other, so clicking Join on two
+    // subcommittees at once cannot land them on both. Leads are not counted
+    // (they were appointed), staff adds do not come through here, and a
+    // membership on a subcommittee no longer offered does not block.
+    await tx.$executeRaw`SELECT 1 FROM "Person" WHERE "id" = ${personId} FOR UPDATE`;
+    const elsewhere = await tx.subcommitteeMembership.findFirst({
+      where: {
+        personId,
+        role: "MEMBER",
+        subcommitteeId: { not: subcommitteeId },
+        subcommittee: { isActive: true },
+      },
+      select: { subcommittee: { select: { name: true } } },
+    });
+    if (elsewhere) {
+      throw new SubcommitteeSignupError(
+        `You're already on ${elsewhere.subcommittee.name}. Volunteers can join one subcommittee, so leave it first if you'd like to switch.`,
+      );
+    }
     if (sub.capacity !== null) {
       const taken = await tx.subcommitteeMembership.count({ where: { subcommitteeId, role: "MEMBER" } });
       if (taken >= sub.capacity) throw new SubcommitteeSignupError(`${sub.name} is full.`);

@@ -112,7 +112,7 @@ describe("bulkAddMembers (director import)", () => {
 });
 
 describe("self sign-up", () => {
-  it("lets a rostered volunteer join several open subcommittees and leave", async () => {
+  it("lets a rostered volunteer join one open subcommittee, leave, and join another", async () => {
     const term = await activeTerm();
     const ana = await rostered("Ana Diaz", "ad123", term.id);
     const actor = await staff();
@@ -120,13 +120,18 @@ describe("self sign-up", () => {
     const crec = await createSubcommittee(actor.id, { name: "CREC", signupOpen: true });
 
     await joinSubcommittee(ana.id, cqa.id);
-    await joinSubcommittee(ana.id, crec.id);
-    await joinSubcommittee(ana.id, crec.id); // idempotent
-    const options = await signupOptions(ana.id);
-    expect(options.filter((o) => o.myRole === "MEMBER").map((o) => o.name)).toEqual(["CQA", "CREC"]);
+    await joinSubcommittee(ana.id, cqa.id); // idempotent
+    await expect(joinSubcommittee(ana.id, crec.id)).rejects.toBeInstanceOf(SubcommitteeSignupError);
+    let options = await signupOptions(ana.id);
+    expect(options.filter((o) => o.myRole === "MEMBER").map((o) => o.name)).toEqual(["CQA"]);
 
     await leaveSubcommittee(ana.id, cqa.id);
-    expect((await listMembers(cqa.id))).toHaveLength(0);
+    expect(await listMembers(cqa.id)).toHaveLength(0);
+
+    // Leaving frees them to pick a different one.
+    await joinSubcommittee(ana.id, crec.id);
+    options = await signupOptions(ana.id);
+    expect(options.filter((o) => o.myRole === "MEMBER").map((o) => o.name)).toEqual(["CREC"]);
   });
 
   it("refuses someone not on the current roster", async () => {

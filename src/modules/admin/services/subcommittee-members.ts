@@ -35,13 +35,30 @@ export type SubcommitteeMemberRow = {
   role: SubcommitteeRole;
   source: "IMPORT" | "SIGNUP" | "STAFF";
   createdAt: Date;
+  /**
+    * The other active subcommittees this person is on, e.g. "CQA" or "CREC (lead)",
+    * so a lead can spot people who signed up for more than one.
+    */
+  otherSubcommittees: string[];
 };
 
 /** Everyone on one subcommittee, leads first, then by name. */
 export async function listMembers(subcommitteeId: string): Promise<SubcommitteeMemberRow[]> {
   const rows = await prisma.subcommitteeMembership.findMany({
     where: { subcommitteeId },
-    include: { person: { select: { name: true, contactEmail: true, netId: true } } },
+    include: {
+      person: {
+        select: {
+          name: true,
+          contactEmail: true,
+          netId: true,
+          subcommitteeMemberships: {
+            where: { subcommitteeId: { not: subcommitteeId }, subcommittee: { isActive: true } },
+            select: { role: true, subcommittee: { select: { name: true } } },
+          },
+        },
+      },
+    },
   });
   return rows
     .map((r) => ({
@@ -53,6 +70,9 @@ export async function listMembers(subcommitteeId: string): Promise<SubcommitteeM
       role: r.role,
       source: r.source,
       createdAt: r.createdAt,
+      otherSubcommittees: r.person.subcommitteeMemberships
+        .map((o) => (o.role === "LEAD" ? `${o.subcommittee.name} (lead)` : o.subcommittee.name))
+        .sort((a, b) => a.localeCompare(b)),
     }))
     .sort((a, b) =>
       a.role === b.role ? a.name.localeCompare(b.name) : a.role === "LEAD" ? -1 : 1,

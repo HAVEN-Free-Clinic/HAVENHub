@@ -102,6 +102,11 @@ export default async function EditSubcommitteePage({ params }: PageProps) {
                   <TD>
                     <div className="font-medium text-foreground">{m.name}</div>
                     <div className="text-xs text-muted-foreground">{m.email ?? m.netId ?? ""}</div>
+                      {m.otherSubcommittees.length > 0 && (
+                      <div className="text-xs font-medium text-warning-foreground">
+                        Also on {m.otherSubcommittees.join(", ")}
+                      </div>
+                    )}
                   </TD>
                   <TD>
                     {m.role === "LEAD" ? <Badge tone="brand">Lead</Badge> : <Badge tone="default">Member</Badge>}

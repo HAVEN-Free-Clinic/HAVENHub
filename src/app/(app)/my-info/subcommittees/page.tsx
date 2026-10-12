@@ -10,6 +10,8 @@ import { EmptyState } from "@/platform/ui/empty-state";
 import { SetBreadcrumbLeaf } from "@/platform/ui/breadcrumb-context";
 import { CopyButton } from "@/platform/ui/copy-button";
 import { joinAction, leaveAction } from "./actions";
+import Link from "next/link";
+import { buttonClasses } from "@/platform/ui/button";
 
 /**
  * Subcommittee sign-up. Lists the subcommittees open for sign-up plus any the
@@ -117,6 +119,10 @@ export default async function SubcommitteeSignupPage() {
                           {full ? "Full" : "Join"}
                         </Button>
                       </form>
+                    ) : o.myRole === "LEAD" ? (
+                      <Link href={`/my-info/subcommittees/${o.id}`} className={buttonClasses("outline", "sm")}>
+                        Manage
+                      </Link>
                     ) : null}
                   </div>
                 </Card>

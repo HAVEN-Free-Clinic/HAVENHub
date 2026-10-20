@@ -234,6 +234,58 @@ describe("loadTermEpicRollup", () => {
     expect(rollup.groups.NEW[0].existingRequest?.status).toBe("SUBMITTED");
   });
 
+  it("marks a renewal YNHH already completed for this term as submitted, not selectable", async () => {
+    const prior = await makeTerm("FA25", 2025);
+    const term = await makeTerm("SU26", 2026);
+    const dept = await makeDept("SRR", "ALL");
+    const p = await makePerson("Rae", { epicId: "E-RAE" });
+    const actor = await makePerson("Manager");
+    await join(p.id, prior.id, dept.id);
+    await join(p.id, term.id, dept.id);
+    // Batched a few weeks before SU26 starts, then completed.
+    const ynhh = await prisma.ynhhTicket.create({
+      data: { submittedById: actor.id, status: "CLOSED", submittedAt: new Date("2025-12-10T00:00:00Z") },
+    });
+    const done = await prisma.epicRequest.create({
+      data: {
+        personId: p.id, kind: "RENEW", status: "COMPLETED", completedAt: new Date("2025-12-20T00:00:00Z"),
+        requestedById: actor.id, ticketId: ynhh.id,
+      },
+    });
+
+    const rollup = await loadTermEpicRollup(term.id);
+    const row = rollup.groups.RENEW[0];
+    expect(row.name).toBe("Rae");
+    expect(row.selectable).toBe(false);
+    expect(row.existingRequest?.id).toBe(done.id);
+    expect(row.existingRequest?.status).toBe("COMPLETED");
+  });
+
+  it("does not let last term's completed renewal mask this term's", async () => {
+    const prior = await makeTerm("FA25", 2025);
+    const term = await makeTerm("SU26", 2026);
+    const dept = await makeDept("SRR", "ALL");
+    const p = await makePerson("Sol", { epicId: "E-SOL" });
+    const actor = await makePerson("Manager");
+    await join(p.id, prior.id, dept.id);
+    await join(p.id, term.id, dept.id);
+    // Submitted around FA25's start: that term's renewal, not SU26's.
+    const ynhh = await prisma.ynhhTicket.create({
+      data: { submittedById: actor.id, status: "CLOSED", submittedAt: new Date("2025-01-05T00:00:00Z") },
+    });
+    await prisma.epicRequest.create({
+      data: {
+        personId: p.id, kind: "RENEW", status: "COMPLETED",
+        requestedById: actor.id, ticketId: ynhh.id,
+      },
+    });
+
+    const rollup = await loadTermEpicRollup(term.id);
+    const row = rollup.groups.RENEW[0];
+    expect(row.selectable).toBe(true);
+    expect(row.existingRequest).toBeNull();
+  });
+
   it("blocks a person with an open deactivation request", async () => {
     const term = await makeTerm("SU26", 2026);
     const dept = await makeDept("SRR", "ALL");

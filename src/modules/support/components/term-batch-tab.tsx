@@ -12,8 +12,8 @@
  * Clearance is a warning, never a block. A row that is not fully cleared shows
  * the missing steps and starts unchecked so submitting it is deliberate. Rows the
  * service layer would refuse (non-active person, open deactivation, Epic ID that
- * contradicts the kind) and rows already submitted onto a ticket are not
- * selectable at all.
+ * contradicts the kind) and rows already submitted onto a ticket, or already
+ * completed by YNHH for this term, are not selectable at all.
  */
 
 import { useState } from "react";
@@ -376,6 +376,9 @@ function RollupRow({
         <Badge>Queued</Badge>
       )}
       {row.existingRequest?.status === "SUBMITTED" && <Badge tone="brand">Already submitted</Badge>}
+      {row.existingRequest?.status === "COMPLETED" && (
+        <Badge tone="success">Already submitted · completed</Badge>
+      )}
       {row.blockedReason && <Badge tone="critical">{row.blockedReason}</Badge>}
     </li>
   );

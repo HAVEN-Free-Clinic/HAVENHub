@@ -46,15 +46,18 @@ export type EpicRollupRow = {
   cleared: boolean;
   /** Labels of the unsatisfied steps, for the amber chip. Empty when cleared. */
   missingLabels: string[];
+  /** The open grant-side request, or failing that the one already COMPLETED for
+   *  this term (see termRequestWindow). */
   existingRequest: {
     id: string;
-    status: "PENDING" | "SUBMITTED";
+    status: "PENDING" | "SUBMITTED" | "COMPLETED";
     ticketId: string | null;
     techRequestNumber: number | null;
   } | null;
   /** Non-null when submitting this person would be refused. */
   blockedReason: string | null;
-  /** False when blocked, or already SUBMITTED onto a YNHH ticket. */
+  /** False when blocked, already SUBMITTED onto a YNHH ticket, or already
+   *  COMPLETED for this term. */
   selectable: boolean;
 };
 
@@ -113,7 +116,9 @@ export async function loadTermEpicRollup(termId: string): Promise<EpicRollup> {
     };
   }
 
-  const [priorMemberships, contracts, openRequests, clearance, steps] = await Promise.all([
+  const requestWindow = await termRequestWindow(term);
+
+  const [priorMemberships, contracts, openRequests, completedRequests, clearance, steps] = await Promise.all([
     // ACTIVE only: offboarding flips every membership a person holds to REMOVED,
     // so an offboarded-and-returning member correctly reads as having no prior
     // term and lands in MODIFY (reactivate) rather than RENEW.
@@ -142,6 +147,22 @@ export async function loadTermEpicRollup(termId: string): Promise<EpicRollup> {
     prisma.epicRequest.findMany({
       where: { personId: { in: personIds }, status: { in: ["PENDING", "SUBMITTED"] } },
       orderBy: { createdAt: "asc" },
+      include: { techRequest: { select: { number: true } } },
+    }),
+    // Grant-side requests YNHH already completed for THIS term. Without these a
+    // renewal drops off the roll-up the moment ITCM marks it complete, the person
+    // reads as never submitted, and the next batch sends them to YNHH again.
+    prisma.epicRequest.findMany({
+      where: {
+        personId: { in: personIds },
+        status: "COMPLETED",
+        kind: { not: "DEACTIVATE" },
+        OR: [
+          { ticket: { submittedAt: requestWindow } },
+          { ticketId: null, createdAt: requestWindow },
+        ],
+      },
+      orderBy: { createdAt: "desc" },
       include: { techRequest: { select: { number: true } } },
     }),
     loadClearanceMap(personIds, termId),
@@ -177,6 +198,12 @@ export async function loadTermEpicRollup(termId: string): Promise<EpicRollup> {
     const list = requestsByPerson.get(r.personId) ?? [];
     list.push(r);
     requestsByPerson.set(r.personId, list);
+  }
+
+  // Most recent first (the query orders by createdAt desc).
+  const completedByPerson = new Map<string, (typeof completedRequests)[number]>();
+  for (const r of completedRequests) {
+    if (!completedByPerson.has(r.personId)) completedByPerson.set(r.personId, r);
   }
 
   const membershipsByPerson = new Map<string, typeof memberships>();
@@ -245,6 +272,10 @@ export async function loadTermEpicRollup(termId: string): Promise<EpicRollup> {
       blockedReason = `Has an open ${grantRequest.kind.toLowerCase()} request; cancel it in the Tracker before submitting a ${kind.toLowerCase()}.`;
     }
 
+    // An open request is live state and wins; a completed one only fills in when
+    // nothing is open, so a fresh ticket-origin request still steers the row.
+    const shownRequest = grantRequest ?? completedByPerson.get(personId) ?? null;
+
     const summary = clearance.get(personId);
     const missingLabels = (summary?.missing ?? []).map((k) => steps.get(k)?.label ?? k);
 
@@ -267,16 +298,19 @@ export async function loadTermEpicRollup(termId: string): Promise<EpicRollup> {
       optional: need.optional,
       cleared: summary?.cleared ?? false,
       missingLabels,
-      existingRequest: grantRequest
+      existingRequest: shownRequest
         ? {
-            id: grantRequest.id,
-            status: grantRequest.status as "PENDING" | "SUBMITTED",
-            ticketId: grantRequest.ticketId,
-            techRequestNumber: grantRequest.techRequest?.number ?? null,
+            id: shownRequest.id,
+            status: shownRequest.status as "PENDING" | "SUBMITTED" | "COMPLETED",
+            ticketId: shownRequest.ticketId,
+            techRequestNumber: shownRequest.techRequest?.number ?? null,
           }
         : null,
       blockedReason,
-      selectable: blockedReason === null && grantRequest?.status !== "SUBMITTED",
+      selectable:
+        blockedReason === null &&
+        shownRequest?.status !== "SUBMITTED" &&
+        shownRequest?.status !== "COMPLETED",
     });
   }
 
@@ -288,6 +322,36 @@ export async function loadTermEpicRollup(termId: string): Promise<EpicRollup> {
     term: { id: term.id, code: term.code, name: term.name, endDateIso: isoDay(term.endDate) },
     groups,
   };
+}
+
+/**
+ * The submission dates a COMPLETED request must fall in to count as this term's.
+ *
+ * EpicRequest carries no term, and a batch is submitted around a term's start --
+ * in production a few weeks before it through a few weeks after. So a term owns
+ * the half of the gap on either side of its start date: from midway since the
+ * previous term's start to midway until the next term's. Last term's renewals sit
+ * before the lower bound and do not mask this term's. With no previous term the
+ * lower bound is 120 days back; with no next term the window is open-ended.
+ */
+async function termRequestWindow(term: { startDate: Date }): Promise<{ gte: Date; lt?: Date }> {
+  const [previous, next] = await Promise.all([
+    prisma.term.findFirst({
+      where: { startDate: { lt: term.startDate } },
+      orderBy: { startDate: "desc" },
+      select: { startDate: true },
+    }),
+    prisma.term.findFirst({
+      where: { startDate: { gt: term.startDate } },
+      orderBy: { startDate: "asc" },
+      select: { startDate: true },
+    }),
+  ]);
+  const start = term.startDate.getTime();
+  const gte = previous
+    ? new Date((previous.startDate.getTime() + start) / 2)
+    : new Date(start - 120 * 24 * 60 * 60 * 1000);
+  return next ? { gte, lt: new Date((start + next.startDate.getTime()) / 2) } : { gte };
 }
 
 /** A stored calendar date rendered as YYYY-MM-DD. Term dates are stored at UTC

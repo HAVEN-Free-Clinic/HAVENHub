@@ -95,6 +95,17 @@ describe("meetingRoster", () => {
     expect(roster.every((r) => r.status === null)).toBe(true);
   });
 
+  it("orders the roster by first name, not surname", async () => {
+    await manager();
+    const t = await term();
+    await director("Zoe Adams", t.id, "EXEC");
+    await director("Bob Zane", t.id, "ITCM");
+    const { id } = await createMeeting(ACTOR, { termId: t.id, dateKey: "2026-09-10" });
+
+    const roster = await meetingRoster(id);
+    expect(roster.map((r) => r.name)).toEqual(["Bob Zane", "Zoe Adams"]);
+  });
+
   // A director of two departments attends one meeting once.
   it("lists a two-department director exactly once, with both departments", async () => {
     await manager();

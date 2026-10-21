@@ -7,10 +7,11 @@
 # What runs, and why this set:
 #
 #   repo-scanning guards  a handful of tests read the source tree rather than
-#                         importing it (glass usage, system-role bootstrap,
-#                         the GitBook schema artifact, campaign starters), so
-#                         `vitest related` cannot link them to a change. They
-#                         fail on edits made anywhere and take under two seconds.
+#                         importing it (floating-surface usage, system-role
+#                         bootstrap, the GitBook schema artifact, campaign
+#                         starters), so `vitest related` cannot link them to a
+#                         change. They fail on edits made anywhere and take under
+#                         two seconds.
 #   typecheck             the whole point of the strict config
 #   lint                  the module-boundary and no-em-dash rules are
 #                         cross-file, so a changed-files-only pass would miss
@@ -74,7 +75,7 @@ echo "pre-push: checking $(echo "$CHANGED" | wc -l | tr -d ' ') changed file(s)"
 
 echo "pre-push: repo-scanning guards"
 npx vitest run \
-  src/platform/ui/glass.test.ts \
+  src/platform/ui/floating-surface.test.ts \
   src/platform/rbac/bootstrap-system-roles.migration.test.ts \
   src/platform/gitbook/schema-artifact.test.ts \
   src/platform/email/campaigns/starters.test.ts

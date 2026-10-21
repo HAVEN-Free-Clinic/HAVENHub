@@ -17,7 +17,7 @@
  */
 
 import type { BoardAttendanceStatus } from "@prisma/client";
-import { comparePersonName } from "@/platform/person-name";
+import { comparePersonName, firstNameOf } from "@/platform/person-name";
 import type { StatusLabel } from "@/platform/compliance/labels";
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
@@ -115,6 +115,7 @@ export type BoardRosterRow = {
   personId: string;
   name: string;
   legalFirstName: string;
+  preferredFirstName: string | null;
   lastName: string;
   departmentNames: string[];
   /** null when nobody has recorded this person for this meeting yet. */
@@ -148,7 +149,7 @@ export async function meetingRoster(meetingId: string): Promise<BoardRosterRow[]
       where: { termId: meeting.termId, kind: "DIRECTOR", status: "ACTIVE" },
       select: {
         personId: true,
-        person: { select: { name: true, legalFirstName: true, lastName: true } },
+        person: { select: { name: true, legalFirstName: true, preferredFirstName: true, lastName: true } },
         department: { select: { name: true } },
       },
     }),
@@ -174,6 +175,7 @@ export async function meetingRoster(meetingId: string): Promise<BoardRosterRow[]
       personId: m.personId,
       name: m.person.name,
       legalFirstName: m.person.legalFirstName,
+      preferredFirstName: m.person.preferredFirstName,
       lastName: m.person.lastName,
       departmentNames: [m.department.name],
       status: rec?.status ?? null,
@@ -189,6 +191,7 @@ export async function meetingRoster(meetingId: string): Promise<BoardRosterRow[]
         id: true,
         name: true,
         legalFirstName: true,
+        preferredFirstName: true,
         lastName: true,
         // Any membership in this term, not just an ACTIVE DIRECTOR one: the
         // point is to label the row, and a REMOVED membership still says which
@@ -205,6 +208,7 @@ export async function meetingRoster(meetingId: string): Promise<BoardRosterRow[]
         personId: person.id,
         name: person.name,
         legalFirstName: person.legalFirstName,
+        preferredFirstName: person.preferredFirstName,
         lastName: person.lastName,
         departmentNames: [...new Set(person.memberships.map((m) => m.department.name))],
         status: rec?.status ?? null,
@@ -213,9 +217,16 @@ export async function meetingRoster(meetingId: string): Promise<BoardRosterRow[]
     }
   }
 
+  // By first name, as the board reads the list at a meeting, rather than the
+  // surname-first order used elsewhere. The first name shown is the preferred
+  // one, so that is what is sorted on; surname breaks ties.
   return [...rows.values()]
     .map((r) => ({ ...r, departmentNames: r.departmentNames.sort() }))
-    .sort(comparePersonName);
+    .sort(
+      (a, b) =>
+        firstNameOf(a).localeCompare(firstNameOf(b), undefined, { sensitivity: "base" }) ||
+        comparePersonName(a, b),
+    );
 }
 
 /**

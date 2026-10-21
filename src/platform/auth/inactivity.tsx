@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/platform/ui/button";
 import { signOut } from "next-auth/react";
+import { signOutUntilDone } from "./inactivity-signout";
 
 const TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 const WARNING_MS = 5 * 60 * 1000;  // warn 5 minutes before logout
@@ -17,6 +18,7 @@ const WARNING_MS = 5 * 60 * 1000;  // warn 5 minutes before logout
  */
 export function InactivityTracker({ authenticated }: { authenticated: boolean }) {
   const [showWarning, setShowWarning] = useState(false);
+  const [expired, setExpired] = useState(false);
   // Holds the latest timer-reset function so the "Stay signed in" button can
   // re-arm the timers directly instead of relying on event bubbling.
   const resetRef = useRef<() => void>(() => {});
@@ -26,6 +28,7 @@ export function InactivityTracker({ authenticated }: { authenticated: boolean })
 
     let logoutTimer: ReturnType<typeof setTimeout>;
     let warningTimer: ReturnType<typeof setTimeout>;
+    let stopSignOut: (() => void) | undefined;
 
     const reset = () => {
       clearTimeout(logoutTimer);
@@ -37,11 +40,12 @@ export function InactivityTracker({ authenticated }: { authenticated: boolean })
       }, TIMEOUT_MS - WARNING_MS);
 
       logoutTimer = setTimeout(() => {
-        // After 30 idle minutes the machine is often asleep or offline, so the
-        // signOut fetch can die. The session still expires server-side and the
-        // next navigation goes to /login, so swallow the dead-network rejection
-        // instead of letting it surface as an untraceable Error Tracking issue.
-        signOut({ redirectTo: "/login" }).catch(() => {});
+        // Past this point activity no longer keeps the member signed in, even
+        // while the sign-out waits for the network. See inactivity-signout.ts.
+        events.forEach((e) => window.removeEventListener(e, reset));
+        resetRef.current = () => {};
+        setExpired(true);
+        stopSignOut = signOutUntilDone(() => signOut({ redirectTo: "/login" }));
       }, TIMEOUT_MS);
     };
     resetRef.current = reset;
@@ -53,13 +57,14 @@ export function InactivityTracker({ authenticated }: { authenticated: boolean })
     return () => {
       clearTimeout(logoutTimer);
       clearTimeout(warningTimer);
+      stopSignOut?.();
       events.forEach((e) => window.removeEventListener(e, reset));
     };
   }, [authenticated]);
 
   // Derive visibility from the prop so the banner clears immediately if the
   // user de-authenticates while it is up, without syncing state in the effect.
-  if (!authenticated || !showWarning) return null;
+  if (!authenticated || !(showWarning || expired)) return null;
 
   return (
     // Rendered into ToastViewport's bottom-center lane as a flex child directly
@@ -80,13 +85,19 @@ export function InactivityTracker({ authenticated }: { authenticated: boolean })
       role="alert"
       className="pointer-events-auto w-fit max-w-sm rounded-xl border border-border bg-surface px-5 py-4 shadow-lg"
     >
-      <p className="text-sm font-semibold text-foreground mb-1">Still there?</p>
-      <p className="text-sm text-foreground-soft mb-3">
-        You&apos;ll be signed out in 5 minutes due to inactivity.
-      </p>
-      <Button type="button" size="sm" onClick={() => resetRef.current()}>
-        Stay signed in
-      </Button>
+      {expired ? (
+        <p className="text-sm text-foreground-soft">Signing you out due to inactivity.</p>
+      ) : (
+        <>
+          <p className="text-sm font-semibold text-foreground mb-1">Still there?</p>
+          <p className="text-sm text-foreground-soft mb-3">
+            You&apos;ll be signed out in 5 minutes due to inactivity.
+          </p>
+          <Button type="button" size="sm" onClick={() => resetRef.current()}>
+            Stay signed in
+          </Button>
+        </>
+      )}
     </div>
   );
 }

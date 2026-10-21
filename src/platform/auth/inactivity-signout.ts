@@ -19,20 +19,13 @@ export const SIGN_OUT_RETRY_MS = 15 * 1000;
 /** Starts the sign-out loop. Returns a function that stops it. */
 export function signOutUntilDone(signOut: () => Promise<unknown>): () => void {
   let inFlight = false;
-  let done = false;
 
   const attempt = () => {
-    if (done || inFlight || !navigator.onLine) return;
+    if (inFlight || !navigator.onLine) return;
     inFlight = true;
-    signOut().then(
-      () => {
-        done = true;
-        stop();
-      },
-      () => {
-        inFlight = false;
-      },
-    );
+    signOut().then(stop, () => {
+      inFlight = false;
+    });
   };
 
   const onVisibilityChange = () => {

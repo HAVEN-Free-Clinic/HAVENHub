@@ -34,6 +34,16 @@ describe("notify", () => {
     expect(await prisma.teamsMessage.count()).toBe(0);
   });
 
+  it("a per-send channel override wins over the configured channel", async () => {
+    const spy = vi.spyOn(channel, "resolveChannel").mockResolvedValue("both");
+    const p = await makePerson({ entraObjectId: "e1" });
+    await notify(prisma, { type: "epic-onboarding", person: p, email, teams, channel: "inbox" });
+    expect(spy).not.toHaveBeenCalled();
+    expect(await prisma.emailLog.count()).toBe(0);
+    expect(await prisma.teamsMessage.count()).toBe(0);
+    expect(await prisma.notification.count({ where: { personId: p.id } })).toBe(1);
+  });
+
   it("channel=teams with an identity queues only a Teams message", async () => {
     vi.spyOn(channel, "resolveChannel").mockResolvedValue("teams");
     const p = await makePerson({ entraObjectId: "e1" });

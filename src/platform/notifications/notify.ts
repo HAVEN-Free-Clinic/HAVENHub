@@ -2,6 +2,7 @@ import { type Db } from "@/platform/db";
 import { config } from "@/platform/config";
 import { queueEmail } from "@/platform/email/send";
 import { resolveChannel } from "./channel";
+import { type NotificationChannel } from "./registry";
 import { createNotification } from "./inbox";
 import { renderTeamsBody } from "./render";
 import { queueTeamsMessage } from "./send";
@@ -22,6 +23,13 @@ export type NotifyInput = {
   /** Short Teams form. */
   teams: { title: string; summary: string; link?: string | null };
   triggeredById?: string | null;
+  /**
+   * Overrides the admin-configured channel for this one send. Used by callers
+   * that need to quiet a single delivery (e.g. an early HIPAA renewal nudge goes
+   * to the in-app inbox only) without changing the type's channel for everyone.
+   * Omit it to use the channel set in Admin > Notifications.
+   */
+  channel?: NotificationChannel;
 };
 
 /**
@@ -32,7 +40,7 @@ export type NotifyInput = {
  * (so it joins any surrounding transaction), exactly like queueEmail.
  */
 export async function notify(db: Db, input: NotifyInput): Promise<void> {
-  const channel = await resolveChannel(input.type);
+  const channel = input.channel ?? (await resolveChannel(input.type));
   // "inbox" needs no branch of its own and must not get one: it is defined as
   // neither of these two being wanted, and the unconditional createNotification
   // at the bottom is the whole of it. A reader looking for where the quiet

@@ -76,6 +76,37 @@ const ONBOARDING_REMINDER_GRACE_DAYS = 2;
 const DIGEST_STALLED_FLAG_DAYS = 21;
 
 /**
+ * An EXPIRING_SOON certificate only produces an email (or Teams message) once it is
+ * within this many days of expiring. Before that, the renewal nudge still goes out
+ * on the normal cadence but only to the in-app inbox, and the member is left out of
+ * the weekly director digest (they are cleared to work; EXPIRING_SOON counts as
+ * met everywhere clearance is computed).
+ *
+ * Why: the term bar in compliance/rules.ts marks a cert EXPIRING_SOON whenever it
+ * runs out before termEnd + 30 days, which in practice flags certs three to four
+ * months ahead. Directors read the resulting emails as "my volunteers are not
+ * cleared" when they are, and stopped trusting the reminders (reported by
+ * department directors, Oct 2026). The status logic itself is unchanged: the compliance
+ * tab still shows EXPIRING_SOON, and EXPIRED / missing certs always email.
+ */
+const COMPLIANCE_EMAIL_WINDOW_DAYS = 30;
+
+/**
+ * True when a HIPAA nudge should be delivered quietly (in-app inbox only): the cert
+ * is valid and merely EXPIRING_SOON, with more than COMPLIANCE_EMAIL_WINDOW_DAYS
+ * left. Every other unsatisfied status (EXPIRED, NO_CERTIFICATE, UNKNOWN_DATE,
+ * PENDING_VERIFICATION, REJECTED) is actionable now and keeps its normal channel.
+ */
+export function isQuietHipaaNudge(
+  status: string,
+  expiresAt: Date | null,
+  now: Date
+): boolean {
+  if (status !== "EXPIRING_SOON" || expiresAt === null) return false;
+  return expiresAt.getTime() - now.getTime() > COMPLIANCE_EMAIL_WINDOW_DAYS * MS_PER_DAY;
+}
+
+/**
  * Turn a member's missing task keys into display sentences for the onboarding email.
  * `hipaa` is dropped (its own stream covers it) and the EHS row is expanded with the
  * specific outstanding course names, which is the detail the bundled email used to
@@ -311,6 +342,10 @@ export async function runClearanceReminders(
     const hipaaEnabled = clearance?.tasks.some((t) => t.key === "hipaa") ?? true;
     const hipaaStatus = hipaaEnabled ? status : "COMPLIANT";
     const hipaaUnsatisfied = hipaaStatus !== "COMPLIANT";
+    const hipaaExpiresAt = cert?.completionDate ? certExpiresAt(cert.completionDate) : null;
+    // Early EXPIRING_SOON nudges go to the in-app inbox only; see COMPLIANCE_EMAIL_WINDOW_DAYS.
+    const hipaaQuiet = hipaaUnsatisfied && isQuietHipaaNudge(hipaaStatus, hipaaExpiresAt, now);
+    const hipaaLegChannel = hipaaQuiet ? "inbox" : hipaaChannel;
 
     const items = onboardingItems(
       clearance?.missing ?? [],
@@ -351,21 +386,35 @@ export async function runClearanceReminders(
     // This runs before the reachability guards on purpose: an unreachable member is
     // exactly who a director needs to see in the weekly digest, and stalledSince is a
     // fact about the member's state, not about whether a send landed.
+    //
+    // A quiet HIPAA nudge alone does not start a stall: the member is cleared, and
+    // stamping now would make them look weeks overdue in the digest the moment the
+    // cert crosses into the email window.
+    const stalls = (hipaaUnsatisfied && !hipaaQuiet) || onboardingUnsatisfied;
     await prisma.memberReminderState.upsert({
       where: { personId: person.id },
-      create: { personId: person.id, stalledSince: now },
+      create: { personId: person.id, stalledSince: stalls ? now : null },
       update: {},
     });
-    await prisma.memberReminderState.updateMany({
-      where: { personId: person.id, stalledSince: null },
-      data: { stalledSince: now },
-    });
+    if (stalls) {
+      await prisma.memberReminderState.updateMany({
+        where: { personId: person.id, stalledSince: null },
+        data: { stalledSince: now },
+      });
+    } else {
+      // Clear a marker left by runs before this rule existed, so it cannot resurface
+      // as a stale "stalled since" date once the cert enters the email window.
+      await prisma.memberReminderState.updateMany({
+        where: { personId: person.id, stalledSince: { not: null } },
+        data: { stalledSince: null },
+      });
+    }
 
     // --- HIPAA leg ---
     if (hipaaUnsatisfied) {
-      if (!canReach(hipaaChannel, person)) {
+      if (!canReach(hipaaLegChannel, person)) {
         log.info(
-          `[reminders] Skipping HIPAA reminder for ${person.id} (${person.name}): channel ${hipaaChannel} cannot reach them.`,
+          `[reminders] Skipping HIPAA reminder for ${person.id} (${person.name}): channel ${hipaaLegChannel} cannot reach them.`,
           { personId: person.id },
         );
         result.skipped++;
@@ -386,19 +435,19 @@ export async function runClearanceReminders(
         if (claim.count === 0) {
           result.skipped++;
         } else {
-          const expiresAt = cert?.completionDate ? certExpiresAt(cert.completionDate) : null;
           const rendered = await renderEmail(
             "compliance-reminder",
             complianceReminderContext({
               personName: person.name,
               status: hipaaStatus,
-              expiresAt,
+              expiresAt: hipaaExpiresAt,
               appUrl: baseUrl,
               brandColor,
             }),
           );
           await notify(prisma, {
             type: "compliance-reminder",
+            ...(hipaaQuiet ? { channel: "inbox" as const } : {}),
             person: {
               id: person.id,
               entraObjectId: person.entraObjectId,
@@ -485,12 +534,18 @@ export async function runClearanceReminders(
     //
     // A next-term member is left out: the digest goes to the live term's directors,
     // and their own department's next-term directors pick them up at the switch.
-    if (!nextOnly) uncleared.set(person.id, {
+    //
+    // A quiet (early EXPIRING_SOON) HIPAA nudge is not listed: that member is cleared,
+    // and listing them is what made directors read the digest as "not cleared".
+    const digestItems = [
+      ...(hipaaUnsatisfied && !hipaaQuiet
+        ? [`HIPAA certification: ${complianceStatusLabel(hipaaStatus, "staff").label}`]
+        : []),
+      ...items,
+    ];
+    if (!nextOnly && digestItems.length > 0) uncleared.set(person.id, {
       name: person.name,
-      items: [
-        ...(hipaaUnsatisfied ? [`HIPAA certification: ${complianceStatusLabel(hipaaStatus, "staff").label}`] : []),
-        ...items,
-      ],
+      items: digestItems,
       stalledSince: existing?.stalledSince ?? now,
     });
    } catch (err) {

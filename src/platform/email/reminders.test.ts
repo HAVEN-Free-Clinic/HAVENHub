@@ -428,6 +428,122 @@ describe("EXPIRING_SOON person", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Early EXPIRING_SOON nudges are inbox-only until 30 days before expiry
+// ---------------------------------------------------------------------------
+
+// expiresAt = 2026-07-21, 50 days after NOW: EXPIRING_SOON (inside the 60-day
+// renewal window) but outside the 30-day email window.
+const EARLY_EXPIRING_COMPLETION = new Date("2025-07-21T12:00:00.000Z");
+// expiresAt = 2026-08-20, 80 days after NOW: past the 60-day window, but before
+// termEnd + 30d (2026-09-30), so EXPIRING_SOON only because of the term bar.
+// This is the case directors reported as "flagged months early".
+const TERM_BAR_COMPLETION = new Date("2025-08-20T12:00:00.000Z");
+
+describe("early EXPIRING_SOON nudge (more than 30 days from expiry)", () => {
+  it("goes to the in-app inbox only: no email, no stall", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("PCAR");
+    const person = await createPerson("Early Person", "early@example.com");
+    await addMembership(person.id, term.id, dept.id, "VOLUNTEER");
+    await addCert(person.id, EARLY_EXPIRING_COMPLETION);
+
+    const result = await runClearanceReminders(NOW);
+
+    expect(result.hipaaRemindersSent).toBe(1);
+    expect(await emailLogCount("compliance-reminder")).toBe(0);
+    expect(
+      await prisma.notification.count({ where: { personId: person.id, type: "compliance-reminder" } })
+    ).toBe(1);
+    const row = await getReminderRow(person.id);
+    expect(row!.remindersSent).toBe(1);
+    expect(row!.stalledSince).toBeNull();
+  });
+
+  it("stays inbox-only when EXPIRING_SOON comes from the term bar alone", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("PCAR");
+    const person = await createPerson("Term Bar Person", "termbar@example.com");
+    await addMembership(person.id, term.id, dept.id, "VOLUNTEER");
+    await addCert(person.id, TERM_BAR_COMPLETION);
+
+    await runClearanceReminders(NOW);
+
+    expect(await emailLogCount("compliance-reminder")).toBe(0);
+    expect(
+      await prisma.notification.count({ where: { personId: person.id, type: "compliance-reminder" } })
+    ).toBe(1);
+  });
+
+  it("stays inbox-only even when the type is routed to Teams", async () => {
+    vi.spyOn(channel, "resolveChannel").mockResolvedValue("teams");
+    const term = await createTerm();
+    const dept = await createDepartment("PCAR");
+    const person = await createPerson("Early Teams", "early-teams@example.com");
+    await prisma.person.update({ where: { id: person.id }, data: { entraObjectId: "e-early" } });
+    await addMembership(person.id, term.id, dept.id, "VOLUNTEER");
+    await addCert(person.id, EARLY_EXPIRING_COMPLETION);
+
+    await runClearanceReminders(NOW);
+
+    expect(await prisma.teamsMessage.count({ where: { type: "compliance-reminder" } })).toBe(0);
+    expect(await emailLogCount("compliance-reminder")).toBe(0);
+  });
+
+  it("switches to email once the cert is within 30 days of expiry", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("PCAR");
+    const person = await createPerson("Crossing Person", "crossing@example.com");
+    await addMembership(person.id, term.id, dept.id, "VOLUNTEER");
+    await addCert(person.id, EARLY_EXPIRING_COMPLETION);
+
+    await runClearanceReminders(NOW);
+    expect(await emailLogCount("compliance-reminder")).toBe(0);
+
+    // 21 days later the cert has 29 days left: inside the email window.
+    await runClearanceReminders(advanceNow(21));
+    expect(await emailLogCount("compliance-reminder")).toBe(1);
+  });
+
+  it("leaves the cleared member out of the weekly director digest", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("PCAR");
+    const early = await createPerson("Early Erin", "erin@example.com");
+    const expired = await createPerson("Expired Ezra", "ezra@example.com");
+    const director = await createPerson("Director Bob", "bob@example.com");
+    await addMembership(early.id, term.id, dept.id, "VOLUNTEER");
+    await addMembership(expired.id, term.id, dept.id, "VOLUNTEER");
+    await addMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await addCert(early.id, EARLY_EXPIRING_COMPLETION);
+    await addCert(expired.id, EXPIRED_COMPLETION);
+    await addCert(director.id, COMPLIANT_COMPLETION);
+    for (const p of [early, expired, director]) await backdateMemberships(p.id, LONG_AGO);
+
+    await runClearanceReminders(NOW);
+
+    const digest = await prisma.emailLog.findFirstOrThrow({ where: { template: "clearance-digest" } });
+    expect(digest.html).toContain("Expired Ezra");
+    expect(digest.html).not.toContain("Early Erin");
+  });
+
+  it("sends no digest when the only gap in a department is an early nudge", async () => {
+    const term = await createTerm();
+    const dept = await createDepartment("PCAR");
+    const early = await createPerson("Early Erin", "erin@example.com");
+    const director = await createPerson("Director Bob", "bob@example.com");
+    await addMembership(early.id, term.id, dept.id, "VOLUNTEER");
+    await addMembership(director.id, term.id, dept.id, "DIRECTOR");
+    await addCert(early.id, EARLY_EXPIRING_COMPLETION);
+    await addCert(director.id, COMPLIANT_COMPLETION);
+    for (const p of [early, director]) await backdateMemberships(p.id, LONG_AGO);
+
+    const result = await runClearanceReminders(NOW);
+
+    expect(result.digestsSent).toBe(0);
+    expect(await emailLogCount("clearance-digest")).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Teams channel routing for compliance reminder
 // ---------------------------------------------------------------------------
 

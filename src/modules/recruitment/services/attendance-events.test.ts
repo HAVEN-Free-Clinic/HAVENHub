@@ -337,9 +337,10 @@ it("a fully cleared member gets no nudge and the row starts resolved", async () 
       storedName: "c.pdf",
       size: 1,
       mimeType: "application/pdf",
-      // Well inside the term bar (termEnd + 30d), so this reads COMPLIANT.
-      completionDate: new Date("2026-08-01T12:00:00.000Z"),
-      verifiedAt: new Date("2026-08-02T12:00:00.000Z"),
+      // Completed 30 days before the test runs, so it stays well inside the term
+      // bar (termEnd + 30d) and reads COMPLIANT no matter when CI runs.
+      completionDate: new Date(Date.now() - 30 * 86_400_000),
+      verifiedAt: new Date(Date.now() - 29 * 86_400_000),
     },
   });
   const event = await trainingEvent(cycle.id, lead.id);

@@ -2351,7 +2351,9 @@ describe("builderView", () => {
         storedName: "cert.pdf",
         size: 100,
         mimeType: "application/pdf",
-        completionDate: new Date("2026-01-01T12:00:00Z"),
+        // Relative to now: builderView below reads the real clock, so a fixed
+        // date here would expire on its own and fail this test.
+        completionDate: new Date(Date.now() - 30 * 86_400_000),
         verifiedAt: new Date(),
       },
     });

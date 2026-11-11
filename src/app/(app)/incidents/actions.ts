@@ -8,6 +8,7 @@ import { activeTermGroup } from "@/platform/posthog/groups";
 import {
   submitReport,
   reviewReport,
+  editReportDescription,
   decideStrike,
   IncidentValidationError,
   IncidentNotFoundError,
@@ -137,6 +138,38 @@ export async function reviewReportAction(formData: FormData): Promise<void> {
       distinctId: actor.personId,
       event: "incident_reviewed",
       properties: { report_id: id, status },
+      groups: await activeTermGroup(),
+    });
+  } catch (err) {
+    if (err instanceof IncidentValidationError) redirect(`/incidents/${id}?error=validation&message=${encodeURIComponent(err.message)}`);
+    if (err instanceof IncidentForbiddenError) redirect(`/incidents/${id}?error=forbidden`);
+    if (err instanceof IncidentNotFoundError) redirect(`/incidents/review?error=not-found`);
+    throw err;
+  }
+  revalidatePath(`/incidents/${id}`);
+  revalidatePath("/incidents/review");
+  redirect(`/incidents/${id}`);
+}
+
+/**
+ * Reviewer control: replaces a report's description, typically to strip a
+ * patient identifier the reporter typed into it. Requires incidents.manage at
+ * the door; editReportDescription re-checks that and also refuses a reviewer
+ * who is a linked subject of the report.
+ *
+ * The form behind it submits only through a ConfirmButton, so a reviewer has to
+ * click twice before the original wording is overwritten. Same error-redirect
+ * shape as reviewReportAction.
+ */
+export async function editDescriptionAction(formData: FormData): Promise<void> {
+  const actor = await requirePermission("incidents.manage");
+  const id = String(formData.get("reportId"));
+  try {
+    await editReportDescription(actor.personId, id, String(formData.get("description") ?? ""));
+    await captureEvent({
+      distinctId: actor.personId,
+      event: "incident_description_edited",
+      properties: { report_id: id },
       groups: await activeTermGroup(),
     });
   } catch (err) {

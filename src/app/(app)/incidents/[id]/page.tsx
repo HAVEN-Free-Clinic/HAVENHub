@@ -40,6 +40,7 @@ import { listReportForwards, recentForwardEmails } from "@/modules/incidents/ser
 import { listMessages } from "@/modules/incidents/services/messages";
 import {
   reviewReportAction,
+  editDescriptionAction,
   decideStrikeAction,
   forwardReportAction,
   askReporterAction,
@@ -445,6 +446,26 @@ export default async function IncidentReportDetailPage({ params }: PageProps) {
               </SubmitButton>
             </FormActions>
           </form>
+
+          <details className="mt-6 border-t border-border-subtle pt-6">
+            <summary className="cursor-pointer text-sm font-medium">Edit description</summary>
+            <form action={editDescriptionAction} className="mt-3 space-y-3">
+              <input type="hidden" name="reportId" value={report.id} />
+              <Field
+                label="Description"
+                hint="Use this to remove patient identifiers like an MRN, name, or date of birth. The reporter sees the edited text, and the original wording is not kept anywhere."
+              >
+                <Textarea name="description" rows={6} required defaultValue={report.description} />
+              </Field>
+              <FormActions>
+                <ConfirmButton
+                  label="Save edited description"
+                  confirmLabel="Replace the original description?"
+                  size="sm"
+                />
+              </FormActions>
+            </form>
+          </details>
 
           {report.subjects.filter((s) => s.strikeDecision === "PENDING").length > 0 && (
             <div className="mt-6 space-y-6 border-t border-border-subtle pt-6">

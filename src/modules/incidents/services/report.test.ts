@@ -67,6 +67,7 @@ import {
   getReport,
   listReviewQueue,
   reviewReport,
+  editReportDescription,
   decideStrike,
   linkableReports,
   incidentAudience,
@@ -1229,6 +1230,74 @@ describe("reviewReport", () => {
 // ---------------------------------------------------------------------------
 // decideStrike
 // ---------------------------------------------------------------------------
+
+describe("editReportDescription", () => {
+  it("lets a manager replace the description", async () => {
+    const reporter = await createPerson("Reporter", "ed001");
+    const manager = await createPerson("Manager", "ed002");
+    await grantPermission(manager.id, "incidents.manage");
+    const report = await submitReport(reporter.id, { concernTypes: ["OTHER"], description: "Patient MR1234567 got an extra dose." });
+
+    const updated = await editReportDescription(manager.id, report.id, "  Patient [MRN removed] got an extra dose.  ");
+
+    expect(updated.description).toBe("Patient [MRN removed] got an extra dose.");
+    const after = await prisma.incidentReport.findUniqueOrThrow({ where: { id: report.id } });
+    expect(after.description).toBe("Patient [MRN removed] got an extra dose.");
+  });
+
+  // The edit exists to remove an identifier, so the audit trail must not keep a
+  // copy of the text it removed.
+  it("audits the edit without storing either text", async () => {
+    const reporter = await createPerson("Reporter", "ed003");
+    const manager = await createPerson("Manager", "ed004");
+    await grantPermission(manager.id, "incidents.manage");
+    const report = await submitReport(reporter.id, { concernTypes: ["OTHER"], description: "MR7654321" });
+
+    await editReportDescription(manager.id, report.id, "[removed]");
+
+    const row = await prisma.auditLog.findFirstOrThrow({
+      where: { action: "incident.description_edited", entityId: report.id },
+    });
+    expect(JSON.stringify(row)).not.toContain("MR7654321");
+    expect(row.actorPersonId).toBe(manager.id);
+  });
+
+  it("forbids a non-manager", async () => {
+    const reporter = await createPerson("Reporter", "ed005");
+    const report = await submitReport(reporter.id, { concernTypes: ["OTHER"], description: "x" });
+
+    await expect(editReportDescription(reporter.id, report.id, "y")).rejects.toBeInstanceOf(IncidentForbiddenError);
+  });
+
+  it("forbids a manager who is a linked subject of the report", async () => {
+    const reporter = await createPerson("Reporter", "ed006");
+    const manager = await createPerson("Manager", "ed007");
+    await grantPermission(manager.id, "incidents.manage");
+    const report = await submitReport(reporter.id, {
+      concernTypes: ["OTHER"],
+      description: "x",
+      subjects: [{ personId: manager.id }],
+    });
+
+    await expect(editReportDescription(manager.id, report.id, "y")).rejects.toBeInstanceOf(IncidentForbiddenError);
+  });
+
+  it("rejects an empty description", async () => {
+    const reporter = await createPerson("Reporter", "ed008");
+    const manager = await createPerson("Manager", "ed009");
+    await grantPermission(manager.id, "incidents.manage");
+    const report = await submitReport(reporter.id, { concernTypes: ["OTHER"], description: "x" });
+
+    await expect(editReportDescription(manager.id, report.id, "   ")).rejects.toBeInstanceOf(IncidentValidationError);
+  });
+
+  it("throws IncidentNotFoundError for a missing report", async () => {
+    const manager = await createPerson("Manager", "ed010");
+    await grantPermission(manager.id, "incidents.manage");
+
+    await expect(editReportDescription(manager.id, "nonexistent-report-id", "y")).rejects.toBeInstanceOf(IncidentNotFoundError);
+  });
+});
 
 describe("decideStrike (per subject)", () => {
   async function seedPendingStrike() {

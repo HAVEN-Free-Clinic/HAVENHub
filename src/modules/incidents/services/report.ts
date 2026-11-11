@@ -1006,6 +1006,57 @@ export async function reviewReport(
   return updated;
 }
 
+/**
+ * Replaces a report's description. Built for redaction: a reporter who typed a
+ * patient identifier (an MRN, a name, a date of birth) into the narrative has no
+ * way to take it back, and the Hub is not where patient identifiers belong.
+ *
+ * Requires incidents.manage (else IncidentForbiddenError), and a reviewer who is
+ * a linked subject of the report is forbidden, the same rule reviewReport uses:
+ * nobody gets to rewrite the account of a report about themselves. Missing
+ * report throws IncidentNotFoundError; an empty description is an
+ * IncidentValidationError, as it is at intake.
+ *
+ * The old text is overwritten, not versioned. That is the point: keeping a copy
+ * anywhere would keep the identifier the edit exists to remove. For the same
+ * reason the audit row records only that an edit happened and the before/after
+ * lengths, never either text.
+ */
+export async function editReportDescription(
+  actorPersonId: string,
+  id: string,
+  description: string
+): Promise<IncidentReport> {
+  if (!(await can(actorPersonId, "incidents.manage"))) throw new IncidentForbiddenError();
+  const existing = await prisma.incidentReport.findUnique({ where: { id } });
+  if (!existing) throw new IncidentNotFoundError();
+  const actorIsSubject = await prisma.incidentReportSubject.findFirst({
+    where: { reportId: id, personId: actorPersonId },
+    select: { id: true },
+  });
+  if (actorIsSubject) throw new IncidentForbiddenError();
+
+  const next = description.trim();
+  if (!next) throw new IncidentValidationError("The description cannot be empty.");
+  if (next === existing.description.trim()) return existing;
+
+  const updated = await prisma.incidentReport.update({
+    where: { id },
+    data: { description: next },
+  });
+
+  await recordAudit({
+    actorPersonId,
+    action: "incident.description_edited",
+    entityType: "IncidentReport",
+    entityId: id,
+    before: { length: existing.description.length },
+    after: { length: updated.description.length },
+  });
+
+  return updated;
+}
+
 // ---------------------------------------------------------------------------
 // Strike decision (the report -> strike bridge)
 // ---------------------------------------------------------------------------

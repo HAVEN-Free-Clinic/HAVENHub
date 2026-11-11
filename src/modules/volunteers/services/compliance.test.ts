@@ -591,7 +591,7 @@ describe("masterCompliance", () => {
     const bob = await createPerson("Bob", "b01");
     // alice: compliant cert
     await createMembership(alice.id, term.id, dept.id, "VOLUNTEER");
-    await createCert(alice.id, noon(2026, 1, 1), undefined, new Date()); // compliant
+    await createCert(alice.id, daysFromNow(-30), undefined, new Date()); // compliant
     // bob: no cert
     await createMembership(bob.id, term.id, dept.id, "VOLUNTEER");
 
@@ -666,7 +666,7 @@ describe("masterCompliance", () => {
     // Older cert (expired)
     await createCert(person.id, noon(2020, 1, 1), new Date("2020-01-01T12:00:00Z"), new Date());
     // Newer cert (compliant)
-    await createCert(person.id, noon(2026, 1, 1), new Date("2026-01-01T12:00:00Z"), new Date());
+    await createCert(person.id, daysFromNow(-30), daysFromNow(-30), new Date());
 
     const result = await masterCompliance({});
     expect(result.rows).toHaveLength(1);
@@ -681,7 +681,7 @@ describe("masterCompliance", () => {
     const verifier = await createPerson("Bob Verifier", "bv01");
     await createMembership(person.id, term.id, dept.id, "VOLUNTEER");
 
-    const cert = await createCert(person.id, noon(2026, 1, 1));
+    const cert = await createCert(person.id, daysFromNow(-30));
     await prisma.hipaaCertificate.update({
       where: { id: cert.id },
       data: { verifiedById: verifier.id, verifiedAt: new Date() },
@@ -796,7 +796,7 @@ describe("PENDING_VERIFICATION gate", () => {
     await createMembership(vol.id, term.id, dept.id, "VOLUNTEER");
 
     // Create an unverified cert (no verifiedAt) with a fresh completionDate.
-    await createCert(vol.id, noon(2026, 1, 1)); // no verifiedAt 4th arg -> null
+    await createCert(vol.id, daysFromNow(-30)); // no verifiedAt 4th arg -> null
 
     const result = await masterCompliance({});
     const volMember = result.rows.find((r) => r.person.id === vol.id)!;
@@ -813,7 +813,7 @@ describe("PENDING_VERIFICATION gate", () => {
     await createMembership(director.id, term.id, dept.id, "DIRECTOR");
     await createMembership(vol.id, term.id, dept.id, "VOLUNTEER");
 
-    const cert = await createCert(vol.id, noon(2026, 1, 1)); // unverified
+    const cert = await createCert(vol.id, daysFromNow(-30)); // unverified
 
     // Before verification: PENDING.
     const before = await masterCompliance({});

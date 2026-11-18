@@ -11,6 +11,7 @@ import { clinicDateOptions, resolveAvailabilityOptions } from "../templates/clin
 import { openClinicDates } from "@/platform/attendings/open-clinic-date";
 import { normalizeDeptCode, SUPPLEMENT_DEPARTMENTS } from "../templates/application/supplements/dept-codes";
 import { LANGUAGES_FIELD_KEY, LANGUAGE_QUESTION, languageCodeFromAnswer } from "@/platform/languages";
+import { syncTestRunsOf, testRunLockMessage } from "./test-cycles";
 
 export class CyclePublishError extends Error {
   constructor(message: string) {
@@ -315,8 +316,11 @@ export async function setAcceptsRenewals(id: string, value: boolean, actorId: st
   const cycle = await prisma.recruitmentCycle.findUnique({ where: { id } });
   if (!cycle) throw new CyclePublishError("Cycle not found.");
   if (cycle.status !== "DRAFT" && cycle.status !== "OPEN") throw new CyclePublishError("Renewals can only be changed on a draft or open cycle.");
+  const locked = await testRunLockMessage(id);
+  if (locked) throw new CyclePublishError(locked);
   const updated = await prisma.recruitmentCycle.update({ where: { id }, data: { acceptsRenewals: value } });
   await recordAudit({ actorPersonId: actorId, action: "recruitment.cycle_set_renewals", entityType: "RecruitmentCycle", entityId: id, after: { acceptsRenewals: value } });
+  await syncTestRunsOf(id);
   return updated;
 }
 
@@ -376,6 +380,8 @@ export async function setCycleDepartments(
   const cycle = await prisma.recruitmentCycle.findUnique({ where: { id } });
   if (!cycle) throw new CyclePublishError("Cycle not found.");
   if (cycle.status === "ARCHIVED") throw new CyclePublishError("Departments cannot be changed on an archived cycle.");
+  const locked = await testRunLockMessage(id);
+  if (locked) throw new CyclePublishError(locked);
 
   const next: string[] = [];
   for (const raw of departmentCodes) {
@@ -442,5 +448,8 @@ export async function setCycleDepartments(
     before: { departments: cycle.departments },
     after: { departments: next },
   });
+  // Departments can add or drop supplement sections, so the whole followed
+  // config is re-applied, not just the list.
+  await syncTestRunsOf(id);
   return { cycle: updated, removedWithApplicants };
 }

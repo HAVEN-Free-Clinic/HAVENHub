@@ -2,7 +2,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import { createCycle } from "./cycles";
-import { createTestCycle, deleteTestCycle, TestCycleError, TEST_TITLE_PREFIX } from "./test-cycles";
+import { createTestCycle, deleteTestCycle, resyncTestCycle, syncTestRunsOf, TestCycleError, TEST_TITLE_PREFIX } from "./test-cycles";
+import { addField, deleteField, FormEditError } from "./form-builder";
+import { saveCycleEmail, CycleEmailValidationError } from "./cycle-emails";
+import { setAcceptsRenewals, setCycleDepartments, CyclePublishError } from "./cycles";
+import { getApplicantHistory } from "./history";
 import { setTrainingCycle, TrainingStateError } from "./training";
 import { resolveCycleEmail, renderResolvedEmail } from "../email/render";
 import { liveAcceptanceWhere } from "@/platform/recruitment/incoming-roster";
@@ -173,5 +177,127 @@ describe("deleteTestCycle", () => {
     const copy = await createTestCycle((await realCycle(mgr.id)).id, mgr.id);
     const outsider = await prisma.person.create({ data: { name: "Out", status: "ACTIVE" } });
     await expect(deleteTestCycle(copy.id, outsider.id)).rejects.toBeInstanceOf(TestCycleError);
+  });
+});
+
+describe("a test run follows the real cycle", () => {
+  const fieldKeys = async (cycleId: string) =>
+    (await prisma.formField.findMany({ where: { cycleId }, orderBy: [{ order: "asc" }, { key: "asc" }], select: { key: true, label: true } }));
+
+  it("picks up a question added to the real form right away", async () => {
+    const mgr = await manager();
+    const source = await realCycle(mgr.id);
+    const copy = await createTestCycle(source.id, mgr.id);
+    const section = await prisma.formSection.findFirstOrThrow({ where: { cycleId: source.id } });
+
+    await addField(section.id, { label: "Why do you want to lead?", type: "TEXTAREA", required: false });
+
+    expect(await fieldKeys(copy.id)).toEqual(await fieldKeys(source.id));
+    expect((await fieldKeys(copy.id)).some((f) => f.label === "Why do you want to lead?")).toBe(true);
+  });
+
+  it("drops a question deleted from the real form", async () => {
+    const mgr = await manager();
+    const source = await realCycle(mgr.id);
+    const section = await prisma.formSection.findFirstOrThrow({ where: { cycleId: source.id } });
+    const extra = await addField(section.id, { label: "Temporary", type: "TEXT", required: false });
+    const copy = await createTestCycle(source.id, mgr.id);
+
+    await deleteField(extra.id);
+
+    expect((await fieldKeys(copy.id)).some((f) => f.label === "Temporary")).toBe(false);
+  });
+
+  it("picks up an email edit and a settings change", async () => {
+    const mgr = await manager();
+    const source = await realCycle(mgr.id);
+    const copy = await createTestCycle(source.id, mgr.id);
+
+    await saveCycleEmail(source.id, "recruitment.rejection", { subject: "Thanks for applying", body: "<p>Not this time</p>" }, mgr.id);
+    await setAcceptsRenewals(source.id, false, mgr.id);
+    await setCycleDepartments(source.id, ["SRHD", "MDIC"], mgr.id);
+
+    const email = await prisma.recruitmentCycleEmail.findUnique({ where: { cycleId_key: { cycleId: copy.id, key: "recruitment.rejection" } } });
+    expect(email?.subject).toBe("Thanks for applying");
+    const after = await prisma.recruitmentCycle.findUniqueOrThrow({ where: { id: copy.id } });
+    expect(after.acceptsRenewals).toBe(false);
+    expect(after.departments).toEqual(["SRHD", "MDIC"]);
+    expect(after.testSyncedAt).not.toBeNull();
+  });
+
+  it("keeps its own applicants, status and scoring when it updates", async () => {
+    const mgr = await manager();
+    const source = await realCycle(mgr.id);
+    const copy = await createTestCycle(source.id, mgr.id);
+    await prisma.recruitmentCycle.update({ where: { id: copy.id }, data: { status: "OPEN", scoresPerApplication: 5 } });
+    await applyTo(copy.id, "fake@yale.edu");
+
+    await syncTestRunsOf(source.id);
+
+    const after = await prisma.recruitmentCycle.findUniqueOrThrow({ where: { id: copy.id } });
+    expect(after.status).toBe("OPEN");
+    expect(after.scoresPerApplication).toBe(5);
+    expect(await prisma.application.count({ where: { cycleId: copy.id } })).toBe(1);
+  });
+
+  it("does not copy the real scorer pool", async () => {
+    const mgr = await manager();
+    const source = await realCycle(mgr.id);
+    await prisma.cycleScorer.create({ data: { cycleId: source.id, personId: mgr.id } });
+    const copy = await createTestCycle(source.id, mgr.id);
+    expect(await prisma.cycleScorer.count({ where: { cycleId: copy.id } })).toBe(0);
+  });
+
+  it("refuses edits made on the test run itself, so it can never drift", async () => {
+    const mgr = await manager();
+    const copy = await createTestCycle((await realCycle(mgr.id)).id, mgr.id);
+    const section = await prisma.formSection.findFirstOrThrow({ where: { cycleId: copy.id } });
+
+    await expect(addField(section.id, { label: "Sneaky", type: "TEXT", required: false })).rejects.toBeInstanceOf(FormEditError);
+    await expect(saveCycleEmail(copy.id, "recruitment.rejection", { subject: "x", body: "<p>x</p>" }, mgr.id))
+      .rejects.toBeInstanceOf(CycleEmailValidationError);
+    await expect(setAcceptsRenewals(copy.id, false, mgr.id)).rejects.toBeInstanceOf(CyclePublishError);
+  });
+
+  it("can be brought up to date by hand", async () => {
+    const mgr = await manager();
+    const source = await realCycle(mgr.id);
+    const copy = await createTestCycle(source.id, mgr.id);
+    // Simulate a sync that never landed: change the real form behind the
+    // service's back, then ask for the update.
+    const section = await prisma.formSection.findFirstOrThrow({ where: { cycleId: source.id } });
+    await prisma.formField.create({ data: { sectionId: section.id, cycleId: source.id, key: "late_add", label: "Late add", type: "TEXT", required: false, order: 99 } });
+
+    await resyncTestCycle(copy.id, mgr.id);
+
+    expect((await fieldKeys(copy.id)).some((f) => f.key === "late_add")).toBe(true);
+  });
+
+  it("keeps its last version when the real cycle is gone", async () => {
+    const mgr = await manager();
+    const source = await realCycle(mgr.id);
+    const copy = await createTestCycle(source.id, mgr.id);
+    const before = await fieldKeys(copy.id);
+    await prisma.recruitmentCycle.delete({ where: { id: source.id } });
+
+    await syncTestRunsOf(source.id);
+    await expect(resyncTestCycle(copy.id, mgr.id)).rejects.toBeInstanceOf(TestCycleError);
+    expect(await fieldKeys(copy.id)).toEqual(before);
+  });
+});
+
+describe("test applicants stay out of real records", () => {
+  it("leaves a test-run application out of the person's applicant history", async () => {
+    const mgr = await manager();
+    const source = await realCycle(mgr.id);
+    const copy = await createTestCycle(source.id, mgr.id);
+    for (const cycleId of [source.id, copy.id]) {
+      const app = await applyTo(cycleId, "staff@yale.edu");
+      await prisma.application.update({ where: { id: app.id }, data: { status: "SUBMITTED", submittedAt: new Date() } });
+    }
+
+    const history = await getApplicantHistory({ emails: ["staff@yale.edu"] });
+    expect(history.applicationCount).toBe(1);
+    expect(history.entries.map((e) => e.cycleLabel)).toEqual(["Spring Director 2027"]);
   });
 });

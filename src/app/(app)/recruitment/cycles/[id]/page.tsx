@@ -3,7 +3,7 @@ import { PageBody } from "@/platform/ui/page-body";
 import { DateTime } from "@/platform/dates/display";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { zoneLabel } from "@/platform/dates/zone";
-import { formatForDateTimeInput, formatForDateInput, formatDateOnly } from "@/platform/dates";
+import { formatForDateTimeInput, formatForDateInput, formatDateOnly, formatDateTime } from "@/platform/dates";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { requirePermission, requirePersonSession } from "@/platform/auth/session";
 import { revalidatePath } from "next/cache";
@@ -13,7 +13,7 @@ import { can } from "@/platform/rbac/engine";
 import { portalUrl } from "@/modules/recruitment/services/portal-url";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
-import { publishCycleAction, closeCycleAction, reopenCycleAction, archiveCycleAction, unarchiveCycleAction, toggleRenewalsAction, setTrainingCycleAction, updateQuizSettingsAction, setCycleDepartmentsAction, setApplicationWindowAction, createTestCycleAction, deleteTestCycleAction } from "../../actions";
+import { publishCycleAction, closeCycleAction, reopenCycleAction, archiveCycleAction, unarchiveCycleAction, toggleRenewalsAction, setTrainingCycleAction, updateQuizSettingsAction, setCycleDepartmentsAction, setApplicationWindowAction, createTestCycleAction, deleteTestCycleAction, resyncTestCycleAction } from "../../actions";
 import { Alert } from "@/platform/ui/alert";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { PageHeader } from "@/platform/ui/page-header";
@@ -165,16 +165,19 @@ export default async function CycleOverviewPage({ params }: PageProps) {
           <div className="space-y-2">
             <p className="font-medium text-foreground">This is a test run.</p>
             <p>
-              {testSource ? (
-                <>Copied from <TextLink href={`/recruitment/cycles/${testSource.id}`}>{testSource.title}</TextLink>. </>
-              ) : (
-                <>The cycle it was copied from has since been deleted. </>
-              )}
               Use it to walk through the cycle with made-up applicants. It is hidden from the public apply
               page, so only people with its link can apply, and every email it sends starts with [TEST].
-              Nobody accepted here shows up in a schedule builder or can be added to the roster, and changes
-              here do not affect the real cycle.
+              Nobody accepted here shows up in a schedule builder or can be added to the roster, and nothing
+              done here changes the real cycle.
             </p>
+            {testSource ? (
+              <p>
+                Opening and closing, scoring, routing and decisions are this test run&apos;s own.
+                {cycle.testSyncedAt ? <> It last updated from the real cycle {formatDateTime(cycle.testSyncedAt, zone)}.</> : null}
+              </p>
+            ) : (
+              <p>Delete it when you&apos;re done.</p>
+            )}
             <p className="font-medium text-foreground">How to try it</p>
             <ol className="list-decimal space-y-1 pl-5">
               <li>Publish the test run, then open its link under Public link below.</li>
@@ -197,9 +200,18 @@ export default async function CycleOverviewPage({ params }: PageProps) {
               <li>Review, decide and send onboarding as you would in the real cycle, then delete the test run.</li>
             </ol>
             {canManage && (
-              <form action={deleteTestCycleAction.bind(null, id)}>
-                <ConfirmButton label="Delete test run" confirmLabel="Delete this test run and everyone in it?" size="sm" />
-              </form>
+              <div className="flex flex-wrap gap-2">
+                {testSource && (
+                  // Normally never needed: every edit to the real cycle updates
+                  // this one on its own. This is the fallback if one did not land.
+                  <form action={resyncTestCycleAction.bind(null, id)}>
+                    <SubmitButton size="sm" variant="outline" pendingLabel="Updating…">Update from the real cycle</SubmitButton>
+                  </form>
+                )}
+                <form action={deleteTestCycleAction.bind(null, id)}>
+                  <ConfirmButton label="Delete test run" confirmLabel="Delete this test run and everyone in it?" size="sm" />
+                </form>
+              </div>
             )}
           </div>
         </Alert>
@@ -243,7 +255,8 @@ export default async function CycleOverviewPage({ params }: PageProps) {
 
       <Card className="space-y-3">
         <SectionHeader>Departments</SectionHeader>
-        {cycle.status === "ARCHIVED" || !canManage ? (
+        {/* Read-only on a test run: its departments follow the real cycle. */}
+        {cycle.status === "ARCHIVED" || !canManage || cycle.isTest ? (
           <div className="flex flex-wrap gap-2">
             {cycle.departments.length === 0 ? (
               <EmptyState inline>No departments.</EmptyState>
@@ -328,7 +341,7 @@ export default async function CycleOverviewPage({ params }: PageProps) {
             </form>
           </>
         )}
-        {(cycle.status === "DRAFT" || cycle.status === "OPEN") && (
+        {(cycle.status === "DRAFT" || cycle.status === "OPEN") && !cycle.isTest && (
           <form action={toggleRenewalsAction.bind(null, id, !cycle.acceptsRenewals)}>
             <SubmitButton size="sm" variant="ghost">
               {cycle.acceptsRenewals ? "Disable" : "Enable"} renewal branch
@@ -342,10 +355,11 @@ export default async function CycleOverviewPage({ params }: PageProps) {
         <Card className="space-y-3">
           <SectionHeader>Test run</SectionHeader>
           <p className="text-sm text-muted-foreground">
-            Copy this cycle&apos;s form, emails, onboarding contract and settings into a separate test run, then
-            walk through it with made-up applicants before the real one goes out. The copy starts as a draft and
-            is hidden from the public apply page. Its emails are marked [TEST], and nobody in it can reach a
-            schedule or the roster. Delete it when you&apos;re done.
+            Make a separate test run of this cycle and walk through it with made-up applicants before the real
+            one goes out. It follows this cycle: change the form, emails, onboarding contract or settings here
+            and the test run updates right away. It starts as a draft, is hidden from the public apply page, its
+            emails are marked [TEST], and nobody in it can reach a schedule or the roster. Delete it when
+            you&apos;re done.
           </p>
           {testRuns.length > 0 && (
             <ul className="space-y-1 text-sm">
@@ -391,6 +405,8 @@ export default async function CycleOverviewPage({ params }: PageProps) {
                   cycle; members who owe the morning session will see it on their training page.
                 </EmptyState>
               )}
+              {/* A test run's training and quiz settings follow the real cycle. */}
+              {!cycle.isTest && (
               <form action={updateQuizSettingsAction.bind(null, id)}>
                 <FormRow>
                   <RowField label="In-person training date">
@@ -411,6 +427,7 @@ export default async function CycleOverviewPage({ params }: PageProps) {
                   <SubmitButton size="sm" variant="outline" pendingLabel="Saving…">Save training settings</SubmitButton>
                 </FormRow>
               </form>
+              )}
             </>
           )}
         </Card>

@@ -6,6 +6,14 @@ import { loadLayoutSource } from "@/platform/email/templates/renderEmail";
 import { validateTemplate } from "@/platform/email/render/validate";
 import type { VariableDef } from "@/platform/email/templates/types";
 import { CYCLE_EMAIL_KEYS, type CycleEmailKey, resolveCycleEmail } from "../email/render";
+import { syncTestRunsOf, testRunLockMessage } from "./test-cycles";
+
+/** A test run's emails follow the real cycle's (services/test-cycles.ts). Thrown
+ *  as a validation error because that is what the email editor already shows. */
+async function assertNotTestRun(cycleId: string): Promise<void> {
+  const locked = await testRunLockMessage(cycleId);
+  if (locked) throw new CycleEmailValidationError([locked]);
+}
 
 export class CycleEmailValidationError extends Error {
   constructor(public readonly problems: string[]) {
@@ -83,6 +91,7 @@ export async function saveCycleEmail(
   actorId: string,
 ): Promise<void> {
   if (!(await can(actorId, "recruitment.manage_cycles"))) throw new CycleEmailAuthError();
+  await assertNotTestRun(cycleId);
   validateOrThrow(key, input.subject, input.body);
   const before = await prisma.recruitmentCycleEmail.findUnique({ where: { cycleId_key: { cycleId, key } } });
   await prisma.recruitmentCycleEmail.upsert({
@@ -98,10 +107,12 @@ export async function saveCycleEmail(
     before: before ? { subject: before.subject, body: before.body } : undefined,
     after: { subject: input.subject, body: input.body },
   });
+  await syncTestRunsOf(cycleId);
 }
 
 export async function resetCycleEmail(cycleId: string, key: CycleEmailKey, actorId: string): Promise<void> {
   if (!(await can(actorId, "recruitment.manage_cycles"))) throw new CycleEmailAuthError();
+  await assertNotTestRun(cycleId);
   const before = await prisma.recruitmentCycleEmail.findUnique({ where: { cycleId_key: { cycleId, key } } });
   if (!before) return;
   await prisma.recruitmentCycleEmail.delete({ where: { cycleId_key: { cycleId, key } } });
@@ -112,4 +123,5 @@ export async function resetCycleEmail(cycleId: string, key: CycleEmailKey, actor
     entityId: `${cycleId}:${key}`,
     before: { subject: before.subject, body: before.body },
   });
+  await syncTestRunsOf(cycleId);
 }

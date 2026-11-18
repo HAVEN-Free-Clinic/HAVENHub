@@ -53,6 +53,8 @@ export async function loadAudienceBuilderOptions(
       orderBy: { startDate: "desc" },
     }),
     prisma.recruitmentCycle.findMany({
+      // A test run's applicants are made up; nobody campaigns to them.
+      where: { isTest: false },
       select: { id: true, title: true, status: true },
       orderBy: { createdAt: "desc" },
     }),

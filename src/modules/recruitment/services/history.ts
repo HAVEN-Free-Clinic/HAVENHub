@@ -70,7 +70,9 @@ export async function getApplicantHistory(q: {
       include: { applications: true, interests: true },
     }),
     prisma.applicant.findMany({
-      where: { OR: liveOr },
+      // Test runs are left out: someone who rehearsed a cycle with their own
+      // address has not applied to it.
+      where: { OR: liveOr, cycle: { isTest: false } },
       include: {
         applications: {
           // Scoped by status, like every other reviewer-facing query in this

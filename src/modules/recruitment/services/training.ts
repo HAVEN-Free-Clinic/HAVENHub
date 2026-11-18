@@ -14,6 +14,7 @@ import { loadTrainingDayFacts, recomputeTrainingStanding } from "@/platform/trai
 import { formatForDateInput, isoDateKey } from "@/platform/dates";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { resolveAttendanceAuthority } from "./attendance-events";
+import { syncTestRunsOf, testRunLockMessage } from "./test-cycles";
 
 export class TrainingStateError extends Error {
   constructor(message: string) { super(message); this.name = "TrainingStateError"; }
@@ -67,6 +68,9 @@ export async function updateQuizSettings(
   if (input.quizMaxAttempts !== undefined && (!Number.isInteger(input.quizMaxAttempts) || input.quizMaxAttempts < 1)) {
     throw new TrainingStateError("Max attempts must be at least 1.");
   }
+  // A test run's training and quiz settings follow the real cycle's.
+  const locked = await testRunLockMessage(cycleId);
+  if (locked) throw new TrainingStateError(locked);
   // Normalize here, not just in the UI action, so a direct/internal caller
   // cannot store a whitespace-only location and the audit log stays consistent.
   const trainingLocation = input.trainingLocation?.trim() || null;
@@ -80,6 +84,7 @@ export async function updateQuizSettings(
     },
   });
   await recordAudit({ actorPersonId: actorId, action: "recruitment.training_quiz_settings", entityType: "RecruitmentCycle", entityId: cycleId, after: { ...input, trainingLocation } });
+  await syncTestRunsOf(cycleId);
   return updated;
 }
 

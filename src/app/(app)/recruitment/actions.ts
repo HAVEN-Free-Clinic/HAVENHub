@@ -14,7 +14,7 @@ import {
 import { setTrainingCycle, updateQuizSettings, TrainingStateError } from "@/modules/recruitment/services/training";
 import { RecruitmentAuthError } from "@/modules/recruitment/services/review";
 import { isReservedSlug } from "@/modules/recruitment/services/portal-routing";
-import { createTestCycle, deleteTestCycle, TestCycleError } from "@/modules/recruitment/services/test-cycles";
+import { createTestCycle, deleteTestCycle, resyncTestCycle, TestCycleError } from "@/modules/recruitment/services/test-cycles";
 
 function slugify(input: string): string {
   return input.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
@@ -239,4 +239,17 @@ export async function deleteTestCycleAction(cycleId: string) {
     ? await prisma.recruitmentCycle.findUnique({ where: { id: sourceCycleId }, select: { id: true } })
     : null;
   redirect(source ? `/recruitment/cycles/${source.id}?testdeleted=1` : "/recruitment?testdeleted=1");
+}
+
+/** "Update from the real cycle": re-run the sync an edit to the real cycle
+ *  runs automatically, for when that one did not land. */
+export async function resyncTestCycleAction(cycleId: string) {
+  const person = await requirePermission("recruitment.manage_cycles");
+  await runAction({
+    work: () => resyncTestCycle(cycleId, person.personId),
+    domainErrors: [TestCycleError],
+    errorRedirect: (m) => `/recruitment/cycles/${cycleId}?error=${encodeURIComponent(m)}`,
+    revalidate: `/recruitment/cycles/${cycleId}`,
+    successRedirect: `/recruitment/cycles/${cycleId}?testresynced=1`,
+  });
 }

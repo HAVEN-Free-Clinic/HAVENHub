@@ -136,7 +136,9 @@ export async function transitionView(viewerPersonId: string): Promise<Transition
     // applications, and only the ones naming a current member matter here.
     prisma.application.findMany({
       where: {
-        cycle: { termId: nextTerm.id },
+        // Not a test run: staff rehearsing a cycle often apply with their own
+        // address, and that must never read as a real member re-applying.
+        cycle: { termId: nextTerm.id, isTest: false },
         OR: [
           { applicant: { applicantPersonId: { in: personIds } } },
           ...(rosterEmails.length > 0

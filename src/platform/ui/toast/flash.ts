@@ -1106,7 +1106,14 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
     params: ["testcreated"],
     pathnames: ["/recruitment/cycles/*"],
     tone: "success",
-    message: () => "Test run created. It's hidden from the public apply page until you share its link.",
+    message: () => "Test run created. It follows the real cycle, and it's hidden from the public apply page until you share its link.",
+  },
+  {
+    // recruitment/actions.ts (resyncTestCycleAction).
+    params: ["testresynced"],
+    pathnames: ["/recruitment/cycles/*"],
+    tone: "success",
+    message: () => "Test run updated to match the real cycle.",
   },
   {
     // recruitment/actions.ts (deleteTestCycleAction): back on the real cycle, or

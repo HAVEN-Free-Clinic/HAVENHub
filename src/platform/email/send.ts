@@ -39,6 +39,9 @@ export type QueueEmailInput = {
 export type SenderOverride = { sender?: ResolvedSender | null };
 
 const MAX_ATTEMPTS = 8;
+/** A per-row send claim older than this is treated as abandoned (crashed worker)
+ *  and may be reclaimed by another drain. Bounds the worst-case redelivery delay. */
+const STALE_LOCK_MS = 5 * 60 * 1000;
 
 /** Recorded on a SKIPPED row so the admin email log says why it never went out. */
 export const SAMPLE_SKIP_REASON =

@@ -190,7 +190,7 @@ describe("a test run follows the real cycle", () => {
     const copy = await createTestCycle(source.id, mgr.id);
     const section = await prisma.formSection.findFirstOrThrow({ where: { cycleId: source.id } });
 
-    await addField(section.id, { label: "Why do you want to lead?", type: "TEXTAREA", required: false });
+    await addField(section.id, { label: "Why do you want to lead?", type: "LONG_TEXT", required: false });
 
     expect(await fieldKeys(copy.id)).toEqual(await fieldKeys(source.id));
     expect((await fieldKeys(copy.id)).some((f) => f.label === "Why do you want to lead?")).toBe(true);
@@ -200,7 +200,7 @@ describe("a test run follows the real cycle", () => {
     const mgr = await manager();
     const source = await realCycle(mgr.id);
     const section = await prisma.formSection.findFirstOrThrow({ where: { cycleId: source.id } });
-    const extra = await addField(section.id, { label: "Temporary", type: "TEXT", required: false });
+    const extra = await addField(section.id, { label: "Temporary", type: "SHORT_TEXT", required: false });
     const copy = await createTestCycle(source.id, mgr.id);
 
     await deleteField(extra.id);
@@ -253,7 +253,7 @@ describe("a test run follows the real cycle", () => {
     const copy = await createTestCycle((await realCycle(mgr.id)).id, mgr.id);
     const section = await prisma.formSection.findFirstOrThrow({ where: { cycleId: copy.id } });
 
-    await expect(addField(section.id, { label: "Sneaky", type: "TEXT", required: false })).rejects.toBeInstanceOf(FormEditError);
+    await expect(addField(section.id, { label: "Sneaky", type: "SHORT_TEXT", required: false })).rejects.toBeInstanceOf(FormEditError);
     await expect(saveCycleEmail(copy.id, "recruitment.rejection", { subject: "x", body: "<p>x</p>" }, mgr.id))
       .rejects.toBeInstanceOf(CycleEmailValidationError);
     await expect(setAcceptsRenewals(copy.id, false, mgr.id)).rejects.toBeInstanceOf(CyclePublishError);
@@ -266,7 +266,7 @@ describe("a test run follows the real cycle", () => {
     // Simulate a sync that never landed: change the real form behind the
     // service's back, then ask for the update.
     const section = await prisma.formSection.findFirstOrThrow({ where: { cycleId: source.id } });
-    await prisma.formField.create({ data: { sectionId: section.id, cycleId: source.id, key: "late_add", label: "Late add", type: "TEXT", required: false, order: 99 } });
+    await prisma.formField.create({ data: { sectionId: section.id, cycleId: source.id, key: "late_add", label: "Late add", type: "SHORT_TEXT", required: false, order: 99 } });
 
     await resyncTestCycle(copy.id, mgr.id);
 

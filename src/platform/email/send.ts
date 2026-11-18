@@ -9,6 +9,7 @@ import {
 } from "./transport";
 import { resolveSenderForTemplate, type ResolvedSender } from "./sender-rules";
 import { createEnqueueFlusher } from "@/platform/flush-on-enqueue";
+import { isDeliverableAddress, isSampleAddress } from "./address";
 
 
 export type QueueEmailInput = {
@@ -42,6 +43,45 @@ const MAX_ATTEMPTS = 8;
  *  and may be reclaimed by another drain. Bounds the worst-case redelivery delay. */
 const STALE_LOCK_MS = 5 * 60 * 1000;
 
+/** Recorded on a SKIPPED row so the admin email log says why it never went out. */
+export const SAMPLE_SKIP_REASON =
+  "Sample applicant in a test run with no preview inbox set, so this was kept here and not sent.";
+
+type Routed = { to: string; html: string; status?: "SKIPPED"; lastError?: string };
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+}
+
+/**
+ * Where an email to a sample applicant (a made-up person in a recruitment test
+ * run) actually goes.
+ *
+ * Sample addresses can never receive mail. If the test run has a preview inbox
+ * (RecruitmentCycle.testPreviewEmail), the email goes there instead, with a note
+ * at the top naming the sample applicant it was for. If not, it is kept in the
+ * log as SKIPPED. Anything else passes through unchanged.
+ *
+ * Looks the applicant up with the caller's `db`, so a sample created earlier in
+ * the same transaction is found.
+ */
+async function routeSample(db: Db, to: string, html: string): Promise<Routed> {
+  if (!isSampleAddress(to)) return { to, html };
+  const applicant = await db.applicant.findFirst({
+    where: { emailLower: to.trim().toLowerCase(), cycle: { isTest: true } },
+    select: { firstName: true, lastName: true, preferredFirstName: true, cycle: { select: { testPreviewEmail: true } } },
+  });
+  const inbox = applicant?.cycle.testPreviewEmail?.trim();
+  if (!applicant || !inbox || !isDeliverableAddress(inbox)) {
+    return { to, html, status: "SKIPPED", lastError: SAMPLE_SKIP_REASON };
+  }
+  const name = escapeHtml(`${applicant.preferredFirstName ?? applicant.firstName} ${applicant.lastName}`);
+  const note =
+    `<p style="margin:0 0 16px;padding:10px 12px;border:1px solid #e0b252;background:#fff6e0;` +
+    `color:#5a4300;font-family:Arial,sans-serif;font-size:13px;line-height:1.4">` +
+    `Test run preview. This is the email the sample applicant <strong>${name}</strong> would have received.</p>`;
+  return { to: inbox, html: note + html };
+}
 const emailFlusher = createEnqueueFlusher(async () => {
   const transport = await resolveEmailTransport();
   await drainEmailQueue(transport);
@@ -67,17 +107,19 @@ export async function queueEmail(
   opts: SenderOverride = {},
 ): Promise<EmailLog> {
   const sender = opts.sender ?? (await resolveSenderForTemplate(input.template));
+  const routed = await routeSample(db, input.to, input.html);
   const row = await db.emailLog.create({
     data: {
-      toEmail: input.to,
+      toEmail: routed.to,
       subject: input.subject,
-      html: input.html,
+      html: routed.html,
       template: input.template,
       personId: input.personId ?? null,
       triggeredById: input.triggeredById ?? null,
       campaignRunId: input.campaignRunId ?? null,
       fromEmail: sender?.fromEmail ?? null,
       fromName: sender?.fromName ?? null,
+      ...(routed.status ? { status: routed.status, lastError: routed.lastError } : {}),
     },
   });
   // Deliver on enqueue: after the response commits (post-transaction, so this row
@@ -107,16 +149,18 @@ export async function queueEmails(
 ): Promise<void> {
   if (inputs.length === 0) return;
   const sender = opts.sender ?? (await resolveSenderForTemplate(template));
-  const rows = inputs.map((input) => ({
-    toEmail: input.to,
+  const routedAll = await Promise.all(inputs.map((input) => routeSample(db, input.to, input.html)));
+  const rows = inputs.map((input, i) => ({
+    toEmail: routedAll[i].to,
     subject: input.subject,
-    html: input.html,
+    html: routedAll[i].html,
     template,
     personId: input.personId ?? null,
     triggeredById: input.triggeredById ?? null,
     campaignRunId: input.campaignRunId ?? null,
     fromEmail: sender?.fromEmail ?? null,
     fromName: sender?.fromName ?? null,
+    ...(routedAll[i].status ? { status: routedAll[i].status, lastError: routedAll[i].lastError } : {}),
   }));
   // Chunk to stay well under Postgres' bind-parameter limit on a single INSERT.
   const CHUNK = 500;
@@ -198,6 +242,18 @@ export async function drainEmailQueue(
         data: { lockedAt: claimedAt },
       });
       if (claim.count === 0) continue;
+
+      // Second guard: a made-up applicant's address is stored as SKIPPED when
+      // queued, but if one ever ends up QUEUED (an admin edit, a future write
+      // path) it is still never handed to the mail provider.
+      if (isSampleAddress(row.toEmail)) {
+        await prisma.emailLog.update({
+          where: { id: row.id },
+          data: { status: "SKIPPED", lastError: SAMPLE_SKIP_REASON, lockedAt: null },
+        });
+        processed += 1;
+        continue;
+      }
 
       try {
         await transport.send({

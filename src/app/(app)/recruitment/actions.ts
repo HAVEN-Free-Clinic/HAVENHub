@@ -15,6 +15,7 @@ import { setTrainingCycle, updateQuizSettings, TrainingStateError } from "@/modu
 import { RecruitmentAuthError } from "@/modules/recruitment/services/review";
 import { isReservedSlug } from "@/modules/recruitment/services/portal-routing";
 import { createTestCycle, deleteTestCycle, resyncTestCycle, TestCycleError } from "@/modules/recruitment/services/test-cycles";
+import { addSampleApplicants, setTestPreviewEmail, SampleApplicantsError } from "@/modules/recruitment/services/sample-applicants";
 
 function slugify(input: string): string {
   return input.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
@@ -251,5 +252,36 @@ export async function resyncTestCycleAction(cycleId: string) {
     errorRedirect: (m) => `/recruitment/cycles/${cycleId}?error=${encodeURIComponent(m)}`,
     revalidate: `/recruitment/cycles/${cycleId}`,
     successRedirect: `/recruitment/cycles/${cycleId}?testresynced=1`,
+  });
+}
+
+/** "Add 20 sample applicants": saves the inbox their emails go to (blank keeps
+ *  them in the email log only), then fills the test run. The inbox is saved
+ *  first so the 20 confirmation emails already go to it. */
+export async function addSampleApplicantsAction(cycleId: string, formData: FormData) {
+  const person = await requirePermission("recruitment.manage_cycles");
+  const previewEmail = (formData.get("previewEmail") as string | null) ?? "";
+  await runAction({
+    work: async () => {
+      await setTestPreviewEmail(cycleId, previewEmail, person.personId);
+      await addSampleApplicants(cycleId, person.personId);
+    },
+    domainErrors: [SampleApplicantsError],
+    errorRedirect: (m) => `/recruitment/cycles/${cycleId}?error=${encodeURIComponent(m)}`,
+    revalidate: `/recruitment/cycles/${cycleId}`,
+    successRedirect: `/recruitment/cycles/${cycleId}?testsamples=${previewEmail.trim() ? "inbox" : "log"}`,
+  });
+}
+
+/** Change where a test run's sample applicants' emails go, after they exist. */
+export async function setTestPreviewEmailAction(cycleId: string, formData: FormData) {
+  const person = await requirePermission("recruitment.manage_cycles");
+  const previewEmail = (formData.get("previewEmail") as string | null) ?? "";
+  await runAction({
+    work: () => setTestPreviewEmail(cycleId, previewEmail, person.personId),
+    domainErrors: [SampleApplicantsError],
+    errorRedirect: (m) => `/recruitment/cycles/${cycleId}?error=${encodeURIComponent(m)}`,
+    revalidate: `/recruitment/cycles/${cycleId}`,
+    successRedirect: `/recruitment/cycles/${cycleId}?testpreview=1`,
   });
 }

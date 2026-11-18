@@ -1116,6 +1116,23 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
     message: () => "Test run updated to match the real cycle.",
   },
   {
+    // recruitment/actions.ts (addSampleApplicantsAction).
+    params: ["testsamples"],
+    pathnames: ["/recruitment/cycles/*"],
+    tone: "success",
+    message: (values) =>
+      values.get("testsamples") === "log"
+        ? "Added 20 sample applicants. They're under Applicants. No inbox was entered, so their emails are in the email log, not sent."
+        : "Added 20 sample applicants. They're under Applicants, and their emails go to the inbox you entered.",
+  },
+  {
+    // recruitment/actions.ts (setTestPreviewEmailAction).
+    params: ["testpreview"],
+    pathnames: ["/recruitment/cycles/*"],
+    tone: "success",
+    message: () => "Saved. Sample applicants' emails will go to that inbox from now on.",
+  },
+  {
     // recruitment/actions.ts (deleteTestCycleAction): back on the real cycle, or
     // on the cycle list when the real cycle is gone.
     params: ["testdeleted"],

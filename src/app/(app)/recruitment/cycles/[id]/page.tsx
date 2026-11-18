@@ -4,6 +4,7 @@ import { DateTime } from "@/platform/dates/display";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { zoneLabel } from "@/platform/dates/zone";
 import { formatForDateTimeInput, formatForDateInput, formatDateOnly, formatDateTime } from "@/platform/dates";
+import { SAMPLE_EMAIL_DOMAIN } from "@/platform/email/address";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { requirePermission, requirePersonSession } from "@/platform/auth/session";
 import { revalidatePath } from "next/cache";
@@ -13,7 +14,7 @@ import { can } from "@/platform/rbac/engine";
 import { portalUrl } from "@/modules/recruitment/services/portal-url";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
-import { publishCycleAction, closeCycleAction, reopenCycleAction, archiveCycleAction, unarchiveCycleAction, toggleRenewalsAction, setTrainingCycleAction, updateQuizSettingsAction, setCycleDepartmentsAction, setApplicationWindowAction, createTestCycleAction, deleteTestCycleAction, resyncTestCycleAction } from "../../actions";
+import { publishCycleAction, closeCycleAction, reopenCycleAction, archiveCycleAction, unarchiveCycleAction, toggleRenewalsAction, setTrainingCycleAction, updateQuizSettingsAction, setCycleDepartmentsAction, setApplicationWindowAction, createTestCycleAction, deleteTestCycleAction, resyncTestCycleAction, addSampleApplicantsAction, setTestPreviewEmailAction } from "../../actions";
 import { Alert } from "@/platform/ui/alert";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { PageHeader } from "@/platform/ui/page-header";
@@ -99,6 +100,11 @@ export default async function CycleOverviewPage({ params }: PageProps) {
   const testerPlusExample = testerEmail && testerEmail.includes("@")
     ? testerEmail.replace("@", "+test1@")
     : null;
+  // Whether this test run already has its sample applicants: the button is
+  // only offered once, since a second fill would duplicate the same people.
+  const hasSamples = cycle.isTest
+    ? (await prisma.applicant.count({ where: { cycleId: id, emailLower: { endsWith: `@${SAMPLE_EMAIL_DOMAIN}` } } })) > 0
+    : false;
   const testRuns = canManage && !cycle.isTest
     ? await prisma.recruitmentCycle.findMany({
         where: { testSourceCycleId: id, isTest: true },
@@ -199,6 +205,35 @@ export default async function CycleOverviewPage({ params }: PageProps) {
               </li>
               <li>Review, decide and send onboarding as you would in the real cycle, then delete the test run.</li>
             </ol>
+            {canManage && cycle.status !== "ARCHIVED" && (
+              <div className="space-y-2">
+                <p className="font-medium text-foreground">Sample applicants</p>
+                <p>
+                  {hasSamples
+                    ? "This test run has its 20 sample applicants. "
+                    : `To practice reviewing without applying 20 times, add 20 made-up people with famous names, a mix of new${cycle.acceptsRenewals ? ", returning and transfer" : ""} applicants across the departments, who answer this form. `}
+                  Type your email below and every email a sample applicant would get comes to you, with a note at
+                  the top saying which applicant it was for.
+                  {hasSamples ? null : " That starts with 20 confirmation emails as soon as you add them."} Leave it
+                  blank and their emails are kept in the email log instead of being sent.
+                </p>
+                <form action={(hasSamples ? setTestPreviewEmailAction : addSampleApplicantsAction).bind(null, id)}>
+                  <FormRow>
+                    <RowField label="Send sample applicants' emails to" width="wide">
+                      <Input
+                        name="previewEmail"
+                        type="email"
+                        defaultValue={cycle.testPreviewEmail ?? (hasSamples ? "" : testerEmail ?? "")}
+                        placeholder="you@yale.edu"
+                      />
+                    </RowField>
+                    <SubmitButton size="sm" variant="outline" pendingLabel={hasSamples ? "Saving…" : "Adding…"}>
+                      {hasSamples ? "Save" : "Add 20 sample applicants"}
+                    </SubmitButton>
+                  </FormRow>
+                </form>
+              </div>
+            )}
             {canManage && (
               <div className="flex flex-wrap gap-2">
                 {testSource && (

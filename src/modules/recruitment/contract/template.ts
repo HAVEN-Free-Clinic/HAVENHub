@@ -6,6 +6,7 @@ import { parseContractLayout, ContractLayoutError } from "./layout";
 import { resolveContractLayout, pickGlobalForTrack } from "./resolve";
 import { defaultContractLayout } from "./system-fields";
 import { assertTwoTier } from "./block-ops";
+import { syncTestRunsOf, testRunLockMessage } from "../services/test-cycles";
 
 const GLOBAL_KEY = "onboarding.contractTemplate";
 
@@ -49,6 +50,9 @@ async function assertContractEditable(cycleId: string): Promise<void> {
   if (cycle.status === "ARCHIVED") {
     throw new ContractLayoutError(["This cycle is archived and can no longer be edited."]);
   }
+  // A test run's contract follows the real cycle's (services/test-cycles.ts).
+  const locked = await testRunLockMessage(cycleId);
+  if (locked) throw new ContractLayoutError([locked]);
 }
 
 export async function saveCycleContractLayout(cycleId: string, layout: ContractLayout): Promise<void> {
@@ -60,11 +64,13 @@ export async function saveCycleContractLayout(cycleId: string, layout: ContractL
     create: { cycleId, layout: parsed as object },
     update: { layout: parsed as object },
   });
+  await syncTestRunsOf(cycleId);
 }
 
 export async function resetCycleContractLayout(cycleId: string): Promise<void> {
   await assertContractEditable(cycleId);
   await prisma.recruitmentCycleContract.deleteMany({ where: { cycleId } });
+  await syncTestRunsOf(cycleId);
 }
 
 /** The master template for a track (for the /recruitment/contract editor), plus whether

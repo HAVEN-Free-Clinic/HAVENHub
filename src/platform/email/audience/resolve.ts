@@ -161,6 +161,9 @@ async function loadApplicantFacts(
 
   const applicants = await prisma.applicant.findMany({
     where: {
+      // Never a test run's made-up applicants, whichever bucket asked: the
+      // applicantType scan below spans every cycle, and a test run is one.
+      cycle: { isTest: false },
       // An applicantType condition names no cycle and no subcommittee -- the
       // type is a property of the application, so the question spans every
       // cycle. There is therefore nothing to narrow by, and the OR is dropped

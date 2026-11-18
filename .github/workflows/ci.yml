@@ -91,7 +91,12 @@ jobs:
       - run: npm test
 
   e2e:
-    runs-on: ubuntu-latest
+    # Pinned, not ubuntu-latest: by 2026-11-18 ubuntu-latest was 26.04, and
+    # `playwright install --with-deps chromium` (Playwright 1.60) refuses it
+    # outright ("Playwright does not support chromium on ubuntu26.04-x64"), so
+    # every shard failed before a spec ran. Move back to ubuntu-latest once the
+    # Playwright in package-lock.json supports the newer image.
+    runs-on: ubuntu-24.04
     # Playwright runs the suite serially against a dev server that compiles routes
     # on demand, so workers stay at 1 (see playwright.config.ts). Splitting the
     # specs across runners is the parallelism that is available instead. Each

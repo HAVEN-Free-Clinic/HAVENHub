@@ -61,7 +61,15 @@ export default async function EditCycleEmailPage({ params }: Props) {
   async function resetAction() {
     "use server";
     const actor = await requirePermission("recruitment.manage_cycles");
-    await resetCycleEmail(id, decodedKey as CycleEmailKey, actor.personId);
+    try {
+      await resetCycleEmail(id, decodedKey as CycleEmailKey, actor.personId);
+    } catch (err) {
+      // A test run refuses the reset (its emails follow the real cycle).
+      if (err instanceof CycleEmailValidationError) {
+        redirect(`${base}?error=${encodeURIComponent(err.problems.join("; "))}`);
+      }
+      throw err;
+    }
     revalidatePath(base);
     redirect(`${base}?saved=reset`);
   }

@@ -7,6 +7,7 @@ import { PageHeader } from "@/platform/ui/page-header";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { buttonClasses } from "@/platform/ui/button";
 import { CycleStatusBadge } from "@/modules/recruitment/components/status-badge";
+import { Badge } from "@/platform/ui/badge";
 
 
 const trackLabels: Record<string, string> = { VOLUNTEER: "Volunteer", DIRECTOR: "Director" };
@@ -61,6 +62,9 @@ export default async function RecruitmentPage() {
                 <Link href={cycleHref(c.id)} className="font-medium text-foreground hover:text-brand-fg">
                   {c.title}
                 </Link>
+                {c.isTest && (
+                  <Badge tone="warning" className="ml-2">Test run</Badge>
+                )}
               </TD>
               <TD className="text-foreground-soft">{trackLabel(c.track)}</TD>
               <TD>

@@ -4,6 +4,7 @@ import { uniqueKey } from "../engine/field-key";
 import { parseFieldCondition } from "../engine/field-visibility";
 import { isDisplayOnlyNotice } from "../engine/notice";
 import { LANGUAGES_FIELD_KEY } from "@/platform/languages";
+import { syncTestRunsOf, testRunLockMessage } from "./test-cycles";
 
 /**
  * Field keys publishCycle refuses to publish without, so they must not be
@@ -46,6 +47,10 @@ export class FormEditError extends Error {
 async function assertCycleEditable(cycleId: string, structural: boolean): Promise<void> {
   const cycle = await prisma.recruitmentCycle.findUnique({ where: { id: cycleId } });
   if (!cycle) throw new FormEditError("Cycle not found.");
+  // A test run's form follows the real cycle's: every edit is made there and
+  // copied in (syncTestRunsOf below), so an edit here would just be overwritten.
+  const locked = await testRunLockMessage(cycleId);
+  if (locked) throw new FormEditError(locked);
   if (structural && cycle.status === "ARCHIVED") {
     throw new FormEditError("This cycle is archived and can no longer be edited.");
   }
@@ -66,9 +71,11 @@ export async function addSection(
 ): Promise<FormSection> {
   await assertCycleEditable(cycleId, false);
   const count = await prisma.formSection.count({ where: { cycleId } });
-  return prisma.formSection.create({
+  const created = await prisma.formSection.create({
     data: { cycleId, title: input.title, description: input.description ?? null, appliesTo: input.appliesTo, departmentCode: input.departmentCode, purpose: input.purpose ?? "APPLICATION", order: count },
   });
+  await syncTestRunsOf(cycleId);
+  return created;
 }
 
 export async function addField(
@@ -104,7 +111,7 @@ export async function addField(
   const key = input.key ?? uniqueKey(input.label.trim() || input.type.toLowerCase(), existing.map((f) => f.key));
   const count = await prisma.formField.count({ where: { sectionId } });
 
-  return prisma.formField.create({
+  const created = await prisma.formField.create({
     data: {
       sectionId, cycleId: section.cycleId, key, label: input.label, type: input.type,
       required: input.required, helpText: input.helpText ?? null,
@@ -114,6 +121,8 @@ export async function addField(
       order: count,
     },
   });
+  await syncTestRunsOf(section.cycleId);
+  return created;
 }
 
 export async function updateField(
@@ -161,7 +170,7 @@ export async function updateField(
   const nextValidation = patch.validation === undefined ? field.validation : patch.validation;
   const forceUnrequired = isDisplayOnlyNotice({ type: nextType, validation: nextValidation });
 
-  return prisma.formField.update({
+  const updated = await prisma.formField.update({
     where: { id: fieldId },
     data: {
       label: patch.label ?? undefined,
@@ -174,6 +183,8 @@ export async function updateField(
       correctValue: orphanedCorrect ? null : (patch.correctValue === undefined ? undefined : patch.correctValue),
     },
   });
+  await syncTestRunsOf(field.cycleId);
+  return updated;
 }
 
 /** The `value`s of an options payload ({value,label}[] as stored on FormField),
@@ -191,6 +202,7 @@ export async function deleteField(fieldId: string): Promise<void> {
   await assertCycleEditable(field.cycleId, field.section.purpose !== "QUIZ");
   await assertKeysRemovable(field.cycleId, [field.key]);
   await prisma.formField.delete({ where: { id: fieldId } });
+  await syncTestRunsOf(field.cycleId);
 }
 
 export async function reorderFields(sectionId: string, orderedFieldIds: string[]): Promise<void> {
@@ -215,6 +227,7 @@ export async function reorderFields(sectionId: string, orderedFieldIds: string[]
       prisma.formField.updateMany({ where: { id, sectionId }, data: { order: index } })
     )
   );
+  await syncTestRunsOf(section.cycleId);
 }
 
 export async function reorderSections(cycleId: string, orderedSectionIds: string[]): Promise<void> {
@@ -234,6 +247,7 @@ export async function reorderSections(cycleId: string, orderedSectionIds: string
       prisma.formSection.updateMany({ where: { id, cycleId }, data: { order: index } })
     )
   );
+  await syncTestRunsOf(cycleId);
 }
 
 /**
@@ -262,7 +276,7 @@ export async function updateSection(
     (patch.appliesTo !== undefined && patch.appliesTo !== section.appliesTo) ||
     (patch.departmentCode !== undefined && patch.departmentCode !== section.departmentCode);
   await assertCycleEditable(section.cycleId, structural);
-  return prisma.formSection.update({
+  const updated = await prisma.formSection.update({
     where: { id: sectionId },
     data: {
       title: patch.title ?? undefined,
@@ -271,6 +285,8 @@ export async function updateSection(
       departmentCode: patch.departmentCode === undefined ? undefined : patch.departmentCode,
     },
   });
+  await syncTestRunsOf(section.cycleId);
+  return updated;
 }
 
 export async function deleteSection(sectionId: string): Promise<void> {
@@ -284,4 +300,5 @@ export async function deleteSection(sectionId: string): Promise<void> {
   // just as deleteField can.
   await assertKeysRemovable(section.cycleId, section.fields.map((f) => f.key));
   await prisma.formSection.delete({ where: { id: sectionId } });
+  await syncTestRunsOf(section.cycleId);
 }

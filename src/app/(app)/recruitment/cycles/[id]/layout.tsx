@@ -6,6 +6,8 @@ import { prisma } from "@/platform/db";
 import { cycleNavItems } from "@/modules/recruitment/cycle-nav";
 import { CycleNavTabs } from "@/modules/recruitment/components/cycle-nav-tabs";
 import { reviewScope } from "@/modules/recruitment/services/review";
+import { Alert } from "@/platform/ui/alert";
+import { TextLink } from "@/platform/ui/text-link";
 
 type LayoutProps = {
   children: ReactNode;
@@ -35,7 +37,7 @@ export default async function CycleWorkspaceLayout({ children, params }: LayoutP
   // only needs track, so it selects just that instead of paying for the full
   // load a second time on every render.
   const [cycle, canAccess, canManage, canReviewAll, scope] = await Promise.all([
-    prisma.recruitmentCycle.findUnique({ where: { id }, select: { track: true } }),
+    prisma.recruitmentCycle.findUnique({ where: { id }, select: { track: true, isTest: true, testSourceCycleId: true } }),
     can(session.personId, "recruitment.access"),
     can(session.personId, "recruitment.manage_cycles"),
     can(session.personId, "recruitment.review_all"),
@@ -43,6 +45,12 @@ export default async function CycleWorkspaceLayout({ children, params }: LayoutP
     reviewScope(session.personId),
   ]);
   if (!cycle) notFound();
+
+  // On every page of a test run, so whoever opens its form builder, emails or
+  // contract learns before trying to edit that those follow the real cycle.
+  const testSource = cycle.isTest && cycle.testSourceCycleId
+    ? await prisma.recruitmentCycle.findUnique({ where: { id: cycle.testSourceCycleId }, select: { id: true, title: true } })
+    : null;
 
   const items = cycleNavItems({
     cycleId: id, track: cycle.track, canAccess, canManage, canReviewAll,
@@ -52,6 +60,19 @@ export default async function CycleWorkspaceLayout({ children, params }: LayoutP
   return (
     <div className="space-y-6">
       <CycleNavTabs items={items} />
+      {cycle.isTest && (
+        <Alert tone="warning">
+          {testSource ? (
+            <>
+              Test run of <TextLink href={`/recruitment/cycles/${testSource.id}`}>{testSource.title}</TextLink>. Its
+              form, emails, onboarding contract and settings follow that cycle and update the moment it changes,
+              so make those edits there.
+            </>
+          ) : (
+            <>Test run of a cycle that has since been deleted. It keeps the last version it had.</>
+          )}
+        </Alert>
+      )}
       {children}
     </div>
   );

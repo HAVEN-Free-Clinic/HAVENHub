@@ -104,6 +104,11 @@ export async function promoteAction(cycleId: string, formData: FormData) {
   const ids = selectedIds(formData);
   if (ids.length === 0) redirect(bounce(cycleId, { err: "Select at least one applicant." }));
 
+  const testRun = await prisma.recruitmentCycle.findUnique({ where: { id: cycleId }, select: { isTest: true } });
+  if (testRun?.isTest) {
+    redirect(bounce(cycleId, { err: "This is a test run, so nobody in it can be added to the roster." }));
+  }
+
   const rows = await scopedAcceptances(cycleId, ids);
   const contractIds = rows
     .filter((r) => r.contract?.status === "SUBMITTED")

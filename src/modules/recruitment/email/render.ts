@@ -28,6 +28,10 @@ export type EmailSources = {
   layoutSource: string;
   /** Resolved branding.brandColor, fed to the layout's {{ brandColor }} slot. */
   brandColor: string;
+  /** Prepended to the rendered subject, never to subjectSource: the cycle email
+   *  editor shows and saves subjectSource, and a prefix there would be saved
+   *  into the override. "[TEST] " on a test run, otherwise absent. */
+  subjectPrefix?: string;
 };
 
 function assertCycleKey(key: string): asserts key is CycleEmailKey {
@@ -43,11 +47,12 @@ export async function resolveCycleEmail(cycleId: string, key: CycleEmailKey): Pr
   const descriptor = getDescriptor(key);
   if (!descriptor) throw new Error(`Unknown email template: ${key}`);
 
-  const [cycleOverride, globalOverride, layoutSource, brandColor] = await Promise.all([
+  const [cycleOverride, globalOverride, layoutSource, brandColor, cycle] = await Promise.all([
     prisma.recruitmentCycleEmail.findUnique({ where: { cycleId_key: { cycleId, key } } }),
     prisma.emailTemplate.findUnique({ where: { key } }),
     loadLayoutSource(),
     getSetting<string>("branding.brandColor"),
+    prisma.recruitmentCycle.findUnique({ where: { id: cycleId }, select: { isTest: true } }),
   ]);
 
   return {
@@ -55,6 +60,9 @@ export async function resolveCycleEmail(cycleId: string, key: CycleEmailKey): Pr
     bodySource: cycleOverride?.body ?? globalOverride?.body ?? descriptor.defaultBody,
     layoutSource,
     brandColor,
+    // Every email a test run sends says so up front, so a tester (or anyone a
+    // test address happens to reach) never mistakes it for a real decision.
+    ...(cycle?.isTest ? { subjectPrefix: "[TEST] " } : {}),
   };
 }
 
@@ -63,7 +71,7 @@ export async function resolveCycleEmail(cycleId: string, key: CycleEmailKey): Pr
 export function renderResolvedEmail(sources: EmailSources, context: Record<string, unknown>): { subject: string; html: string } {
   // The subject is a plain-text header, so render it without HTML-escaping;
   // otherwise a value with "&" or "'" (e.g. a department name) is garbled into an entity.
-  const subject = renderTemplate(sources.subjectSource, context, { escape: false });
+  const subject = (sources.subjectPrefix ?? "") + renderTemplate(sources.subjectSource, context, { escape: false });
   const body = renderTemplate(sources.bodySource, context);
   // brandColor first so a caller-supplied context value (rare) still wins.
   const html = renderTemplate(sources.layoutSource, { brandColor: sources.brandColor, ...context, subject, body });

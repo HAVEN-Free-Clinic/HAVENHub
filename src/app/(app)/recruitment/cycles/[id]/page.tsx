@@ -3,7 +3,7 @@ import { PageBody } from "@/platform/ui/page-body";
 import { DateTime } from "@/platform/dates/display";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { zoneLabel } from "@/platform/dates/zone";
-import { formatForDateTimeInput, formatForDateInput, formatDateOnly } from "@/platform/dates";
+import { formatForDateTimeInput, formatForDateInput, formatDateOnly, formatDateTime } from "@/platform/dates";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { requirePermission, requirePersonSession } from "@/platform/auth/session";
 import { revalidatePath } from "next/cache";
@@ -13,7 +13,8 @@ import { can } from "@/platform/rbac/engine";
 import { portalUrl } from "@/modules/recruitment/services/portal-url";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
-import { publishCycleAction, closeCycleAction, reopenCycleAction, archiveCycleAction, unarchiveCycleAction, toggleRenewalsAction, setTrainingCycleAction, updateQuizSettingsAction, setCycleDepartmentsAction, setApplicationWindowAction } from "../../actions";
+import { publishCycleAction, closeCycleAction, reopenCycleAction, archiveCycleAction, unarchiveCycleAction, toggleRenewalsAction, setTrainingCycleAction, updateQuizSettingsAction, setCycleDepartmentsAction, setApplicationWindowAction, createTestCycleAction, deleteTestCycleAction, resyncTestCycleAction } from "../../actions";
+import { Alert } from "@/platform/ui/alert";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Field, Input } from "@/platform/ui/input";
@@ -86,6 +87,25 @@ export default async function CycleOverviewPage({ params }: PageProps) {
   const makeupCourse = canManage && isTrainingTrack
     ? await prisma.course.findUnique({ where: { makeupForCycleId: id }, select: { id: true, title: true, isActive: true } })
     : null;
+  // A test run points back at the cycle it copies; a real cycle lists the test
+  // runs made from it, so nobody has to hunt for one in the cycle list.
+  const testSource = cycle.isTest && cycle.testSourceCycleId
+    ? await prisma.recruitmentCycle.findUnique({ where: { id: cycle.testSourceCycleId }, select: { id: true, title: true } })
+    : null;
+  // The test-run instructions show the viewer their own address as the example,
+  // since the sign-in link and every [TEST] email go to whatever address a
+  // fake applicant types in.
+  const testerEmail = cycle.isTest ? session.email : null;
+  const testerPlusExample = testerEmail && testerEmail.includes("@")
+    ? testerEmail.replace("@", "+test1@")
+    : null;
+  const testRuns = canManage && !cycle.isTest
+    ? await prisma.recruitmentCycle.findMany({
+        where: { testSourceCycleId: id, isTest: true },
+        select: { id: true, title: true, status: true },
+        orderBy: { createdAt: "desc" },
+      })
+    : [];
   // Invite links are a manage_cycles capability: issuing one admits an applicant
   // past a closed deadline, which is a recruiting decision, not a viewing one.
   const inviteRows: InviteRow[] = canManage
@@ -140,6 +160,63 @@ export default async function CycleOverviewPage({ params }: PageProps) {
         status={<CycleStatusBadge status={cycle.status} />}
       />
 
+      {cycle.isTest && (
+        <Alert tone="warning">
+          <div className="space-y-2">
+            <p className="font-medium text-foreground">This is a test run.</p>
+            <p>
+              Use it to walk through the cycle with made-up applicants. It is hidden from the public apply
+              page, so only people with its link can apply, and every email it sends starts with [TEST].
+              Nobody accepted here shows up in a schedule builder or can be added to the roster, and nothing
+              done here changes the real cycle.
+            </p>
+            {testSource ? (
+              <p>
+                Opening and closing, scoring, routing and decisions are this test run&apos;s own.
+                {cycle.testSyncedAt ? <> It last updated from the real cycle {formatDateTime(cycle.testSyncedAt, zone)}.</> : null}
+              </p>
+            ) : (
+              <p>Delete it when you&apos;re done.</p>
+            )}
+            <p className="font-medium text-foreground">How to try it</p>
+            <ol className="list-decimal space-y-1 pl-5">
+              <li>Publish the test run, then open its link under Public link below.</li>
+              <li>
+                Apply the way a volunteer would. When the form asks for an email, use one you can open: the
+                sign-in link and every [TEST] email go to that inbox, so you see exactly what applicants will.
+                {testerEmail ? (
+                  <> For example, apply with <span className="font-medium text-foreground">{testerEmail}</span> and
+                  check your own inbox.</>
+                ) : null}
+              </li>
+              <li>
+                To be more than one fake applicant from the same inbox, add +test1, +test2 and so on before the @.
+                {testerPlusExample ? (
+                  <> For example, <span className="font-medium text-foreground">{testerPlusExample}</span>.</>
+                ) : null}{" "}
+                Gmail delivers these to the same inbox; not every email provider does, so send a test to yours
+                first.
+              </li>
+              <li>Review, decide and send onboarding as you would in the real cycle, then delete the test run.</li>
+            </ol>
+            {canManage && (
+              <div className="flex flex-wrap gap-2">
+                {testSource && (
+                  // Normally never needed: every edit to the real cycle updates
+                  // this one on its own. This is the fallback if one did not land.
+                  <form action={resyncTestCycleAction.bind(null, id)}>
+                    <SubmitButton size="sm" variant="outline" pendingLabel="Updating…">Update from the real cycle</SubmitButton>
+                  </form>
+                )}
+                <form action={deleteTestCycleAction.bind(null, id)}>
+                  <ConfirmButton label="Delete test run" confirmLabel="Delete this test run and everyone in it?" size="sm" />
+                </form>
+              </div>
+            )}
+          </div>
+        </Alert>
+      )}
+
       <Card>
         <SectionHeader>Public link</SectionHeader>
         {cycle.status === "OPEN" ? (
@@ -178,7 +255,8 @@ export default async function CycleOverviewPage({ params }: PageProps) {
 
       <Card className="space-y-3">
         <SectionHeader>Departments</SectionHeader>
-        {cycle.status === "ARCHIVED" || !canManage ? (
+        {/* Read-only on a test run: its departments follow the real cycle. */}
+        {cycle.status === "ARCHIVED" || !canManage || cycle.isTest ? (
           <div className="flex flex-wrap gap-2">
             {cycle.departments.length === 0 ? (
               <EmptyState inline>No departments.</EmptyState>
@@ -263,7 +341,7 @@ export default async function CycleOverviewPage({ params }: PageProps) {
             </form>
           </>
         )}
-        {(cycle.status === "DRAFT" || cycle.status === "OPEN") && (
+        {(cycle.status === "DRAFT" || cycle.status === "OPEN") && !cycle.isTest && (
           <form action={toggleRenewalsAction.bind(null, id, !cycle.acceptsRenewals)}>
             <SubmitButton size="sm" variant="ghost">
               {cycle.acceptsRenewals ? "Disable" : "Enable"} renewal branch
@@ -273,17 +351,47 @@ export default async function CycleOverviewPage({ params }: PageProps) {
       </div>
       )}
 
+      {canManage && !cycle.isTest && (
+        <Card className="space-y-3">
+          <SectionHeader>Test run</SectionHeader>
+          <p className="text-sm text-muted-foreground">
+            Make a separate test run of this cycle and walk through it with made-up applicants before the real
+            one goes out. It follows this cycle: change the form, emails, onboarding contract or settings here
+            and the test run updates right away. It starts as a draft, is hidden from the public apply page, its
+            emails are marked [TEST], and nobody in it can reach a schedule or the roster. Delete it when
+            you&apos;re done.
+          </p>
+          {testRuns.length > 0 && (
+            <ul className="space-y-1 text-sm">
+              {testRuns.map((t) => (
+                <li key={t.id} className="flex items-center gap-2">
+                  <TextLink href={`/recruitment/cycles/${t.id}`} className="font-medium">{t.title}</TextLink>
+                  <CycleStatusBadge status={t.status} />
+                </li>
+              ))}
+            </ul>
+          )}
+          <form action={createTestCycleAction.bind(null, id)}>
+            <SubmitButton size="sm" variant="outline" pendingLabel="Copying…">Start a test run</SubmitButton>
+          </form>
+        </Card>
+      )}
+
       {isTrainingTrack && (
         <Card className="space-y-4">
           <SectionHeader>{cycle.track === "DIRECTOR" ? "Director training" : "Training"}</SectionHeader>
           {canManage && (
             <>
-              <form action={setTrainingCycleAction.bind(null, id, !cycle.isTermTraining)}>
-                <SubmitButton size="sm" variant="ghost">
-                  {cycle.isTermTraining ? "Stop using as this term's training" : "Use as this term's training"}
-                </SubmitButton>
-              </form>
-              {makeupCourse ? (
+              {/* A test run can never be the term's training cycle (training.ts
+                  refuses it), so it gets no toggle and no makeup course. */}
+              {!cycle.isTest && (
+                <form action={setTrainingCycleAction.bind(null, id, !cycle.isTermTraining)}>
+                  <SubmitButton size="sm" variant="ghost">
+                    {cycle.isTermTraining ? "Stop using as this term's training" : "Use as this term's training"}
+                  </SubmitButton>
+                </form>
+              )}
+              {cycle.isTest ? null : makeupCourse ? (
                 <p className="text-sm text-muted-foreground">
                   Online makeup course:{" "}
                   <TextLink href={`/learning/manage/${makeupCourse.id}`} className="font-medium">
@@ -297,6 +405,8 @@ export default async function CycleOverviewPage({ params }: PageProps) {
                   cycle; members who owe the morning session will see it on their training page.
                 </EmptyState>
               )}
+              {/* A test run's training and quiz settings follow the real cycle. */}
+              {!cycle.isTest && (
               <form action={updateQuizSettingsAction.bind(null, id)}>
                 <FormRow>
                   <RowField label="In-person training date">
@@ -317,6 +427,7 @@ export default async function CycleOverviewPage({ params }: PageProps) {
                   <SubmitButton size="sm" variant="outline" pendingLabel="Saving…">Save training settings</SubmitButton>
                 </FormRow>
               </form>
+              )}
             </>
           )}
         </Card>

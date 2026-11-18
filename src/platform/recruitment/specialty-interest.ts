@@ -159,7 +159,9 @@ export async function specialtyInterestForPerson(opts: {
   const apps = await prisma.application.findMany({
     where: {
       status: "SUBMITTED",
-      cycle: { termId: opts.termId },
+      // A test-run application, made with a staff member's own address, is not
+      // that person's real interest in the specialty clinic.
+      cycle: { termId: opts.termId, isTest: false },
       OR: [
         { applicant: { applicantPersonId: opts.personId } },
         { acceptances: { some: { contract: { promotedPersonId: opts.personId } } } },

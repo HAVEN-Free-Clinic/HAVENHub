@@ -352,7 +352,9 @@ export async function listReviewableCycles(
   // which is what let /recruitment render the raw constant ("OPEN") in a Badge
   // without anything objecting: a CycleStatus is exhaustively labelled by
   // CYCLE_STATUS_LABELS, a string is not.
-): Promise<{ id: string; title: string; track: string; status: CycleStatus }[]> {
+  // isTest so the cycle list can label a test run for a reviewer too: a
+  // director reviewing in a rehearsal should see that it is one.
+): Promise<{ id: string; title: string; track: string; status: CycleStatus; isTest: boolean }[]> {
   const [scope, managesCycles, canScore] = await Promise.all([
     reviewScope(personId),
     can(personId, "recruitment.manage_cycles"),
@@ -363,7 +365,7 @@ export async function listReviewableCycles(
     return prisma.recruitmentCycle.findMany({
       where: { status: activeStatus, applications: { some: { status: "SUBMITTED" } } },
       orderBy: [{ status: "asc" }, { title: "asc" }],
-      select: { id: true, title: true, track: true, status: true },
+      select: { id: true, title: true, track: true, status: true, isTest: true },
     });
   }
   const or: Prisma.RecruitmentCycleWhereInput[] = [];
@@ -385,7 +387,7 @@ export async function listReviewableCycles(
   return prisma.recruitmentCycle.findMany({
     where: { status: activeStatus, OR: or },
     orderBy: [{ status: "asc" }, { title: "asc" }],
-    select: { id: true, title: true, track: true, status: true },
+    select: { id: true, title: true, track: true, status: true, isTest: true },
   });
 }
 

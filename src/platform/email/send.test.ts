@@ -532,6 +532,12 @@ describe("made-up test run applicants are never emailed", () => {
     expect((await prisma.emailLog.findUniqueOrThrow({ where: { id: row.id } })).status).toBe("SKIPPED");
   });
 
+  it("keeps an unknown sample address in the log rather than guessing an inbox", async () => {
+    const row = await queueEmail(prisma, { to: sample, subject: "s", html: "h", template: "t" });
+    expect(row.toEmail).toBe(sample);
+    expect(row.status).toBe("SKIPPED");
+  });
+
   it("matches the domain exactly, so a look-alike address is still sent", async () => {
     await queueEmail(prisma, { to: `someone@not${SAMPLE_EMAIL_DOMAIN}.com`, subject: "s", html: "h", template: "t" });
     const transport = okTransport();

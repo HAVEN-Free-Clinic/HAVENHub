@@ -4,7 +4,7 @@ import { prisma } from "@/platform/db";
 import { SAMPLE_EMAIL_DOMAIN } from "@/platform/email/address";
 import { createCycle } from "./cycles";
 import { createTestCycle } from "./test-cycles";
-import { addSampleApplicants, SAMPLE_APPLICANT_COUNT, SampleApplicantsError } from "./sample-applicants";
+import { addSampleApplicants, setTestPreviewEmail, SAMPLE_APPLICANT_COUNT, SampleApplicantsError } from "./sample-applicants";
 
 // Same grant pattern as test-cycles.test.ts.
 async function manager() {
@@ -113,5 +113,77 @@ describe("addSampleApplicants", () => {
     const test = await createTestCycle((await realCycle(mgr.id)).id, mgr.id);
     const outsider = await prisma.person.create({ data: { name: "Nope", status: "ACTIVE" } });
     await expect(addSampleApplicants(test.id, outsider.id)).rejects.toBeInstanceOf(SampleApplicantsError);
+  });
+});
+
+describe("sending sample applicants' emails to a real inbox", () => {
+  it("delivers every confirmation to the inbox the team typed in, marked with who it was for", async () => {
+    const mgr = await manager();
+    const test = await createTestCycle((await realCycle(mgr.id)).id, mgr.id);
+
+    await setTestPreviewEmail(test.id, "  aiden.hall@yale.edu ", mgr.id);
+    await addSampleApplicants(test.id, mgr.id);
+
+    const rows = await prisma.emailLog.findMany({ where: { template: "recruitment.application_received" } });
+    expect(rows).toHaveLength(20);
+    expect(rows.every((r) => r.toEmail === "aiden.hall@yale.edu" && r.status === "QUEUED")).toBe(true);
+    expect(rows.every((r) => r.subject.startsWith("[TEST] "))).toBe(true);
+    expect(rows.some((r) => r.html.includes("Test run preview") && r.html.includes("Beyoncé Knowles"))).toBe(true);
+    // Each one names a different sample applicant.
+    const named = rows.map((r) => /<strong>([^<]+)<\/strong>/.exec(r.html)?.[1]);
+    expect(new Set(named).size).toBe(20);
+  });
+
+  it("sends later emails to the inbox too, and stops when it is cleared", async () => {
+    const mgr = await manager();
+    const test = await createTestCycle((await realCycle(mgr.id)).id, mgr.id);
+    await addSampleApplicants(test.id, mgr.id);
+    const sample = await prisma.applicant.findFirstOrThrow({ where: { cycleId: test.id } });
+    const { queueEmail } = await import("@/platform/email/send");
+
+    await setTestPreviewEmail(test.id, "aiden.hall@yale.edu", mgr.id);
+    const sent = await queueEmail(prisma, { to: sample.email, subject: "[TEST] Interview", html: "<p>x</p>", template: "recruitment.interview_invite" });
+    expect(sent.toEmail).toBe("aiden.hall@yale.edu");
+
+    await setTestPreviewEmail(test.id, "", mgr.id);
+    const kept = await queueEmail(prisma, { to: sample.email, subject: "[TEST] Interview", html: "<p>x</p>", template: "recruitment.interview_invite" });
+    expect(kept.toEmail).toBe(sample.email);
+    expect(kept.status).toBe("SKIPPED");
+  });
+
+  it("gives the same famous name a different address in each test run", async () => {
+    const mgr = await manager();
+    const source = await realCycle(mgr.id);
+    const a = await createTestCycle(source.id, mgr.id);
+    const b = await createTestCycle(source.id, mgr.id);
+    await setTestPreviewEmail(a.id, "a@yale.edu", mgr.id);
+    await setTestPreviewEmail(b.id, "b@yale.edu", mgr.id);
+    await addSampleApplicants(a.id, mgr.id);
+    await addSampleApplicants(b.id, mgr.id);
+
+    const inA = await prisma.applicant.findFirstOrThrow({ where: { cycleId: a.id, lastName: "Knowles" } });
+    const inB = await prisma.applicant.findFirstOrThrow({ where: { cycleId: b.id, lastName: "Knowles" } });
+    expect(inA.emailLower).not.toBe(inB.emailLower);
+    expect(await prisma.emailLog.count({ where: { toEmail: "a@yale.edu" } })).toBe(20);
+    expect(await prisma.emailLog.count({ where: { toEmail: "b@yale.edu" } })).toBe(20);
+  });
+
+  it("refuses an address that is not a full email, and a real cycle", async () => {
+    const mgr = await manager();
+    const real = await realCycle(mgr.id);
+    const test = await createTestCycle(real.id, mgr.id);
+    await expect(setTestPreviewEmail(test.id, "aiden", mgr.id)).rejects.toBeInstanceOf(SampleApplicantsError);
+    await expect(setTestPreviewEmail(real.id, "aiden.hall@yale.edu", mgr.id)).rejects.toBeInstanceOf(SampleApplicantsError);
+    expect((await prisma.recruitmentCycle.findUniqueOrThrow({ where: { id: real.id } })).testPreviewEmail).toBeNull();
+  });
+
+  it("is not copied from the real cycle when the test run updates", async () => {
+    const mgr = await manager();
+    const real = await realCycle(mgr.id);
+    const test = await createTestCycle(real.id, mgr.id);
+    await setTestPreviewEmail(test.id, "aiden.hall@yale.edu", mgr.id);
+    const { resyncTestCycle } = await import("./test-cycles");
+    await resyncTestCycle(test.id, mgr.id);
+    expect((await prisma.recruitmentCycle.findUniqueOrThrow({ where: { id: test.id } })).testPreviewEmail).toBe("aiden.hall@yale.edu");
   });
 });

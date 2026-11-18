@@ -16,16 +16,18 @@
  *   the roster find someone, and a made-up one could match a real volunteer.
  * - No file uploads or signatures; nothing real to attach.
  *
- * EMAIL. Every address is on SAMPLE_EMAIL_DOMAIN, which the email queue records
- * but never sends (status SKIPPED), so the team can read in the email log what
- * each sample applicant would have received, and nobody is ever emailed.
+ * EMAIL. Every address is on SAMPLE_EMAIL_DOMAIN, which can never receive mail.
+ * When the test run has a preview inbox (setTestPreviewEmail), the email queue
+ * delivers each sample applicant's email there instead, marked with who it was
+ * for, so the team sees exactly what applicants get. Without one, the emails
+ * are kept in the email log as "Not sent (sample)". Nobody else is emailed.
  */
 import type { ApplicantType, FieldType, Prisma } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { recordAudit } from "@/platform/audit";
 import { queueEmail } from "@/platform/email/send";
-import { SAMPLE_EMAIL_DOMAIN } from "@/platform/email/address";
+import { isDeliverableAddress, SAMPLE_EMAIL_DOMAIN } from "@/platform/email/address";
 import { LANGUAGES_FIELD_KEY, languageCodeFromAnswer } from "@/platform/languages/catalog";
 import { answersForConditions, isFieldVisible, mergeDepartmentAnswer } from "../engine/field-visibility";
 import { isSectionVisible } from "../engine/visibility";
@@ -95,8 +97,13 @@ function asciiSlug(s: string): string {
     .replace(/[^a-z0-9]+/g, "");
 }
 
-export function sampleEmail(p: { first: string; last: string }): string {
-  return `${asciiSlug(p.first)}.${asciiSlug(p.last)}@${SAMPLE_EMAIL_DOMAIN}`;
+/**
+ * A sample applicant's address. The short code from the test run's id keeps
+ * the same famous name in two test runs from sharing an address, which is how
+ * the email queue finds the right test run's preview inbox.
+ */
+export function sampleEmail(p: { first: string; last: string }, cycleId: string): string {
+  return `${asciiSlug(p.first)}.${asciiSlug(p.last)}.${cycleId.slice(-6).toLowerCase()}@${SAMPLE_EMAIL_DOMAIN}`;
 }
 
 type Choice = { value: string; label: string };
@@ -260,7 +267,7 @@ export async function addSampleApplicants(cycleId: string, actorId: string): Pro
         ? [first]
         : Array.from({ length: Math.min(3, depts.length) }, (_, k) => depts[(i + k) % depts.length]);
     const transferFromDepartments = type === "TRANSFER" ? [depts[(i + 1) % depts.length]] : [];
-    const email = sampleEmail(p);
+    const email = sampleEmail(p, cycleId);
 
     // Build answers section by section, then drop any answer whose question
     // would have been hidden from this applicant.
@@ -357,4 +364,34 @@ export async function addSampleApplicants(cycleId: string, actorId: string): Pro
     after: { count: rows.length },
   });
   return rows.length;
+}
+
+/**
+ * Set the inbox that receives this test run's sample applicants' emails, or
+ * clear it with a blank value. Applies to emails queued from now on.
+ */
+export async function setTestPreviewEmail(cycleId: string, raw: string | null, actorId: string): Promise<void> {
+  if (!(await can(actorId, "recruitment.manage_cycles"))) {
+    throw new SampleApplicantsError("Only recruitment leads can change where sample emails go.");
+  }
+  const cycle = await prisma.recruitmentCycle.findUnique({
+    where: { id: cycleId },
+    select: { isTest: true, testPreviewEmail: true },
+  });
+  if (!cycle) throw new SampleApplicantsError("Cycle not found.");
+  if (!cycle.isTest) throw new SampleApplicantsError("Only a test run has sample applicants.");
+  const email = raw?.trim() || null;
+  if (email && !isDeliverableAddress(email)) {
+    throw new SampleApplicantsError("Enter a full email address, like you@yale.edu.");
+  }
+  if (email === cycle.testPreviewEmail) return;
+  await prisma.recruitmentCycle.update({ where: { id: cycleId }, data: { testPreviewEmail: email } });
+  await recordAudit({
+    actorPersonId: actorId,
+    action: "recruitment.test_cycle_preview_email",
+    entityType: "RecruitmentCycle",
+    entityId: cycleId,
+    before: { testPreviewEmail: cycle.testPreviewEmail },
+    after: { testPreviewEmail: email },
+  });
 }

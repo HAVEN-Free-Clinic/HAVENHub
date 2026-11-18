@@ -96,9 +96,16 @@ test("recruitment test run: follows the real cycle, takes fake applicants, delet
 
   // Fill the test run with sample applicants; they join Fiona in its queue only
   await page.goto(`/recruitment/cycles/${testId}`);
+  // Prefilled with the signed-in person's email; type a different inbox.
+  const inbox = page.locator('input[name="previewEmail"]');
+  await expect(inbox).toHaveValue("j.carney@yale.edu");
+  await inbox.fill("e2e-preview@yale.edu");
   await page.getByRole("button", { name: "Add 20 sample applicants" }).click();
   await page.waitForURL((url) => url.searchParams.has("testsamples"));
   await expect(page.getByRole("button", { name: "Add 20 sample applicants" })).toHaveCount(0);
+  // The inbox stuck, and can still be changed from the same box.
+  await expect(page.locator('input[name="previewEmail"]')).toHaveValue("e2e-preview@yale.edu");
+  await expect(page.getByRole("button", { name: "Save", exact: true })).toBeVisible();
   await page.goto(`/recruitment/cycles/${testId}/applicants`);
   await expect(page.getByRole("link", { name: /Knowles/ })).toBeVisible();
   await expect(page.getByRole("link", { name: /Fiona/ })).toBeVisible();

@@ -14,7 +14,7 @@ import { can } from "@/platform/rbac/engine";
 import { portalUrl } from "@/modules/recruitment/services/portal-url";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
-import { publishCycleAction, closeCycleAction, reopenCycleAction, archiveCycleAction, unarchiveCycleAction, toggleRenewalsAction, setTrainingCycleAction, updateQuizSettingsAction, setCycleDepartmentsAction, setApplicationWindowAction, createTestCycleAction, deleteTestCycleAction, resyncTestCycleAction, addSampleApplicantsAction } from "../../actions";
+import { publishCycleAction, closeCycleAction, reopenCycleAction, archiveCycleAction, unarchiveCycleAction, toggleRenewalsAction, setTrainingCycleAction, updateQuizSettingsAction, setCycleDepartmentsAction, setApplicationWindowAction, createTestCycleAction, deleteTestCycleAction, resyncTestCycleAction, addSampleApplicantsAction, setTestPreviewEmailAction } from "../../actions";
 import { Alert } from "@/platform/ui/alert";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { PageHeader } from "@/platform/ui/page-header";
@@ -205,12 +205,35 @@ export default async function CycleOverviewPage({ params }: PageProps) {
               </li>
               <li>Review, decide and send onboarding as you would in the real cycle, then delete the test run.</li>
             </ol>
-            <p>
-              To practice reviewing without applying 20 times, add sample applicants: 20 made-up people with
-              famous names, a mix of new{cycle.acceptsRenewals ? ", returning and transfer" : ""} applicants across
-              the departments, who answer this form. Nobody is emailed. What they would have received is saved in
-              the email log, marked &quot;Not sent (sample)&quot;.
-            </p>
+            {canManage && cycle.status !== "ARCHIVED" && (
+              <div className="space-y-2">
+                <p className="font-medium text-foreground">Sample applicants</p>
+                <p>
+                  {hasSamples
+                    ? "This test run has its 20 sample applicants. "
+                    : `To practice reviewing without applying 20 times, add 20 made-up people with famous names, a mix of new${cycle.acceptsRenewals ? ", returning and transfer" : ""} applicants across the departments, who answer this form. `}
+                  Type your email below and every email a sample applicant would get comes to you, with a note at
+                  the top saying which applicant it was for.
+                  {hasSamples ? null : " That starts with 20 confirmation emails as soon as you add them."} Leave it
+                  blank and their emails are kept in the email log instead of being sent.
+                </p>
+                <form action={(hasSamples ? setTestPreviewEmailAction : addSampleApplicantsAction).bind(null, id)}>
+                  <FormRow>
+                    <RowField label="Send sample applicants' emails to" width="wide">
+                      <Input
+                        name="previewEmail"
+                        type="email"
+                        defaultValue={cycle.testPreviewEmail ?? (hasSamples ? "" : testerEmail ?? "")}
+                        placeholder="you@yale.edu"
+                      />
+                    </RowField>
+                    <SubmitButton size="sm" variant="outline" pendingLabel={hasSamples ? "Saving…" : "Adding…"}>
+                      {hasSamples ? "Save" : "Add 20 sample applicants"}
+                    </SubmitButton>
+                  </FormRow>
+                </form>
+              </div>
+            )}
             {canManage && (
               <div className="flex flex-wrap gap-2">
                 {testSource && (
@@ -218,11 +241,6 @@ export default async function CycleOverviewPage({ params }: PageProps) {
                   // this one on its own. This is the fallback if one did not land.
                   <form action={resyncTestCycleAction.bind(null, id)}>
                     <SubmitButton size="sm" variant="outline" pendingLabel="Updating…">Update from the real cycle</SubmitButton>
-                  </form>
-                )}
-                {!hasSamples && cycle.status !== "ARCHIVED" && (
-                  <form action={addSampleApplicantsAction.bind(null, id)}>
-                    <SubmitButton size="sm" variant="outline" pendingLabel="Adding…">Add 20 sample applicants</SubmitButton>
                   </form>
                 )}
                 <form action={deleteTestCycleAction.bind(null, id)}>

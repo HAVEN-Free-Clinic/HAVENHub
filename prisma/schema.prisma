@@ -2709,6 +2709,10 @@ model RecruitmentCycle {
   testSourceCycleId    String?
   /// When this test run last caught up with the real cycle. Null on a real cycle.
   testSyncedAt         DateTime?
+  /// Test runs only: the inbox that receives every email sent to this test
+  /// run's sample applicants, so the team can see them as applicants would.
+  /// Null means they are kept in the email log but not sent.
+  testPreviewEmail     String?
   createdById          String
   createdAt            DateTime    @default(now())
   updatedAt            DateTime    @updatedAt

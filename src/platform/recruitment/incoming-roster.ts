@@ -277,6 +277,9 @@ export function liveAcceptanceWhere(): Prisma.AcceptanceWhereInput {
       // would keep the second department's acceptance, which has none, "incoming"
       // forever, a duplicate row beside the member it has already become.
       acceptances: { none: { contract: { is: { status: "PROMOTED" } } } },
+      // A test run's made-up applicants are never anyone's incoming volunteer:
+      // keeping them out here keeps them off every schedule builder and export.
+      cycle: { isTest: false },
     },
   };
 }

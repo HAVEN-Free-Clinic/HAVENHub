@@ -91,7 +91,7 @@ export default async function PortalHome({ searchParams }: { searchParams: Promi
 
   const now = new Date();
   const openCycles = await prisma.recruitmentCycle.findMany({
-    where: { status: "OPEN", AND: [{ OR: [{ opensAt: null }, { opensAt: { lte: now } }] }, { OR: [{ closesAt: null }, { closesAt: { gte: now } }] }] },
+    where: { status: "OPEN", isTest: false, AND: [{ OR: [{ opensAt: null }, { opensAt: { lte: now } }] }, { OR: [{ closesAt: null }, { closesAt: { gte: now } }] }] },
     select: { title: true, publicSlug: true },
     orderBy: { createdAt: "desc" },
   });

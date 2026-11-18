@@ -27,7 +27,7 @@ export async function pendingReviewCount(departmentCodes: string[]): Promise<num
         status: "SUBMITTED",
         decision: "PENDING",
         routedDepartmentCode: { in: departmentCodes },
-        cycle: { track: "VOLUNTEER", status: activeStatus },
+        cycle: { track: "VOLUNTEER", status: activeStatus, isTest: false },
       },
     }),
     // A single `interviews: { none: {...} }` over the whole department set excluded
@@ -39,7 +39,7 @@ export async function pendingReviewCount(departmentCodes: string[]): Promise<num
       where: {
         status: "SUBMITTED",
         departmentChoices: { hasSome: departmentCodes },
-        cycle: { track: "DIRECTOR", status: activeStatus },
+        cycle: { track: "DIRECTOR", status: activeStatus, isTest: false },
       },
       select: {
         departmentChoices: true,

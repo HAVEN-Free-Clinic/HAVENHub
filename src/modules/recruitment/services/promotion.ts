@@ -70,7 +70,7 @@ export async function promoteContracts(
   for (const id of contractIds) {
     const contract = await prisma.onboardingContract.findUnique({
       where: { id },
-      include: { acceptance: { include: { application: { include: { cycle: { select: { id: true, title: true, termId: true, track: true, inPersonTrainingDate: true, trainingLocation: true, term: { select: { clinicDates: true } } } }, acceptances: { select: { id: true, departmentCode: true }, orderBy: { createdAt: "asc" } }, dualAppointments: { where: { status: "APPROVED" }, select: { departmentCode: true } } } } } } },
+      include: { acceptance: { include: { application: { include: { cycle: { select: { id: true, title: true, termId: true, track: true, isTest: true, inPersonTrainingDate: true, trainingLocation: true, term: { select: { clinicDates: true } } } }, acceptances: { select: { id: true, departmentCode: true }, orderBy: { createdAt: "asc" } }, dualAppointments: { where: { status: "APPROVED" }, select: { departmentCode: true } } } } } } },
     });
     if (!contract || contract.status !== "SUBMITTED") { skipped += 1; continue; }
     // A withdrawn applicant must never reach the roster. Withdrawal deliberately
@@ -78,6 +78,10 @@ export async function promoteContracts(
     // away signatures, DOB, and the HIPAA cert), so the contract still looks
     // promotable and nothing else downstream would catch this.
     if (contract.acceptance.application.status === "WITHDRAWN") { skipped += 1; continue; }
+    // A test run's applicants are made up. Promoting one would create a real
+    // person and membership; the onboarding page refuses up front, this is the
+    // backstop for any other caller.
+    if (contract.acceptance.application.cycle.isTest) { skipped += 1; continue; }
     // Never promote a conflicted acceptance: one application accepted by more
     // than one department would otherwise land the person on two rosters nobody
     // agreed to. SRR must resolve the conflict on the Decisions page first. An

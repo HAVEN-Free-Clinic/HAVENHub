@@ -49,6 +49,8 @@ export default async function WelcomePage() {
     prisma.recruitmentCycle.count({
       where: {
         status: "OPEN",
+        // A test run is reachable only by its own link (services/test-cycles.ts).
+        isTest: false,
         AND: [
           { OR: [{ opensAt: null }, { opensAt: { lte: now } }] },
           { OR: [{ closesAt: null }, { closesAt: { gte: now } }] },

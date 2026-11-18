@@ -117,7 +117,7 @@ export const recruitmentCycleStatusTool: McpTool = {
     }
 
     const cycles = await prisma.recruitmentCycle.findMany({
-      where: { status: "OPEN" },
+      where: { status: "OPEN", isTest: false },
       // status is re-selected (even though the WHERE already pins it to OPEN)
       // purely so isCycleOpen below can take the row shape it declares, rather
       // than each caller having to re-assert the literal.

@@ -33,6 +33,9 @@ export async function setTrainingCycle(cycleId: string, value: boolean, actorId:
   }
   const cycle = await prisma.recruitmentCycle.findUnique({ where: { id: cycleId } });
   if (!cycle) throw new TrainingStateError("Cycle not found.");
+  // A test run's applicants are made up, and the term's training cycle drives
+  // real people's standing, clearance and makeup course.
+  if (value && cycle.isTest) throw new TrainingStateError("A test run can't be used as the term's training.");
   await prisma.$transaction(async (tx) => {
     if (value) {
       await tx.recruitmentCycle.updateMany({ where: { termId: cycle.termId, track: cycle.track, isTermTraining: true, NOT: { id: cycleId } }, data: { isTermTraining: false } });

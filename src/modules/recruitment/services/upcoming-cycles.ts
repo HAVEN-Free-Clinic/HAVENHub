@@ -42,7 +42,7 @@ export type UpcomingCycle = {
 
 export async function listUpcomingCycles(now: Date): Promise<UpcomingCycle[]> {
   const cycles = await prisma.recruitmentCycle.findMany({
-    where: { status: { in: ["DRAFT", "OPEN"] }, opensAt: { gt: now } },
+    where: { status: { in: ["DRAFT", "OPEN"] }, opensAt: { gt: now }, isTest: false },
     select: { title: true, publicSlug: true, opensAt: true },
     // Soonest first: the next thing to open is the answer to the question this
     // list exists to answer.

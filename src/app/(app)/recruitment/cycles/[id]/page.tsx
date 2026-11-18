@@ -13,7 +13,8 @@ import { can } from "@/platform/rbac/engine";
 import { portalUrl } from "@/modules/recruitment/services/portal-url";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
-import { publishCycleAction, closeCycleAction, reopenCycleAction, archiveCycleAction, unarchiveCycleAction, toggleRenewalsAction, setTrainingCycleAction, updateQuizSettingsAction, setCycleDepartmentsAction, setApplicationWindowAction } from "../../actions";
+import { publishCycleAction, closeCycleAction, reopenCycleAction, archiveCycleAction, unarchiveCycleAction, toggleRenewalsAction, setTrainingCycleAction, updateQuizSettingsAction, setCycleDepartmentsAction, setApplicationWindowAction, createTestCycleAction, deleteTestCycleAction } from "../../actions";
+import { Alert } from "@/platform/ui/alert";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Field, Input } from "@/platform/ui/input";
@@ -86,6 +87,18 @@ export default async function CycleOverviewPage({ params }: PageProps) {
   const makeupCourse = canManage && isTrainingTrack
     ? await prisma.course.findUnique({ where: { makeupForCycleId: id }, select: { id: true, title: true, isActive: true } })
     : null;
+  // A test run points back at the cycle it copies; a real cycle lists the test
+  // runs made from it, so nobody has to hunt for one in the cycle list.
+  const testSource = cycle.isTest && cycle.testSourceCycleId
+    ? await prisma.recruitmentCycle.findUnique({ where: { id: cycle.testSourceCycleId }, select: { id: true, title: true } })
+    : null;
+  const testRuns = canManage && !cycle.isTest
+    ? await prisma.recruitmentCycle.findMany({
+        where: { testSourceCycleId: id, isTest: true },
+        select: { id: true, title: true, status: true },
+        orderBy: { createdAt: "desc" },
+      })
+    : [];
   // Invite links are a manage_cycles capability: issuing one admits an applicant
   // past a closed deadline, which is a recruiting decision, not a viewing one.
   const inviteRows: InviteRow[] = canManage
@@ -139,6 +152,31 @@ export default async function CycleOverviewPage({ params }: PageProps) {
         title={cycle.title}
         status={<CycleStatusBadge status={cycle.status} />}
       />
+
+      {cycle.isTest && (
+        <Alert tone="warning">
+          <div className="space-y-2">
+            <p className="font-medium text-foreground">This is a test run.</p>
+            <p>
+              {testSource ? (
+                <>Copied from <TextLink href={`/recruitment/cycles/${testSource.id}`}>{testSource.title}</TextLink>. </>
+              ) : (
+                <>The cycle it was copied from has since been deleted. </>
+              )}
+              Use it to walk through the cycle with made-up applicants. It is hidden from the public apply
+              page, so only people with its link can apply, and every email it sends starts with [TEST].
+              Applicants who sign in still get real emails, so use email addresses you can check. Nobody
+              accepted here shows up in a schedule builder or can be added to the roster, and changes here
+              do not affect the real cycle.
+            </p>
+            {canManage && (
+              <form action={deleteTestCycleAction.bind(null, id)}>
+                <ConfirmButton label="Delete test run" confirmLabel="Delete this test run and everyone in it?" size="sm" />
+              </form>
+            )}
+          </div>
+        </Alert>
+      )}
 
       <Card>
         <SectionHeader>Public link</SectionHeader>
@@ -273,17 +311,46 @@ export default async function CycleOverviewPage({ params }: PageProps) {
       </div>
       )}
 
+      {canManage && !cycle.isTest && (
+        <Card className="space-y-3">
+          <SectionHeader>Test run</SectionHeader>
+          <p className="text-sm text-muted-foreground">
+            Copy this cycle&apos;s form, emails, onboarding contract and settings into a separate test run, then
+            walk through it with made-up applicants before the real one goes out. The copy starts as a draft and
+            is hidden from the public apply page. Its emails are marked [TEST], and nobody in it can reach a
+            schedule or the roster. Delete it when you&apos;re done.
+          </p>
+          {testRuns.length > 0 && (
+            <ul className="space-y-1 text-sm">
+              {testRuns.map((t) => (
+                <li key={t.id} className="flex items-center gap-2">
+                  <TextLink href={`/recruitment/cycles/${t.id}`} className="font-medium">{t.title}</TextLink>
+                  <CycleStatusBadge status={t.status} />
+                </li>
+              ))}
+            </ul>
+          )}
+          <form action={createTestCycleAction.bind(null, id)}>
+            <SubmitButton size="sm" variant="outline" pendingLabel="Copying…">Start a test run</SubmitButton>
+          </form>
+        </Card>
+      )}
+
       {isTrainingTrack && (
         <Card className="space-y-4">
           <SectionHeader>{cycle.track === "DIRECTOR" ? "Director training" : "Training"}</SectionHeader>
           {canManage && (
             <>
-              <form action={setTrainingCycleAction.bind(null, id, !cycle.isTermTraining)}>
-                <SubmitButton size="sm" variant="ghost">
-                  {cycle.isTermTraining ? "Stop using as this term's training" : "Use as this term's training"}
-                </SubmitButton>
-              </form>
-              {makeupCourse ? (
+              {/* A test run can never be the term's training cycle (training.ts
+                  refuses it), so it gets no toggle and no makeup course. */}
+              {!cycle.isTest && (
+                <form action={setTrainingCycleAction.bind(null, id, !cycle.isTermTraining)}>
+                  <SubmitButton size="sm" variant="ghost">
+                    {cycle.isTermTraining ? "Stop using as this term's training" : "Use as this term's training"}
+                  </SubmitButton>
+                </form>
+              )}
+              {cycle.isTest ? null : makeupCourse ? (
                 <p className="text-sm text-muted-foreground">
                   Online makeup course:{" "}
                   <TextLink href={`/learning/manage/${makeupCourse.id}`} className="font-medium">

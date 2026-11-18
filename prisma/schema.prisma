@@ -2692,6 +2692,16 @@ model RecruitmentCycle {
   /// this existed. Two is the smallest number that yields an average rather
   /// than one person's opinion.
   scoresPerApplication Int         @default(2)
+  /// A throwaway copy of another cycle that recruitment uses to rehearse it
+  /// with made-up applicants before the real one goes out. A test run is left
+  /// off the public apply listings and the reviewer digest, its emails carry
+  /// a "[TEST]" subject prefix, it can never be the term's training cycle, and
+  /// its acceptances never reach a schedule builder or the roster. It is the
+  /// only kind of cycle that can be deleted. See services/test-cycles.ts.
+  isTest               Boolean     @default(false)
+  /// The cycle this test run was copied from. A plain id, not a relation, so
+  /// the copy never holds up anything done to the real cycle.
+  testSourceCycleId    String?
   createdById          String
   createdAt            DateTime    @default(now())
   updatedAt            DateTime    @updatedAt

@@ -5,7 +5,7 @@ import { captureEvent } from "@/platform/posthog/capture";
 import { termGroup, termGroupForCycle } from "@/platform/posthog/groups";
 import { parseZonedInput } from "@/platform/dates";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
-import { isUniqueConstraintError } from "@/platform/db";
+import { isUniqueConstraintError, prisma } from "@/platform/db";
 import { runAction } from "@/platform/actions";
 import {
   createCycle, publishCycle, closeCycle, reopenCycle, archiveCycle, unarchiveCycle, setAcceptsRenewals,
@@ -14,6 +14,7 @@ import {
 import { setTrainingCycle, updateQuizSettings, TrainingStateError } from "@/modules/recruitment/services/training";
 import { RecruitmentAuthError } from "@/modules/recruitment/services/review";
 import { isReservedSlug } from "@/modules/recruitment/services/portal-routing";
+import { createTestCycle, deleteTestCycle, TestCycleError } from "@/modules/recruitment/services/test-cycles";
 
 function slugify(input: string): string {
   return input.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
@@ -196,4 +197,46 @@ export async function updateQuizSettingsAction(cycleId: string, formData: FormDa
     errorRedirect: (m) => `/recruitment/cycles/${cycleId}?error=${encodeURIComponent(m)}`,
     revalidate: `/recruitment/cycles/${cycleId}`,
   });
+}
+
+/** Copy a cycle into a throwaway test run and open the copy. See
+ *  services/test-cycles.ts for what is copied and what a test run cannot touch. */
+export async function createTestCycleAction(sourceCycleId: string) {
+  const person = await requirePermission("recruitment.manage_cycles");
+  let copyId: string;
+  try {
+    const copy = await createTestCycle(sourceCycleId, person.personId);
+    copyId = copy.id;
+  } catch (err) {
+    if (err instanceof TestCycleError) {
+      redirect(`/recruitment/cycles/${sourceCycleId}?error=${encodeURIComponent(err.message)}`);
+    }
+    throw err;
+  }
+  await captureEvent({
+    distinctId: person.personId,
+    event: "recruitment_test_cycle_created",
+    properties: { source_cycle_id: sourceCycleId, cycle_id: copyId },
+    groups: await termGroupForCycle(copyId),
+  });
+  redirect(`/recruitment/cycles/${copyId}?testcreated=1`);
+}
+
+/** Delete a test run and everything made in it. Refuses a real cycle. */
+export async function deleteTestCycleAction(cycleId: string) {
+  const person = await requirePermission("recruitment.manage_cycles");
+  let sourceCycleId: string | null = null;
+  try {
+    ({ sourceCycleId } = await deleteTestCycle(cycleId, person.personId));
+  } catch (err) {
+    if (err instanceof TestCycleError) {
+      redirect(`/recruitment/cycles/${cycleId}?error=${encodeURIComponent(err.message)}`);
+    }
+    throw err;
+  }
+  // Back to the cycle it was a copy of, when that still exists; else the list.
+  const source = sourceCycleId
+    ? await prisma.recruitmentCycle.findUnique({ where: { id: sourceCycleId }, select: { id: true } })
+    : null;
+  redirect(source ? `/recruitment/cycles/${source.id}?testdeleted=1` : "/recruitment?testdeleted=1");
 }

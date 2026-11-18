@@ -1102,6 +1102,21 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
     message: () => "Application window updated.",
   },
   {
+    // recruitment/actions.ts (createTestCycleAction): lands on the new test run.
+    params: ["testcreated"],
+    pathnames: ["/recruitment/cycles/*"],
+    tone: "success",
+    message: () => "Test run created. It's hidden from the public apply page until you share its link.",
+  },
+  {
+    // recruitment/actions.ts (deleteTestCycleAction): back on the real cycle, or
+    // on the cycle list when the real cycle is gone.
+    params: ["testdeleted"],
+    pathnames: ["/recruitment", "/recruitment/cycles/*"],
+    tone: "success",
+    message: () => "Test run deleted, along with everyone and everything made in it.",
+  },
+  {
     // schedule/page.tsx:210-214 (createRequestAction, line 145).
     params: ["requested"],
     pathnames: ["/schedule"],

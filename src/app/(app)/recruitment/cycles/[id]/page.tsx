@@ -4,6 +4,7 @@ import { DateTime } from "@/platform/dates/display";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { zoneLabel } from "@/platform/dates/zone";
 import { formatForDateTimeInput, formatForDateInput, formatDateOnly, formatDateTime } from "@/platform/dates";
+import { SAMPLE_EMAIL_DOMAIN } from "@/platform/email/address";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { requirePermission, requirePersonSession } from "@/platform/auth/session";
 import { revalidatePath } from "next/cache";
@@ -13,7 +14,7 @@ import { can } from "@/platform/rbac/engine";
 import { portalUrl } from "@/modules/recruitment/services/portal-url";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
-import { publishCycleAction, closeCycleAction, reopenCycleAction, archiveCycleAction, unarchiveCycleAction, toggleRenewalsAction, setTrainingCycleAction, updateQuizSettingsAction, setCycleDepartmentsAction, setApplicationWindowAction, createTestCycleAction, deleteTestCycleAction, resyncTestCycleAction } from "../../actions";
+import { publishCycleAction, closeCycleAction, reopenCycleAction, archiveCycleAction, unarchiveCycleAction, toggleRenewalsAction, setTrainingCycleAction, updateQuizSettingsAction, setCycleDepartmentsAction, setApplicationWindowAction, createTestCycleAction, deleteTestCycleAction, resyncTestCycleAction, addSampleApplicantsAction } from "../../actions";
 import { Alert } from "@/platform/ui/alert";
 import { ConfirmButton } from "@/platform/ui/confirm-button";
 import { PageHeader } from "@/platform/ui/page-header";
@@ -99,6 +100,11 @@ export default async function CycleOverviewPage({ params }: PageProps) {
   const testerPlusExample = testerEmail && testerEmail.includes("@")
     ? testerEmail.replace("@", "+test1@")
     : null;
+  // Whether this test run already has its sample applicants: the button is
+  // only offered once, since a second fill would duplicate the same people.
+  const hasSamples = cycle.isTest
+    ? (await prisma.applicant.count({ where: { cycleId: id, emailLower: { endsWith: `@${SAMPLE_EMAIL_DOMAIN}` } } })) > 0
+    : false;
   const testRuns = canManage && !cycle.isTest
     ? await prisma.recruitmentCycle.findMany({
         where: { testSourceCycleId: id, isTest: true },
@@ -199,6 +205,12 @@ export default async function CycleOverviewPage({ params }: PageProps) {
               </li>
               <li>Review, decide and send onboarding as you would in the real cycle, then delete the test run.</li>
             </ol>
+            <p>
+              To practice reviewing without applying 20 times, add sample applicants: 20 made-up people with
+              famous names, a mix of new{cycle.acceptsRenewals ? ", returning and transfer" : ""} applicants across
+              the departments, who answer this form. Nobody is emailed. What they would have received is saved in
+              the email log, marked &quot;Not sent (sample)&quot;.
+            </p>
             {canManage && (
               <div className="flex flex-wrap gap-2">
                 {testSource && (
@@ -206,6 +218,11 @@ export default async function CycleOverviewPage({ params }: PageProps) {
                   // this one on its own. This is the fallback if one did not land.
                   <form action={resyncTestCycleAction.bind(null, id)}>
                     <SubmitButton size="sm" variant="outline" pendingLabel="Updating…">Update from the real cycle</SubmitButton>
+                  </form>
+                )}
+                {!hasSamples && cycle.status !== "ARCHIVED" && (
+                  <form action={addSampleApplicantsAction.bind(null, id)}>
+                    <SubmitButton size="sm" variant="outline" pendingLabel="Adding…">Add 20 sample applicants</SubmitButton>
                   </form>
                 )}
                 <form action={deleteTestCycleAction.bind(null, id)}>

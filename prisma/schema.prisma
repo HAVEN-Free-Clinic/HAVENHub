@@ -826,6 +826,9 @@ enum EmailStatus {
   QUEUED
   SENT
   FAILED
+  /// Never sent on purpose: addressed to a made-up applicant in a recruitment
+  /// test run (see SAMPLE_EMAIL_DOMAIN). Kept so the team can read it.
+  SKIPPED
 }
 
 enum TeamsMessageStatus {

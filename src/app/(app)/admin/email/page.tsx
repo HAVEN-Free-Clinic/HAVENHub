@@ -58,7 +58,7 @@ import { buttonClasses } from "@/platform/ui/button";
 // Constants
 // ---------------------------------------------------------------------------
 
-const VALID_STATUSES: EmailStatus[] = ["QUEUED", "SENT", "FAILED"];
+const VALID_STATUSES: EmailStatus[] = ["QUEUED", "SENT", "FAILED", "SKIPPED"];
 
 type BadgeTone = "default" | "success" | "critical";
 
@@ -67,6 +67,8 @@ const STATUS_LABELS: Record<EmailStatus, string> = {
   QUEUED: "Queued",
   SENT: "Sent",
   FAILED: "Failed",
+  // A made-up applicant in a recruitment test run; recorded, never sent.
+  SKIPPED: "Not sent (sample)",
 };
 
 function statusTone(status: EmailStatus): BadgeTone {

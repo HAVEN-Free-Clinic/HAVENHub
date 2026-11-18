@@ -1116,6 +1116,13 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
     message: () => "Test run updated to match the real cycle.",
   },
   {
+    // recruitment/actions.ts (addSampleApplicantsAction).
+    params: ["testsamples"],
+    pathnames: ["/recruitment/cycles/*"],
+    tone: "success",
+    message: () => "Added 20 sample applicants. They're under Applicants, and their emails are saved in the email log without being sent.",
+  },
+  {
     // recruitment/actions.ts (deleteTestCycleAction): back on the real cycle, or
     // on the cycle list when the real cycle is gone.
     params: ["testdeleted"],

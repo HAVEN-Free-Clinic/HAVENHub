@@ -94,6 +94,17 @@ test("recruitment test run: follows the real cycle, takes fake applicants, delet
   await page.goto(`/recruitment/cycles/${realId}/applicants`);
   await expect(page.getByRole("link", { name: /Fiona/ })).toHaveCount(0);
 
+  // Fill the test run with sample applicants; they join Fiona in its queue only
+  await page.goto(`/recruitment/cycles/${testId}`);
+  await page.getByRole("button", { name: "Add 20 sample applicants" }).click();
+  await page.waitForURL((url) => url.searchParams.has("testsamples"));
+  await expect(page.getByRole("button", { name: "Add 20 sample applicants" })).toHaveCount(0);
+  await page.goto(`/recruitment/cycles/${testId}/applicants`);
+  await expect(page.getByRole("link", { name: /Knowles/ })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Fiona/ })).toBeVisible();
+  await page.goto(`/recruitment/cycles/${realId}/applicants`);
+  await expect(page.getByRole("link", { name: /Knowles/ })).toHaveCount(0);
+
   // The real cycle is untouched: still a draft
   await page.goto(`/recruitment/cycles/${realId}`);
   await expect(page.locator("span").filter({ hasText: /^Draft$/ }).first()).toBeVisible();

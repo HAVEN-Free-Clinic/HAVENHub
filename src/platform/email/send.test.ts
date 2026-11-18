@@ -8,7 +8,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
-import { queueEmail, drainEmailQueue } from "./send";
+import { queueEmail, queueEmails, drainEmailQueue, SAMPLE_SKIP_REASON } from "./send";
+import { SAMPLE_EMAIL_DOMAIN } from "./address";
 import { InvalidRecipientError, MailerooTransport, type EmailTransport } from "./transport";
 import { saveSenderRule } from "./sender-rules";
 import { setSetting } from "@/platform/settings/service";
@@ -486,5 +487,55 @@ describe("drainEmailQueue on an invalid recipient", () => {
     // A second drain does not touch it again.
     await drainEmailQueue(transport);
     expect(sends).toBe(1);
+  });
+});
+
+describe("made-up test run applicants are never emailed", () => {
+  beforeEach(async () => {
+    await resetDb();
+  });
+
+  const sample = `beyonce.knowles@${SAMPLE_EMAIL_DOMAIN}`;
+
+  it("records the email as not sent and never hands it to the mail provider", async () => {
+    await queueEmail(prisma, { to: sample, subject: "[TEST] Received", html: "<p>hi</p>", template: "recruitment.application_received" });
+    await queueEmail(prisma, { to: "real@yale.edu", subject: "Received", html: "<p>hi</p>", template: "recruitment.application_received" });
+    const transport = okTransport();
+
+    await drainEmailQueue(transport);
+
+    expect(transport.calls).toEqual(["real@yale.edu"]);
+    const row = await prisma.emailLog.findFirstOrThrow({ where: { toEmail: sample } });
+    expect(row.status).toBe("SKIPPED");
+    expect(row.lastError).toBe(SAMPLE_SKIP_REASON);
+    expect(row.html).toBe("<p>hi</p>");
+  });
+
+  it("skips sample addresses in a batch too", async () => {
+    await queueEmails(prisma, "campaign", [
+      { to: sample, subject: "s", html: "h" },
+      { to: "real@yale.edu", subject: "s", html: "h" },
+    ]);
+    const transport = okTransport();
+    await drainEmailQueue(transport);
+    expect(transport.calls).toEqual(["real@yale.edu"]);
+  });
+
+  it("still refuses to send one that somehow ends up queued", async () => {
+    const row = await queueEmail(prisma, { to: sample, subject: "s", html: "h", template: "t" });
+    await prisma.emailLog.update({ where: { id: row.id }, data: { status: "QUEUED", lastError: null } });
+    const transport = okTransport();
+
+    await drainEmailQueue(transport);
+
+    expect(transport.calls).toEqual([]);
+    expect((await prisma.emailLog.findUniqueOrThrow({ where: { id: row.id } })).status).toBe("SKIPPED");
+  });
+
+  it("matches the domain exactly, so a look-alike address is still sent", async () => {
+    await queueEmail(prisma, { to: `someone@not${SAMPLE_EMAIL_DOMAIN}.com`, subject: "s", html: "h", template: "t" });
+    const transport = okTransport();
+    await drainEmailQueue(transport);
+    expect(transport.calls).toHaveLength(1);
   });
 });

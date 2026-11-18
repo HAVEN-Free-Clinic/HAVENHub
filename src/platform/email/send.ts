@@ -9,6 +9,7 @@ import {
 } from "./transport";
 import { resolveSenderForTemplate, type ResolvedSender } from "./sender-rules";
 import { createEnqueueFlusher } from "@/platform/flush-on-enqueue";
+import { isSampleAddress } from "./address";
 
 
 export type QueueEmailInput = {
@@ -38,6 +39,15 @@ export type QueueEmailInput = {
 export type SenderOverride = { sender?: ResolvedSender | null };
 
 const MAX_ATTEMPTS = 8;
+
+/** Recorded on a SKIPPED row so the admin email log says why it never went out. */
+export const SAMPLE_SKIP_REASON = "Made-up applicant in a test run, so this was not sent.";
+
+/** A made-up applicant's email is kept in the log, so the team can read what they
+ *  would have received, but is never queued for sending. */
+function skipFields(to: string) {
+  return isSampleAddress(to) ? { status: "SKIPPED" as const, lastError: SAMPLE_SKIP_REASON } : {};
+}
 /** A per-row send claim older than this is treated as abandoned (crashed worker)
  *  and may be reclaimed by another drain. Bounds the worst-case redelivery delay. */
 const STALE_LOCK_MS = 5 * 60 * 1000;
@@ -78,6 +88,7 @@ export async function queueEmail(
       campaignRunId: input.campaignRunId ?? null,
       fromEmail: sender?.fromEmail ?? null,
       fromName: sender?.fromName ?? null,
+      ...skipFields(input.to),
     },
   });
   // Deliver on enqueue: after the response commits (post-transaction, so this row
@@ -117,6 +128,7 @@ export async function queueEmails(
     campaignRunId: input.campaignRunId ?? null,
     fromEmail: sender?.fromEmail ?? null,
     fromName: sender?.fromName ?? null,
+    ...skipFields(input.to),
   }));
   // Chunk to stay well under Postgres' bind-parameter limit on a single INSERT.
   const CHUNK = 500;
@@ -198,6 +210,18 @@ export async function drainEmailQueue(
         data: { lockedAt: claimedAt },
       });
       if (claim.count === 0) continue;
+
+      // Second guard: a made-up applicant's address is stored as SKIPPED when
+      // queued, but if one ever ends up QUEUED (an admin edit, a future write
+      // path) it is still never handed to the mail provider.
+      if (isSampleAddress(row.toEmail)) {
+        await prisma.emailLog.update({
+          where: { id: row.id },
+          data: { status: "SKIPPED", lastError: SAMPLE_SKIP_REASON, lockedAt: null },
+        });
+        processed += 1;
+        continue;
+      }
 
       try {
         await transport.send({

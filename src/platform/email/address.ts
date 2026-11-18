@@ -132,3 +132,17 @@ export function decideSigningTransport(
   const transport = rules.domains.get(domain);
   return transport ? { transport, rule: "domain" } : null;
 }
+
+/**
+ * The domain every made-up test run applicant's email address is on.
+ *
+ * `.invalid` is reserved (RFC 2606) and can never resolve, so even if a message
+ * to one of these addresses reached the mail provider it could not be
+ * delivered. The queue does not let it get that far: see isSampleAddress.
+ */
+export const SAMPLE_EMAIL_DOMAIN = "sample.havenhub.invalid";
+
+/** True for a made-up applicant's address, which the email queue records but never sends. */
+export function isSampleAddress(address: string | null | undefined): boolean {
+  return domainOf(address) === SAMPLE_EMAIL_DOMAIN;
+}

@@ -15,6 +15,7 @@ import { setTrainingCycle, updateQuizSettings, TrainingStateError } from "@/modu
 import { RecruitmentAuthError } from "@/modules/recruitment/services/review";
 import { isReservedSlug } from "@/modules/recruitment/services/portal-routing";
 import { createTestCycle, deleteTestCycle, resyncTestCycle, TestCycleError } from "@/modules/recruitment/services/test-cycles";
+import { addSampleApplicants, SampleApplicantsError } from "@/modules/recruitment/services/sample-applicants";
 
 function slugify(input: string): string {
   return input.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
@@ -251,5 +252,18 @@ export async function resyncTestCycleAction(cycleId: string) {
     errorRedirect: (m) => `/recruitment/cycles/${cycleId}?error=${encodeURIComponent(m)}`,
     revalidate: `/recruitment/cycles/${cycleId}`,
     successRedirect: `/recruitment/cycles/${cycleId}?testresynced=1`,
+  });
+}
+
+/** "Add 20 sample applicants": fills a test run with made-up applicants to
+ *  practice review on. Their emails are recorded but never sent. */
+export async function addSampleApplicantsAction(cycleId: string) {
+  const person = await requirePermission("recruitment.manage_cycles");
+  await runAction({
+    work: () => addSampleApplicants(cycleId, person.personId),
+    domainErrors: [SampleApplicantsError],
+    errorRedirect: (m) => `/recruitment/cycles/${cycleId}?error=${encodeURIComponent(m)}`,
+    revalidate: `/recruitment/cycles/${cycleId}`,
+    successRedirect: `/recruitment/cycles/${cycleId}?testsamples=1`,
   });
 }

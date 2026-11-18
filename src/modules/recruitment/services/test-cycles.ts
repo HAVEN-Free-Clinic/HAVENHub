@@ -192,7 +192,9 @@ export async function syncTestRunsOf(cycleId: string): Promise<void> {
     });
     for (const run of runs) await syncOne(run.id, cycleId);
   } catch (err) {
-    console.error(`[test-cycles] could not update the test runs of cycle ${cycleId}`, err);
+    // cycleId goes in as an argument, not part of the message, so a % in it
+    // can never be read as a format directive.
+    console.error("[test-cycles] could not update the test runs of cycle %s", cycleId, err);
   }
 }
 

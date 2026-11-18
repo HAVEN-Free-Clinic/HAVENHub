@@ -92,6 +92,13 @@ export default async function CycleOverviewPage({ params }: PageProps) {
   const testSource = cycle.isTest && cycle.testSourceCycleId
     ? await prisma.recruitmentCycle.findUnique({ where: { id: cycle.testSourceCycleId }, select: { id: true, title: true } })
     : null;
+  // The test-run instructions show the viewer their own address as the example,
+  // since the sign-in link and every [TEST] email go to whatever address a
+  // fake applicant types in.
+  const testerEmail = cycle.isTest ? session.email : null;
+  const testerPlusExample = testerEmail && testerEmail.includes("@")
+    ? testerEmail.replace("@", "+test1@")
+    : null;
   const testRuns = canManage && !cycle.isTest
     ? await prisma.recruitmentCycle.findMany({
         where: { testSourceCycleId: id, isTest: true },
@@ -165,10 +172,30 @@ export default async function CycleOverviewPage({ params }: PageProps) {
               )}
               Use it to walk through the cycle with made-up applicants. It is hidden from the public apply
               page, so only people with its link can apply, and every email it sends starts with [TEST].
-              Applicants who sign in still get real emails, so use email addresses you can check. Nobody
-              accepted here shows up in a schedule builder or can be added to the roster, and changes here
-              do not affect the real cycle.
+              Nobody accepted here shows up in a schedule builder or can be added to the roster, and changes
+              here do not affect the real cycle.
             </p>
+            <p className="font-medium text-foreground">How to try it</p>
+            <ol className="list-decimal space-y-1 pl-5">
+              <li>Publish the test run, then open its link under Public link below.</li>
+              <li>
+                Apply the way a volunteer would. When the form asks for an email, use one you can open: the
+                sign-in link and every [TEST] email go to that inbox, so you see exactly what applicants will.
+                {testerEmail ? (
+                  <> For example, apply with <span className="font-medium text-foreground">{testerEmail}</span> and
+                  check your own inbox.</>
+                ) : null}
+              </li>
+              <li>
+                To be more than one fake applicant from the same inbox, add +test1, +test2 and so on before the @.
+                {testerPlusExample ? (
+                  <> For example, <span className="font-medium text-foreground">{testerPlusExample}</span>.</>
+                ) : null}{" "}
+                Gmail delivers these to the same inbox; not every email provider does, so send a test to yours
+                first.
+              </li>
+              <li>Review, decide and send onboarding as you would in the real cycle, then delete the test run.</li>
+            </ol>
             {canManage && (
               <form action={deleteTestCycleAction.bind(null, id)}>
                 <ConfirmButton label="Delete test run" confirmLabel="Delete this test run and everyone in it?" size="sm" />

@@ -2,6 +2,7 @@ import { Card } from "@/platform/ui/card";
 import { Alert } from "@/platform/ui/alert";
 import { noticeDisplayLabel } from "@/modules/recruitment/engine/notice";
 import type { WizardField } from "./wizard-steps";
+import { stripInlineFormatting } from "@/platform/ui/inline-markers";
 
 export type ReviewRow = { label: string; value: string; imageSrc?: string };
 export type ReviewGroup = { stepIndex: number; title: string; rows: ReviewRow[] };
@@ -50,7 +51,7 @@ export function formatFieldValue(
 /** The row label for a field in the review summary. Every type uses its own
  *  label except NOTICE, whose heading is optional (see engine/notice.ts). */
 export function reviewLabel(f: Pick<WizardField, "label" | "type"> & { validation?: unknown }): string {
-  return f.type === "NOTICE" ? noticeDisplayLabel(f) : f.label;
+  return f.type === "NOTICE" ? noticeDisplayLabel(f) : stripInlineFormatting(f.label);
 }
 
 export function WizardReview({

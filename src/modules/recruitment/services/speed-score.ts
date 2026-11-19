@@ -10,6 +10,7 @@ import { getApplicantHistory } from "./history";
 import { MONTH_YEAR, historyRowViews, summaryLine, type HistoryRowView } from "../engine/history-display";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import { formatDateTime } from "@/platform/dates/format";
+import { stripInlineFormatting } from "@/platform/ui/inline-markers";
 
 export type ReviewFieldView = {
   key: string;
@@ -105,7 +106,7 @@ export async function loadReviewApplication(
         if (!ref?.storedName) continue;
         fields.push({
           key: f.key,
-          label: f.label,
+          label: stripInlineFormatting(f.label),
           kind: "file",
           displayValue: ref.fileName ?? "(file)",
           file: {
@@ -123,7 +124,7 @@ export async function loadReviewApplication(
         // through to String(val) and rendered as the literal "[object Object]".
         const raw = answers[f.key];
         if (!(raw && typeof raw === "object" && "storedName" in (raw as object))) continue;
-        fields.push({ key: f.key, label: f.label, kind: "scalar", displayValue: "Signed", file: null });
+        fields.push({ key: f.key, label: stripInlineFormatting(f.label), kind: "scalar", displayValue: "Signed", file: null });
         continue;
       }
 
@@ -138,7 +139,7 @@ export async function loadReviewApplication(
 
       fields.push({
         key: f.key,
-        label: f.label,
+        label: stripInlineFormatting(f.label),
         kind: f.type === "LONG_TEXT" ? "essay" : "scalar",
         displayValue,
         file: null,

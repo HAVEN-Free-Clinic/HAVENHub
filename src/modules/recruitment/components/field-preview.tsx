@@ -2,7 +2,7 @@ import { Input } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Alert } from "@/platform/ui/alert";
-import { linkifyUrls } from "@/platform/ui/form";
+import { formatInline } from "@/platform/ui/inline-format";
 import { noticeAcknowledgeLabel } from "../engine/notice";
 import { asPrefillList, isPrefillChecked, prefillString } from "./field-prefill";
 import { WordCountTextarea } from "./word-count-textarea";
@@ -64,7 +64,7 @@ export function FieldPreview({
   // sentence after them -- "...equivalent consequences. Professionalism Volunteers
   // are expected to..." -- which is what QA saw as headings "blending in with the
   // text". The source was already correct; only the rendering dropped the breaks.
-  const help = f.helpText ? <span className="mt-1 block whitespace-pre-line break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">{f.helpText}</span> : null;
+  const help = f.helpText ? <span className="mt-1 block whitespace-pre-line break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">{formatInline(f.helpText)}</span> : null;
   const err = fieldError ? <span id={errorId} role="alert" className="mt-1 block break-words text-xs text-critical-foreground [overflow-wrap:anywhere]">{fieldError}</span> : null;
 
   // Prefill for text-like inputs: a locked field is read-only (verified value);
@@ -91,16 +91,17 @@ export function FieldPreview({
     return (
       <Alert tone="info" role="note">
         {heading && (
-          <span className="block break-words text-sm font-semibold text-foreground [overflow-wrap:anywhere]">{heading}</span>
+          <span className="block break-words text-sm font-semibold text-foreground [overflow-wrap:anywhere]">{formatInline(heading)}</span>
         )}
         {/* whitespace-pre-line for the same reason help text takes it: notices are
             authored as real prose with blank lines between paragraphs, and
-            collapsing those runs the paragraphs together. linkifyUrls because a
-            notice that points at a policy page is the common case and the stored
-            string can never contain real markup. */}
+            collapsing those runs the paragraphs together. formatInline (which also
+            linkifies) because a notice that points at a policy page is the common
+            case, and the stored string can never contain real markup; staff format
+            it with **bold**, *italic* and ==highlight== markers instead. */}
         {body && (
           <span className={cx("block break-words whitespace-pre-line text-sm text-foreground-soft [overflow-wrap:anywhere]", heading && "mt-1")}>
-            {linkifyUrls(body)}
+            {formatInline(body)}
           </span>
         )}
         {ackLabel && (
@@ -119,7 +120,7 @@ export function FieldPreview({
       <div>
         <label className={cx("flex min-h-[44px] items-start gap-2.5 py-1", disabled ? "cursor-default" : "cursor-pointer")}>
           <Checkbox name={f.key} required={required} disabled={disabled} {...errorAria} className="mt-0.5" defaultChecked={isPrefillChecked(prefill)} onChange={(e) => onValueChange?.(f.key, e.target.checked ? "on" : "")} />
-          <span className="min-w-0 break-words text-sm text-foreground [overflow-wrap:anywhere]">{f.label}{req}</span>
+          <span className="min-w-0 break-words text-sm text-foreground [overflow-wrap:anywhere]">{formatInline(f.label)}{req}</span>
         </label>
         {help}
         {err}
@@ -128,7 +129,7 @@ export function FieldPreview({
   }
 
   const onTextChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => onValueChange?.(f.key, e.target.value);
-  const labelEl = <span className="block break-words text-sm font-medium text-foreground [overflow-wrap:anywhere]">{f.label}{req}</span>;
+  const labelEl = <span className="block break-words text-sm font-medium text-foreground [overflow-wrap:anywhere]">{formatInline(f.label)}{req}</span>;
   let control: React.ReactNode;
   switch (f.type) {
     case "LONG_TEXT": {
@@ -237,7 +238,7 @@ export function FieldPreview({
   if (f.type === "MULTI_SELECT" || f.type === "SUBCOMMITTEE_RANK") {
     return (
       <fieldset className="block min-w-0 border-0 p-0">
-        <legend className="block break-words p-0 text-sm font-medium text-foreground [overflow-wrap:anywhere]">{f.label}{req}</legend>
+        <legend className="block break-words p-0 text-sm font-medium text-foreground [overflow-wrap:anywhere]">{formatInline(f.label)}{req}</legend>
         {help}{control}{err}
       </fieldset>
     );

@@ -1,10 +1,12 @@
 "use client";
-import { useState, useTransition, type HTMLAttributes } from "react";
+import { useRef, useState, useTransition, type HTMLAttributes } from "react";
 import { GripVertical, Settings2 } from "lucide-react";
 import type { ApplicantScope, FieldType } from "@prisma/client";
 import { FieldCard, type BuilderField } from "./field-card";
 import { SortableList, type SortableHandleProps } from "./sortable-list";
 import { TypePicker } from "./type-picker";
+import { FormatButtons, FORMAT_HINT } from "./format-buttons";
+import { formatInline } from "@/platform/ui/inline-format";
 import { updateSectionAction, deleteSectionAction, addFieldAction, reorderFieldsAction } from "./actions";
 import { Field, Input, Textarea } from "@/platform/ui/input";
 import { Select } from "@/platform/ui/select";
@@ -42,6 +44,8 @@ export function SectionCard({
   // rejected save looked identical to a save that never fired.
   const [error, setError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
+
+  const descriptionRef = useRef<HTMLTextAreaElement | null>(null);
 
   function saveSection(patch: Parameters<typeof updateSectionAction>[2]) {
     setError(null);
@@ -82,7 +86,7 @@ export function SectionCard({
         <div className="min-w-0 flex-1 break-words [overflow-wrap:anywhere]">
           <SectionHeader>{section.title}</SectionHeader>
           <p className="text-xs text-subtle-foreground">{scope}{section.departmentCode ? ` · ${section.departmentCode}` : ""}</p>
-          {section.description && <p className="mt-1 text-sm text-muted-foreground">{section.description}</p>}
+          {section.description && <p className="mt-1 whitespace-pre-line text-sm text-muted-foreground">{formatInline(section.description)}</p>}
         </div>
         <Button type="button" variant="ghost" size="sm" onClick={() => setShowSettings((v) => !v)} aria-label="Section settings"><Settings2 className="h-4 w-4" aria-hidden /></Button>
         <form action={async () => { setError(null); const r = await deleteSectionAction(cycleId, section.id); if (r.ok) onChanged(); else setError(r.error); }}>
@@ -106,9 +110,14 @@ export function SectionCard({
               <option value="RENEWAL">Renewing only</option>
             </Select>
           </Field>
-          <Field label="Description" hint="Shown under the section title.">
-            <Textarea defaultValue={section.description ?? ""} rows={2} onBlur={(e) => { const v = e.target.value.trim(); if (v !== (section.description ?? "")) saveSection({ description: v }); }} />
-          </Field>
+          <div className="relative">
+            <div className="absolute right-0 top-0">
+              <FormatButtons target={descriptionRef} disabled={!editable} onChange={(v) => saveSection({ description: v })} />
+            </div>
+            <Field label="Description" hint={`Shown under the section title. ${FORMAT_HINT}`}>
+              <Textarea ref={descriptionRef} defaultValue={section.description ?? ""} rows={2} onBlur={(e) => { const v = e.target.value.trim(); if (v !== (section.description ?? "")) saveSection({ description: v }); }} />
+            </Field>
+          </div>
           <Field label="Department code" hint="Supplement only.">
             <Input defaultValue={section.departmentCode ?? ""} disabled={!editable} onBlur={(e) => { const v = e.target.value.trim(); if (v !== (section.departmentCode ?? "")) saveSection({ departmentCode: v || null }); }} />
           </Field>

@@ -14,7 +14,8 @@ import { Button } from "@/platform/ui/button";
 import { Select } from "@/platform/ui/select";
 import { Field, ReadonlyField } from "@/platform/ui/input";
 import { Card } from "@/platform/ui/card";
-import { FormSection, linkifyUrls } from "@/platform/ui/form";
+import { FormSection } from "@/platform/ui/form";
+import { formatInline, stripInlineFormatting } from "@/platform/ui/inline-format";
 import { RadioGroup, Radio } from "@/platform/ui/radio";
 import { FieldPreview } from "@/modules/recruitment/components/field-preview";
 import { isDisplayOnlyNotice } from "@/modules/recruitment/engine/notice";
@@ -594,15 +595,15 @@ export function ApplyWizard({
           st.kind === "section" ? (
             <div key={st.id} className={cx("space-y-4", i === stepIndex ? cx("block", stepIn) : "hidden")}>
               <Card className="space-y-4">
-                <FormSection description={st.section.description ? linkifyUrls(st.section.description) : undefined}>
+                <FormSection description={st.section.description ? formatInline(st.section.description) : undefined}>
                   {visibleFields(st.section.fields, effectiveAnswers).map((f) =>
                     f.type === "SIGNATURE" ? (
                       <SignaturePad
                         key={f.key}
                         name={f.key}
-                        label={f.label}
+                        label={stripInlineFormatting(f.label)}
                         required={f.required}
-                        helpText={f.helpText}
+                        helpText={f.helpText ? stripInlineFormatting(f.helpText) : f.helpText}
                         personName={[initialAnswers.first_name ?? prefill?.values.first_name, initialAnswers.last_name ?? prefill?.values.last_name].filter(Boolean).join(" ")}
                         defaultValue={typeof initialAnswers[f.key] === "string" ? (initialAnswers[f.key] as string) : ""}
                         defaultMethod={initialAnswers[`${f.key}__method`] === "type" ? "type" : "draw"}

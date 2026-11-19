@@ -296,7 +296,7 @@ describe("test applicants stay out of real records", () => {
       await prisma.application.update({ where: { id: app.id }, data: { status: "SUBMITTED", submittedAt: new Date() } });
     }
 
-    const history = await getApplicantHistory({ emails: ["staff@yale.edu"] });
+    const history = await getApplicantHistory({ viewerId: null, emails: ["staff@yale.edu"] });
     expect(history.applicationCount).toBe(1);
     expect(history.entries.map((e) => e.cycleLabel)).toEqual(["Spring Director 2027"]);
   });

@@ -7,6 +7,7 @@ import { can } from "@/platform/rbac/engine";
 import { getPersonTerms } from "@/platform/terms/person-terms";
 import { recordAudit } from "@/platform/audit";
 import { RecruitmentAuthError, reviewScope } from "./review";
+import { assertCycleUnlocked, assertMayActOnApplication } from "./review-lock";
 import { serviceGapsForCycle } from "./service-gap";
 import { rosterLanguageStatus } from "./applicant-language";
 import { EMPTY_LANGUAGE_STATUS, isAwaitingLanguageAssessment } from "../engine/applicant-language";
@@ -475,6 +476,8 @@ export async function recordApplicantAbsenceExcuse(
   actorId: string
 ): Promise<void> {
   await requireExcuseLead(actorId);
+  // Applied in this cycle: no say over its applicants; never their own.
+  await assertMayActOnApplication({ cycleId, applicantId }, actorId);
   const keys = await resolveApplicantExcuseKeys(cycleId, applicantId);
   await writeExcuse(cycleId, keys.write, reason, actorId);
   // One answer to "why were they not there", which is what the upsert above is
@@ -590,6 +593,7 @@ export async function clearApplicantAbsenceExcuse(
   actorId: string
 ): Promise<void> {
   await requireExcuseLead(actorId);
+  await assertMayActOnApplication({ cycleId, applicantId }, actorId);
   const keys = await resolveApplicantExcuseKeys(cycleId, applicantId);
   await deleteExcuse(cycleId, excuseWhere(cycleId, keys), keys.write, actorId);
 }
@@ -906,6 +910,9 @@ export async function listTrainingRoster(cycleId: string, viewerId: string): Pro
 
   const term = await prisma.term.findUniqueOrThrow({ where: { id: cycle.termId } });
   const scope = await reviewScope(viewerId);
+  // Applied in this cycle: none of its applicants, so no roster (the page shows
+  // the locked notice first). With an exception, everyone but themselves.
+  const lock = await assertCycleUnlocked(cycleId, viewerId);
 
   const [memberships, acceptances] = await Promise.all([
     prisma.termMembership.findMany({
@@ -933,7 +940,10 @@ export async function listTrainingRoster(cycleId: string, viewerId: string): Pro
     }),
     prisma.acceptance.findMany({
       where: {
-        application: { cycleId },
+        application: {
+          cycleId,
+          ...(lock.ownApplicantIds.length ? { applicantId: { notIn: lock.ownApplicantIds } } : {}),
+        },
         ...(scope.all ? {} : { departmentCode: { in: scope.departmentCodes } }),
       },
       select: {

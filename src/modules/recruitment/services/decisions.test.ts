@@ -34,7 +34,7 @@ it("lists conflicts (applications accepted by >1 department)", async () => {
   await accept(clean.id, "SRHD", srr.id);
   await accept(conflicted.id, "SRHD", srr.id);
   await accept(conflicted.id, "MDIC", srr.id);
-  const conflicts = await listConflicts(cycle.id);
+  const conflicts = await listConflicts(cycle.id, "test-viewer");
   expect(conflicts.map((c) => c.applicationId)).toEqual([conflicted.id]);
   expect(conflicts[0].departments.sort()).toEqual(["MDIC", "SRHD"]);
 });
@@ -140,7 +140,7 @@ it("releaseSummary reports the counts", async () => {
   await accept(clean.id, "SRHD", srr.id);
   await accept(conflicted.id, "SRHD", srr.id);
   await accept(conflicted.id, "MDIC", srr.id);
-  const s = await releaseSummary(cycle.id);
+  const s = await releaseSummary(cycle.id, "test-viewer");
   expect(s.acceptedApplications).toBe(2);
   expect(s.conflictedApplications).toBe(1);
   expect(s.unnotified).toBe(1);
@@ -154,11 +154,11 @@ it("releaseSummary reports the counts", async () => {
 it("releaseSummary excludes a withdrawn applicant, so Release can clear the count", async () => {
   const { srr, cycle, clean } = await seed();
   await accept(clean.id, "SRHD", srr.id);
-  expect((await releaseSummary(cycle.id)).unnotified).toBe(1);
+  expect((await releaseSummary(cycle.id, "test-viewer")).unnotified).toBe(1);
 
   await prisma.application.update({ where: { id: clean.id }, data: { status: "WITHDRAWN" } });
 
-  const s = await releaseSummary(cycle.id);
+  const s = await releaseSummary(cycle.id, "test-viewer");
   expect(s.unnotified).toBe(0);
   expect(s.acceptedApplications).toBe(0);
 });

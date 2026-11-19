@@ -6,6 +6,7 @@ import { RecruitmentAuthError } from "./review";
 import { scoreAverage } from "../engine/scoring";
 import { isOwnApplication } from "../engine/own-application";
 import { reviewerIdentity } from "./own-application";
+import { assertMayActOnApplication, cycleReviewLock, isHiddenByLock } from "./review-lock";
 
 export class CommitteeScoreError extends Error {
   constructor(message: string) { super(message); this.name = "CommitteeScoreError"; }
@@ -23,10 +24,13 @@ export async function submitCommitteeScore(
   }
   const app = await prisma.application.findUnique({
     where: { id: applicationId },
-    select: { status: true, applicant: { select: { applicantPersonId: true, emailLower: true, netId: true } } },
+    select: { status: true, cycleId: true, applicantId: true, applicant: { select: { applicantPersonId: true, emailLower: true, netId: true } } },
   });
   if (!app) throw new CommitteeScoreError("Application not found.");
   if (app.status !== "SUBMITTED") throw new CommitteeScoreError("This application hasn't been submitted yet.");
+  // Applied in this cycle: no scoring in it at all; with an exception, never
+  // their own (services/review-lock.ts).
+  await assertMayActOnApplication(app, scorerId, "You can't score your own application.");
   // Committee scoring applies to BOTH tracks (score everyone); only routing is
   // volunteer-only, since director applicants pick their own department.
   // Separation of duties: a committee member who also applied (e.g. a returning
@@ -50,10 +54,18 @@ export async function submitCommitteeScore(
 export type NamedCommitteeScore = Prisma.CommitteeScoreGetPayload<{ include: { scorer: { select: { name: true } } } }>;
 
 /** Running average + all reviewer scores for an application, each named. Who
- *  may read the individual rows is the page's call, not this function's. */
+ *  may read the individual rows is the page's call, not this function's, with
+ *  one exception it enforces itself: the review lock. A viewer who applied in
+ *  the cycle, or whose own application this is, gets an empty summary, so no
+ *  caller can leak scores by forgetting to check (services/review-lock.ts). */
 export async function committeeScoreSummary(
   applicationId: string,
+  viewerId: string,
 ): Promise<{ average: number | null; count: number; scores: NamedCommitteeScore[] }> {
+  const app = await prisma.application.findUnique({ where: { id: applicationId }, select: { cycleId: true, applicantId: true } });
+  if (!app || isHiddenByLock(app, await cycleReviewLock(app.cycleId, viewerId))) {
+    return { average: null, count: 0, scores: [] };
+  }
   const scores = await prisma.committeeScore.findMany({
     where: { applicationId },
     include: { scorer: { select: { name: true } } },

@@ -28,6 +28,7 @@
 
 import type { Prisma } from "@prisma/client";
 import { prisma, type TransactionClient } from "@/platform/db";
+import { visibleApplicationWhere } from "./review-lock";
 import { isoDateKey } from "@/platform/dates";
 import { comparePersonName } from "@/platform/person-name";
 // Re-exported so the four server-side callers that have always imported it from
@@ -298,12 +299,20 @@ export async function listIncomingMembers(opts: {
   termId: string;
   departmentCode: string;
   clinicDates: Date[];
+  /**
+   * Who is building the schedule. Required: an incoming member is an accepted
+   * applicant, so someone who applied in that cycle sees none of its incoming
+   * class (review-lock.ts), and nobody sees their own acceptance here.
+   */
+  viewerId: string;
 }): Promise<IncomingMember[]> {
+  const visible = await visibleApplicationWhere(opts.viewerId);
   const rows = await prisma.acceptance.findMany({
     where: {
       AND: [
         liveAcceptanceWhere(),
         { departmentCode: opts.departmentCode, application: { cycle: { termId: opts.termId } } },
+        { application: visible },
       ],
     },
     select: {

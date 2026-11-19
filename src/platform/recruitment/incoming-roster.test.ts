@@ -195,7 +195,7 @@ describe("listIncomingMembers", () => {
       availability: ["2026-09-05", "2026-09-06", "2026-09-19"],
     });
 
-    const rows = await listIncomingMembers({
+    const rows = await listIncomingMembers({ viewerId: "test-viewer",
       termId: term.id,
       departmentCode: "SRHD",
       clinicDates: CLINIC_DATES,
@@ -227,7 +227,7 @@ describe("listIncomingMembers", () => {
     });
     await seedApplicant({ cycleId: cycle.id, approvedById: srr.id, name: "New Person" });
 
-    const rows = await listIncomingMembers({
+    const rows = await listIncomingMembers({ viewerId: "test-viewer",
       termId: term.id,
       departmentCode: "SRHD",
       clinicDates: CLINIC_DATES,
@@ -255,7 +255,7 @@ describe("listIncomingMembers", () => {
       assessments: [{ language: "es", verified: false, score: 2 }],
     });
 
-    const rows = await listIncomingMembers({ termId: term.id, departmentCode: "SRHD", clinicDates: CLINIC_DATES });
+    const rows = await listIncomingMembers({ viewerId: "test-viewer", termId: term.id, departmentCode: "SRHD", clinicDates: CLINIC_DATES });
     const byName = new Map(rows.map((r) => [r.name, [r.licensedRN, r.verifiedLanguages, r.spanishScore]]));
     expect(byName.get("Nurse Speaker")).toEqual([true, ["es", "ht"], 3.5]);
     // A "no" verdict is not a capability, so neither the language nor its score shows.
@@ -272,7 +272,7 @@ describe("listIncomingMembers", () => {
       cycleId: cycle.id, approvedById: srr.id, name: "Done Contract", contractStatus: "SUBMITTED",
     });
 
-    const rows = await listIncomingMembers({
+    const rows = await listIncomingMembers({ viewerId: "test-viewer",
       termId: term.id,
       departmentCode: "SRHD",
       clinicDates: CLINIC_DATES,
@@ -298,7 +298,7 @@ describe("listIncomingMembers", () => {
     });
     await seedApplicant({ cycleId: cycle.id, approvedById: srr.id, name: "Not Sent" });
 
-    const rows = await listIncomingMembers({ termId: term.id, departmentCode: "SRHD", clinicDates: CLINIC_DATES });
+    const rows = await listIncomingMembers({ viewerId: "test-viewer", termId: term.id, departmentCode: "SRHD", clinicDates: CLINIC_DATES });
     expect(new Map(rows.map((r) => [r.name, r.onboardingNotes]))).toEqual(
       new Map([
         ["No Change", { preferredShifts: "2", availabilityChangeRequest: null }],
@@ -317,7 +317,7 @@ describe("listIncomingMembers", () => {
       cycleId: cycle.id, approvedById: srr.id, name: "Already Promoted", contractStatus: "PROMOTED",
     });
     expect(
-      await listIncomingMembers({ termId: term.id, departmentCode: "SRHD", clinicDates: CLINIC_DATES }),
+      await listIncomingMembers({ viewerId: "test-viewer", termId: term.id, departmentCode: "SRHD", clinicDates: CLINIC_DATES }),
     ).toEqual([]);
   });
 
@@ -333,7 +333,7 @@ describe("listIncomingMembers", () => {
       contractStatus: "SUBMITTED",
     });
     expect(
-      await listIncomingMembers({ termId: term.id, departmentCode: "SRHD", clinicDates: CLINIC_DATES }),
+      await listIncomingMembers({ viewerId: "test-viewer", termId: term.id, departmentCode: "SRHD", clinicDates: CLINIC_DATES }),
     ).toEqual([]);
   });
 
@@ -343,7 +343,7 @@ describe("listIncomingMembers", () => {
       cycleId: cycle.id, approvedById: srr.id, name: "Still Waiting", accepted: false,
     });
     expect(
-      await listIncomingMembers({ termId: term.id, departmentCode: "SRHD", clinicDates: CLINIC_DATES }),
+      await listIncomingMembers({ viewerId: "test-viewer", termId: term.id, departmentCode: "SRHD", clinicDates: CLINIC_DATES }),
     ).toEqual([]);
   });
 
@@ -354,7 +354,7 @@ describe("listIncomingMembers", () => {
     });
     await seedApplicant({ cycleId: cycle.id, approvedById: srr.id, name: "Right Dept" });
 
-    const mine = await listIncomingMembers({
+    const mine = await listIncomingMembers({ viewerId: "test-viewer",
       termId: term.id, departmentCode: "SRHD", clinicDates: CLINIC_DATES,
     });
     expect(mine.map((r) => r.name)).toEqual(["Right Dept"]);
@@ -367,7 +367,7 @@ describe("listIncomingMembers", () => {
       },
     });
     expect(
-      await listIncomingMembers({ termId: otherTerm.id, departmentCode: "SRHD", clinicDates: [] }),
+      await listIncomingMembers({ viewerId: "test-viewer", termId: otherTerm.id, departmentCode: "SRHD", clinicDates: [] }),
     ).toEqual([]);
   });
 });
@@ -507,7 +507,7 @@ describe("newcomer", () => {
     });
     await seedApplicant({ cycleId: cycle.id, approvedById: srr.id, name: "Rae Renewal", applicantType: "RENEWAL" });
 
-    const rows = await listIncomingMembers({ termId: term.id, departmentCode: "SRHD", clinicDates: CLINIC_DATES });
+    const rows = await listIncomingMembers({ viewerId: "test-viewer", termId: term.id, departmentCode: "SRHD", clinicDates: CLINIC_DATES });
     const byName = new Map(rows.map((r) => [r.name, r.newcomer]));
     expect(byName.get("Nia New")).toEqual({ type: "NEW", transferFrom: [] });
     expect(byName.get("Tom Transfer")).toEqual({ type: "TRANSFER", transferFrom: ["PCAR"] });

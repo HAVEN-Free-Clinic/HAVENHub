@@ -1,3 +1,4 @@
+import { assertCycleClearFor } from "./review-lock";
 import type { Term } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
@@ -47,6 +48,8 @@ export async function promoteContracts(
   actorId: string
 ): Promise<{ created: number; reactivated: number; skipped: number; failed: number }> {
   if (!(await can(actorId, "recruitment.review_all"))) throw new RecruitmentAuthError("Only SRR can promote onboarding contracts.");
+  // Cycle-wide: nobody with an application in the cycle (services/review-lock.ts).
+  await assertCycleClearFor({ contractIds }, actorId);
   let created = 0, reactivated = 0, skipped = 0, failed = 0;
   // Pre-conversion apply-portal events were keyed by the applicant email; alias
   // each into the resolved person id so those events join the person timeline.

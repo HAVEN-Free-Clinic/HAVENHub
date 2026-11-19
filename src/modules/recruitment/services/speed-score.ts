@@ -2,6 +2,7 @@ import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { getApplication } from "./submissions";
 import { reviewScope, canViewApplication } from "./review";
+import { cycleReviewLock, CYCLE_LOCKED_MESSAGE } from "./review-lock";
 import { visibleSections, applicantTypeLabel } from "../engine/visibility";
 import { isFieldVisible, mergeDepartmentAnswer, answersForConditions } from "../engine/field-visibility";
 import { formatAnswer } from "../engine/answer-display";
@@ -41,12 +42,14 @@ export async function loadReviewApplication(
   const app = await getApplication(applicationId);
   if (!app) return { error: "Application not found." };
 
-  const [scope, managesCycles, canScore] = await Promise.all([
+  const [scope, managesCycles, canScore, lock] = await Promise.all([
     reviewScope(viewerId),
     can(viewerId, "recruitment.manage_cycles"),
     can(viewerId, "recruitment.score"),
+    cycleReviewLock(app.cycleId, viewerId),
   ]);
-  if (!canViewApplication(app, { scope, managesCycles, canScore })) {
+  if (lock.state === "locked") return { error: CYCLE_LOCKED_MESSAGE };
+  if (!canViewApplication(app, { scope, managesCycles, canScore, lock })) {
     return { error: "You can't view this application." };
   }
 
@@ -150,7 +153,7 @@ export async function loadReviewApplication(
   // Queried exactly as the detail page queries it: this application excluded, so
   // the summary's "2nd application" counts the one being scored.
   const [history, zone] = await Promise.all([
-    getApplicantHistory({ netId: app.applicant.netId, emails: [app.applicant.email], excludeApplicationId: app.id }),
+    getApplicantHistory({ netId: app.applicant.netId, emails: [app.applicant.email], excludeApplicationId: app.id, viewerId }),
     getDisplayTimeZone(),
   ]);
 

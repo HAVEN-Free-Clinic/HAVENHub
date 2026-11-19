@@ -6,6 +6,8 @@ import { getApplicantIdentity } from "@/modules/recruitment/services/portal-auth
 import { canSubmitToCycle } from "@/modules/recruitment/services/cycle-window";
 import { isInvitedTo } from "@/modules/recruitment/services/invites";
 import { getDraft } from "@/modules/recruitment/services/drafts";
+import { loadHavenHistory } from "@/modules/recruitment/services/haven-history";
+import { fieldDerivation } from "@/modules/recruitment/engine/haven-history";
 import { resolveAvailabilityOptions } from "@/modules/recruitment/templates/clinic-dates";
 import { openClinicDates } from "@/platform/attendings/open-clinic-date";
 import { departmentChoiceOptions, resolveSectionTitle } from "@/modules/recruitment/templates/department-options";
@@ -170,11 +172,17 @@ export default async function ApplyPage({ params, searchParams }: { params: Prom
     const fields = sections.flatMap((s) => s.fields).map((f) => ({ key: f.key, type: f.type }));
     prefill = resolveRenewalPrefill(fields, ctx);
   }
+  // Questions answered from the HAVEN record (validation.derive). The wizard
+  // derives the answer from this history for whichever applicant type is picked,
+  // and submitApplication recomputes it from the same Person at submit. Loaded
+  // only when the form has such a question and we know who is applying.
+  const hasDerivedQuestion = sections.some((s) => s.fields.some((f) => fieldDerivation(f.validation) !== null));
+  const havenHistory = memberPersonId && hasDerivedQuestion ? await loadHavenHistory(memberPersonId) : null;
   const initialApplicantType: ApplicantType = type === "renewal" ? "RENEWAL" : type === "transfer" ? "TRANSFER" : "NEW";
 
   return (
     <PortalShell width="wide">
-      <ApplyWizard def={def} signedIn={signedIn} signedInName={signedInName} eligible={eligible} isReturning={isReturning} prefill={prefill} currentDepartments={currentDepartments} departmentOptions={departmentOptions} initialApplicantType={initialApplicantType} initialAnswers={draft?.answers ?? {}} initialApplicantTypeFromDraft={draft?.applicantType} initialRenewalDepartment={draft?.renewalDepartment ?? null} />
+      <ApplyWizard def={def} signedIn={signedIn} signedInName={signedInName} eligible={eligible} isReturning={isReturning} prefill={prefill} havenHistory={havenHistory} currentDepartments={currentDepartments} departmentOptions={departmentOptions} initialApplicantType={initialApplicantType} initialAnswers={draft?.answers ?? {}} initialApplicantTypeFromDraft={draft?.applicantType} initialRenewalDepartment={draft?.renewalDepartment ?? null} />
     </PortalShell>
   );
 }

@@ -15,6 +15,9 @@ import {
 } from "../engine/schema-builder";
 import { visibleSections, type ApplicantType } from "../engine/visibility";
 import { isFieldVisible, mergeDepartmentAnswer, answersForConditions } from "../engine/field-visibility";
+import { departmentChoicesFromAnswer } from "../engine/department-choice";
+import { derivedAnswers, fieldDerivation } from "../engine/haven-history";
+import { loadHavenHistory } from "./haven-history";
 import { getRenewalContext, resolveReturningPersonId, type SsoClaim } from "./renewal";
 import { renderCycleEmail } from "../email/render";
 import { decodeSignaturePng, SignatureError } from "./signature";
@@ -208,6 +211,26 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
   );
   const sectionDefs = toSectionDefs(resolvedSections, cycle.departments, input.applicantType);
 
+  // Questions the form answers from the HAVEN record (validation.derive, see
+  // engine/haven-history.ts). When we know who is applying, the record's answer
+  // replaces whatever the client posted: the wizard shows it locked, but the
+  // posted value is the applicant's to edit, so it is never trusted. Done before
+  // validation and the visibility context, so a condition keyed on one of these
+  // questions sees the record's answer too. Identity is the one the apply page
+  // used to prefill it: the returning member, else the session Person, else the
+  // SSO-matched record. With no Person the posted answer stands.
+  const derivableFields = resolvedSections
+    .flatMap((s) => s.fields)
+    .filter((f) => fieldDerivation(f.validation) !== null);
+  if (derivableFields.length > 0) {
+    const historyPersonId =
+      applicantPersonId ?? (await resolveReturningPersonId(input.sessionPersonId ?? null, input.sso ?? null));
+    if (historyPersonId) {
+      const history = await loadHavenHistory(historyPersonId);
+      input.answers = { ...input.answers, ...derivedAnswers(derivableFields, history, input.applicantType) };
+    }
+  }
+
   let selectedDepartmentCodes: string[];
   if (input.applicantType === "RENEWAL") {
     // Authoritative check: the renewal department must be one the person actually
@@ -220,7 +243,10 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
   } else {
     const deptField = cycle.sections.flatMap((s) => s.fields).find((f) => f.type === DEPT_CHOICE_KEY_TYPE);
     const raw = deptField ? input.answers[deptField.key] : undefined;
-    selectedDepartmentCodes = Array.isArray(raw) ? (raw as string[]) : raw ? [String(raw)] : [];
+    // Ordered: a ranked field (validation.rankCount > 1) posts one value per
+    // slot, first choice first, with "" for an empty slot. A single-choice field
+    // posts the bare code. Both read as the ranked list of codes.
+    selectedDepartmentCodes = departmentChoicesFromAnswer(raw);
     if (input.applicantType === "TRANSFER") {
       // A transfer may not target a department the person already belongs to;
       // that is a renewal, not a transfer.

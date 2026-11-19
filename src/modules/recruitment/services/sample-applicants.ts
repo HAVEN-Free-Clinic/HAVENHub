@@ -31,6 +31,7 @@ import { isDeliverableAddress, SAMPLE_EMAIL_DOMAIN } from "@/platform/email/addr
 import { LANGUAGES_FIELD_KEY, languageCodeFromAnswer } from "@/platform/languages/catalog";
 import { answersForConditions, isFieldVisible, mergeDepartmentAnswer } from "../engine/field-visibility";
 import { isSectionVisible } from "../engine/visibility";
+import { departmentRankCount } from "../engine/department-choice";
 import { renderCycleEmail } from "../email/render";
 
 export const SAMPLE_APPLICANT_COUNT = 20;
@@ -130,7 +131,9 @@ function answerFor(
   i: number,
   p: SampleProfile,
   email: string,
-  deptChoice: string | undefined,
+  // The department answer in the field's own shape: a bare code for a
+  // single-choice field, the ordered list for a ranked one.
+  deptChoice: string | string[] | undefined,
 ): unknown {
   // Every fourth applicant skips the optional questions, like real people do.
   const skipOptional = !field.required && i % 4 === 3;
@@ -262,11 +265,18 @@ export async function addSampleApplicants(cycleId: string, actorId: string): Pro
     if (type === "TRANSFER" && depts.length < 2) type = "NEW";
 
     const first = depts[i % depts.length];
+    // As many ranked choices as the form's department field asks for (1 unless
+    // it sets validation.rankCount), so the sample answer matches what a real
+    // applicant could have submitted. A renewal keeps its one department.
+    const deptRankCount = departmentRankCount(deptField?.validation);
+    // A transfer leaves one department out of its ranking to be coming from.
+    const choiceCount = Math.min(deptRankCount, type === "TRANSFER" ? depts.length - 1 : depts.length);
     const departmentChoices =
-      type === "RENEWAL" || cycle.track === "VOLUNTEER"
+      type === "RENEWAL"
         ? [first]
-        : Array.from({ length: Math.min(3, depts.length) }, (_, k) => depts[(i + k) % depts.length]);
-    const transferFromDepartments = type === "TRANSFER" ? [depts[(i + 1) % depts.length]] : [];
+        : Array.from({ length: choiceCount }, (_, k) => depts[(i + k) % depts.length]);
+    const deptAnswer = deptRankCount > 1 ? departmentChoices : first;
+    const transferFromDepartments = type === "TRANSFER" ? [depts[(i + choiceCount) % depts.length]] : [];
     const email = sampleEmail(p, cycleId);
 
     // Build answers section by section, then drop any answer whose question
@@ -275,7 +285,7 @@ export async function addSampleApplicants(cycleId: string, actorId: string): Pro
     const fields = cycle.sections.filter((s) => isSectionVisible(s, ctx)).flatMap((s) => s.fields);
     const answers: Record<string, unknown> = {};
     for (const f of fields) {
-      const a = answerFor(f, i, p, email, type === "RENEWAL" ? undefined : first);
+      const a = answerFor(f, i, p, email, type === "RENEWAL" ? undefined : deptAnswer);
       if (a !== undefined) answers[f.key] = a;
     }
     const forConditions = mergeDepartmentAnswer(answersForConditions(answers), deptField?.key, departmentChoices);

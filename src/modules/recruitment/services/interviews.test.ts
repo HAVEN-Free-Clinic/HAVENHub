@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
-import { RecruitmentAuthError } from "./review";
+import { RecruitmentAuthError, listApplicantsForReview } from "./review";
 import {
   createInterview, updateInterview, addPanelist, removePanelist, sendInterviewInvite,
   listInterviewsForReview, myAssignedInterviews, getInterview, isInterviewPanelist, InterviewError,
@@ -109,6 +109,33 @@ it("rejects a director scheduling for a department the applicant did not rank", 
   await prisma.termMembership.create({ data: { personId: pcarDir.id, termId: term.id, departmentId: pcar.id, kind: "DIRECTOR", status: "ACTIVE" } });
   // pcarDir directs PCAR (in scope) but the applicant ranked only EDUC
   await expect(createInterview(application.id, "PCAR", pcarDir.id)).rejects.toBeInstanceOf(RecruitmentAuthError);
+});
+
+it("lets BOTH ranked departments see and interview an applicant who ranked two", async () => {
+  const { application, cycle, director, term, pcar } = await seed();
+  // A ranked director application stores its choices in order, 1st choice first.
+  await prisma.application.update({ where: { id: application.id }, data: { departmentChoices: ["EDUC", "PCAR"] } });
+  const pcarDir = await prisma.person.create({ data: { name: "PcarDir", status: "ACTIVE" } });
+  await prisma.termMembership.create({ data: { personId: pcarDir.id, termId: term.id, departmentId: pcar.id, kind: "DIRECTOR", status: "ACTIVE" } });
+
+  // Each department's director finds the applicant in their review list...
+  const educList = await listApplicantsForReview(cycle.id, director.id);
+  const pcarList = await listApplicantsForReview(cycle.id, pcarDir.id);
+  expect(educList.map((a) => a.id)).toEqual([application.id]);
+  expect(pcarList.map((a) => a.id)).toEqual([application.id]);
+
+  // ...and may open an interview for their own department.
+  const educIv = await createInterview(application.id, "EDUC", director.id);
+  const pcarIv = await createInterview(application.id, "PCAR", pcarDir.id);
+  expect([educIv.departmentCode, pcarIv.departmentCode]).toEqual(["EDUC", "PCAR"]);
+
+  // A department neither choice names is still refused.
+  const ophtho = await prisma.department.create({ data: { code: "OPTH", name: "Ophthalmology" } });
+  await prisma.recruitmentCycle.update({ where: { id: cycle.id }, data: { departments: ["EDUC", "PCAR", "OPTH"] } });
+  const opthDir = await prisma.person.create({ data: { name: "OpthDir", status: "ACTIVE" } });
+  await prisma.termMembership.create({ data: { personId: opthDir.id, termId: term.id, departmentId: ophtho.id, kind: "DIRECTOR", status: "ACTIVE" } });
+  expect(await listApplicantsForReview(cycle.id, opthDir.id)).toEqual([]);
+  await expect(createInterview(application.id, "OPTH", opthDir.id)).rejects.toBeInstanceOf(RecruitmentAuthError);
 });
 
 it("uses the cycle's interview-invite override when present", async () => {

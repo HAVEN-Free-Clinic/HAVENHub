@@ -12,7 +12,9 @@ export function directorSupplementSections(departments: string[]): TemplateSecti
       appliesTo: "NEW",
       departmentCode: norm,
       purpose: "APPLICATION",
-      description: "Please limit each response to 300 words.",
-      fields: (supplementQuestions[norm] ?? []).map((f, i) => ({ ...f, order: i })),
+      description: "These are optional. Answer any you'd like to share more about, and please keep each to 300 words.",
+      // Optional on purpose: a place for directors to add anything extra, not a
+      // requirement to finish the application.
+      fields: (supplementQuestions[norm] ?? []).map((f, i) => ({ ...f, required: false, order: i })),
     }));
 }

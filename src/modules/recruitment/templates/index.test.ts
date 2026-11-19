@@ -44,8 +44,10 @@ describe("getApplicationTemplate", () => {
       "prev_volunteered", "returning_board",
       "essay_community_care", "essay_priorities", "essay_accountability",
       "department_choice", "subcommittee_rank",
-      "time_commitments", "resume",
+      "time_commitments",
     ]));
+    // Kept short: no resume upload on the director form.
+    expect(keys).not.toContain("resume");
     // The volunteer-specific contract/acknowledgements section must not leak into
     // the director track.
     expect(keys).not.toEqual(expect.arrayContaining(["volunteer_agreement"]));
@@ -127,5 +129,12 @@ describe("getApplicationTemplate", () => {
     const coverLetter = deptSection.fields.find((f) => f.key === "cover_letter")!;
     expect(coverLetter.type).toBe("FILE");
     expect(coverLetter.required).toBe(true);
+  });
+
+  it("director department questions are all optional", () => {
+    const t = getApplicationTemplate("DIRECTOR", ["EXEC", "SRHD", "MDIC", "ITCM"], dates);
+    const supplementFields = t.filter((s) => s.departmentCode !== null).flatMap((s) => s.fields);
+    expect(supplementFields.length).toBeGreaterThan(0);
+    expect(supplementFields.every((f) => f.required === false)).toBe(true);
   });
 });

@@ -7,8 +7,9 @@ const YES_NO_NA: TemplateField["options"] = [
 ];
 
 // Verbatim from the live director application form (form pagNLIAaYIfJhuCzU),
-// Section 5 "Department Specific Questions". Each question is a required
-// LONG_TEXT unless noted otherwise. Departments with no supplement this
+// Section 5 "Department Specific Questions". Each question is a LONG_TEXT
+// unless noted otherwise. The `required` flags below are the original form's;
+// directorSupplementSections makes every one optional on the Hub form. Departments with no supplement this
 // cycle (BVHD, CRAD, FCRL, LCCN, PATS, PBRL) are intentionally omitted; see
 // SUPPLEMENT_DEPARTMENTS.DIRECTOR in dept-codes.ts for the recruiting set.
 export const supplementQuestions: Record<string, Omit<TemplateField, "order">[]> = {

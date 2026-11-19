@@ -6,6 +6,7 @@ import { cycleReviewLock, CYCLE_LOCKED_MESSAGE } from "./review-lock";
 import { visibleSections, applicantTypeLabel } from "../engine/visibility";
 import { isFieldVisible, mergeDepartmentAnswer, answersForConditions } from "../engine/field-visibility";
 import { formatAnswer } from "../engine/answer-display";
+import { NO_COMMITTEE_SCORING_MESSAGE, usesCommitteeScoring } from "../engine/scoring";
 import { isInlinePreviewable } from "./file-preview";
 import { getApplicantHistory } from "./history";
 import { MONTH_YEAR, historyRowViews, summaryLine, type HistoryRowView } from "../engine/history-display";
@@ -35,13 +36,22 @@ export type ReviewApplicationView = {
 
 /** Build the condensed, reviewer-facing view of one application: option labels
  *  resolved, `visibleWhen`-hidden fields dropped, each field tagged with a
- *  layout `kind`. Re-checks view access (defense in depth). */
+ *  layout `kind`. Re-checks view access (defense in depth).
+ *
+ *  `forCommitteeScoring` marks the speed-score modal's load, which refuses a
+ *  director cycle: director applicants are never committee-scored. The MCP
+ *  get_application tool reads through this same loader for both tracks, so the
+ *  refusal is opt-in rather than built into every load. */
 export async function loadReviewApplication(
   applicationId: string,
   viewerId: string,
+  opts: { forCommitteeScoring?: boolean } = {},
 ): Promise<{ view: ReviewApplicationView } | { error: string }> {
   const app = await getApplication(applicationId);
   if (!app) return { error: "Application not found." };
+  if (opts.forCommitteeScoring && !usesCommitteeScoring(app.cycle.track)) {
+    return { error: NO_COMMITTEE_SCORING_MESSAGE };
+  }
 
   const [scope, managesCycles, canScore, lock] = await Promise.all([
     reviewScope(viewerId),

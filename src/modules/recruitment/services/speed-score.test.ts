@@ -4,6 +4,7 @@ import { prisma } from "@/platform/db";
 import { createCycle } from "./cycles";
 import { addField } from "./form-builder";
 import { loadReviewApplication } from "./speed-score";
+import { NO_COMMITTEE_SCORING_MESSAGE } from "../engine/scoring";
 
 async function seed() {
   const term = await prisma.term.create({ data: { code: "FA26", name: "Fall 2026", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
@@ -141,6 +142,15 @@ describe("loadReviewApplication", () => {
       .filter((f) => f.label === "Subcommittee ranking");
     expect(ranked).toHaveLength(1);
     expect(ranked[0].displayValue).toBe("1. CQA  ·  2. CREC");
+  });
+
+  it("refuses the speed-score load on a director cycle, which is never committee-scored", async () => {
+    const { scorer, application, outsiderApplication } = await seed();
+    expect(await loadReviewApplication(outsiderApplication.id, scorer.id, { forCommitteeScoring: true })).toEqual({
+      error: NO_COMMITTEE_SCORING_MESSAGE,
+    });
+    // A volunteer application still loads for scoring.
+    expect("view" in (await loadReviewApplication(application.id, scorer.id, { forCommitteeScoring: true }))).toBe(true);
   });
 
   it("returns an error for a viewer out of scope", async () => {

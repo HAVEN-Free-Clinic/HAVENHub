@@ -3,6 +3,7 @@ import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
 import { RecruitmentAuthError } from "./review";
 import { submitCommitteeScore, committeeScoreSummary, myCommitteeComments, CommitteeScoreError } from "./committee-scoring";
+import { NO_COMMITTEE_SCORING_MESSAGE } from "../engine/scoring";
 
 async function seed() {
   const term = await prisma.term.create({ data: { code: "FA26", name: "Fall", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
@@ -54,15 +55,15 @@ describe("submitCommitteeScore", () => {
     await expect(submitCommitteeScore(application.id, scorer.id, 5, null)).rejects.toBeInstanceOf(RecruitmentAuthError);
   });
 
-  it("rejects self-scoring on a director-track cycle too (SoD applies on both tracks)", async () => {
-    // The motivating case: a director renewing their own membership who is also
-    // on the scoring committee must not score their own director-track application.
+  it("refuses a self-score on a director-track cycle, which is not committee-scored at all", async () => {
+    // A director renewing their own membership who is also on the scoring
+    // committee: still refused, now because no one scores a director cycle.
     const { scorer } = await seed();
     const term = await prisma.term.create({ data: { code: "FA26DS", name: "FDS", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
     const cycle = await prisma.recruitmentCycle.create({ data: { track: "DIRECTOR", termId: term.id, title: "DS", publicSlug: "ds", departments: ["EDUC"], createdById: scorer.id, status: "OPEN" } });
     const applicant = await prisma.applicant.create({ data: { cycleId: cycle.id, firstName: "Self", lastName: "Dir", email: "self@y.edu", emailLower: "self@y.edu", applicantPersonId: scorer.id } });
     const application = await prisma.application.create({ data: { cycleId: cycle.id, applicantId: applicant.id, answers: {}, applicantType: "RENEWAL", departmentChoices: ["EDUC"], status: "SUBMITTED" } });
-    await expect(submitCommitteeScore(application.id, scorer.id, 4, null)).rejects.toBeInstanceOf(RecruitmentAuthError);
+    await expect(submitCommitteeScore(application.id, scorer.id, 4, null)).rejects.toBeInstanceOf(CommitteeScoreError);
   });
 
   it("rejects an out-of-range score", async () => {
@@ -70,14 +71,16 @@ describe("submitCommitteeScore", () => {
     await expect(submitCommitteeScore(application.id, scorer.id, 6, null)).rejects.toBeInstanceOf(CommitteeScoreError);
   });
 
-  it("allows scoring on a director-track cycle (committee scoring applies to both tracks)", async () => {
+  it("refuses scoring on a director-track cycle: directors interview or decide, the committee never scores", async () => {
     const { scorer } = await seed();
     const term = await prisma.term.create({ data: { code: "FA26D", name: "Fall Director", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
     const cycle = await prisma.recruitmentCycle.create({ data: { track: "DIRECTOR", termId: term.id, title: "D", publicSlug: "d", departments: ["EDUC"], createdById: scorer.id, status: "OPEN" } });
     const applicant = await prisma.applicant.create({ data: { cycleId: cycle.id, firstName: "C", lastName: "D", email: "c@y.edu", emailLower: "c@y.edu" } });
     const application = await prisma.application.create({ data: { cycleId: cycle.id, applicantId: applicant.id, answers: {}, applicantType: "NEW", departmentChoices: ["EDUC"], status: "SUBMITTED" } });
-    const saved = await submitCommitteeScore(application.id, scorer.id, 4, null);
-    expect(saved.score).toBe(4);
+    await expect(submitCommitteeScore(application.id, scorer.id, 4, null)).rejects.toThrow(
+      new CommitteeScoreError(NO_COMMITTEE_SCORING_MESSAGE),
+    );
+    expect(await prisma.committeeScore.count({ where: { applicationId: application.id } })).toBe(0);
   });
 });
 

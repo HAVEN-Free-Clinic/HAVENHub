@@ -226,6 +226,37 @@ describe("cycle_summary", () => {
     const dir = JSON.parse(await run("cycle_summary", f.director.id, { cycle_id: f.cycle.id }));
     expect(dir.totalSubmitted).toBe(1);
   });
+
+  it("reports no committee scoring on a director cycle, anywhere it would surface", async () => {
+    // Director applicants are interviewed or decided by directors, never
+    // committee-scored. A stray score on file must not leak into any tool.
+    const f = await seed();
+    const dCycle = await prisma.recruitmentCycle.create({
+      data: { track: "DIRECTOR", termId: f.term.id, title: "Directors", publicSlug: "mcp-dir", departments: ["SRHD"], createdById: f.lead.id, status: "OPEN" },
+    });
+    const applicant = await prisma.applicant.create({
+      data: { cycleId: dCycle.id, firstName: "Dana", lastName: "Applicant", email: "dana@yale.edu", emailLower: "dana@yale.edu" },
+    });
+    const app = await prisma.application.create({
+      data: { cycleId: dCycle.id, applicantId: applicant.id, applicantType: "NEW", departmentChoices: ["SRHD"], submittedAt: new Date(), answers: {} },
+    });
+    await prisma.committeeScore.create({ data: { applicationId: app.id, scorerId: f.scorerA.id, score: 5, comments: "STRAY-DIRECTOR-SCORE" } });
+
+    const summaryText = await run("cycle_summary", f.lead.id, { cycle_id: dCycle.id });
+    expect(summaryText).not.toContain("STRAY-DIRECTOR-SCORE");
+    const summary = JSON.parse(summaryText);
+    expect(summary.scoring).toHaveProperty("notApplicable");
+    expect(summary.scoring).not.toHaveProperty("withAtLeastOneScore");
+    expect(summary.byStage).toEqual({ "Awaiting interview or decision": 1 });
+
+    const list = JSON.parse(await run("list_applicants", f.lead.id, { cycle_id: dCycle.id }));
+    expect(list.rows[0].committee).toHaveProperty("notApplicable");
+    expect(list.rows[0].stage).toBe("Awaiting interview or decision");
+
+    const one = await run("get_application", f.lead.id, { application_id: app.id });
+    expect(one).not.toContain("STRAY-DIRECTOR-SCORE");
+    expect(JSON.parse(one).committeeScores).toHaveProperty("notApplicable");
+  });
 });
 
 describe("get_application", () => {

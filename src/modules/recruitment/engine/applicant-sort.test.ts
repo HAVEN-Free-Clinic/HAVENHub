@@ -31,33 +31,33 @@ const lastNames = (apps: SortableApplicant[]) => apps.map((a) => a.applicant.las
 
 it("sorts by last name ascending, then descending", () => {
   const apps = [named("Tracey"), named("Alvarez"), named("Mensah")];
-  expect(lastNames(sortApplicants(apps, { key: "name", dir: "asc" }))).toEqual(["Alvarez", "Mensah", "Tracey"]);
-  expect(lastNames(sortApplicants(apps, { key: "name", dir: "desc" }))).toEqual(["Tracey", "Mensah", "Alvarez"]);
+  expect(lastNames(sortApplicants(apps, { key: "name", dir: "asc" }, "VOLUNTEER"))).toEqual(["Alvarez", "Mensah", "Tracey"]);
+  expect(lastNames(sortApplicants(apps, { key: "name", dir: "desc" }, "VOLUNTEER"))).toEqual(["Tracey", "Mensah", "Alvarez"]);
 });
 
 it("breaks a shared last name on first name", () => {
   const a = app({ applicant: { firstName: "Zoe", lastName: "Chen", email: "z@yale.edu" } });
   const b = app({ applicant: { firstName: "Alex", lastName: "Chen", email: "a@yale.edu" } });
-  const sorted = sortApplicants([a, b], { key: "name", dir: "asc" });
+  const sorted = sortApplicants([a, b], { key: "name", dir: "asc" }, "VOLUNTEER");
   expect(sorted.map((s) => s.applicant.firstName)).toEqual(["Alex", "Zoe"]);
 });
 
 it("sorts accented names next to their unaccented neighbours", () => {
   // A naive `<` compare puts "Renée" after "Renz", because U+00E9 > "z".
   const apps = [named("Renz"), named("Renée"), named("Reed")];
-  expect(lastNames(sortApplicants(apps, { key: "name", dir: "asc" }))).toEqual(["Reed", "Renée", "Renz"]);
+  expect(lastNames(sortApplicants(apps, { key: "name", dir: "asc" }, "VOLUNTEER"))).toEqual(["Reed", "Renée", "Renz"]);
 });
 
 it("sorts by email", () => {
   const a = app({ applicant: { firstName: "A", lastName: "A", email: "zoe@yale.edu" } });
   const b = app({ applicant: { firstName: "B", lastName: "B", email: "abe@yale.edu" } });
-  const sorted = sortApplicants([a, b], { key: "email", dir: "asc" });
+  const sorted = sortApplicants([a, b], { key: "email", dir: "asc" }, "VOLUNTEER");
   expect(sorted.map((s) => s.applicant.email)).toEqual(["abe@yale.edu", "zoe@yale.edu"]);
 });
 
 it("sorts by applicant type label", () => {
   const apps = [app({ applicantType: "RENEWAL" }), app({ applicantType: "NEW" }), app({ applicantType: "TRANSFER" })];
-  const sorted = sortApplicants(apps, { key: "type", dir: "asc" });
+  const sorted = sortApplicants(apps, { key: "type", dir: "asc" }, "VOLUNTEER");
   // Labels are New, Renewal, Transfer.
   expect(sorted.map((s) => s.applicantType)).toEqual(["NEW", "RENEWAL", "TRANSFER"]);
 });
@@ -68,8 +68,8 @@ it("sorts by committee average", () => {
     app({ applicant: { firstName: "B", lastName: "High", email: "h@yale.edu" }, committeeScores: [{ score: 5 }] }),
     app({ applicant: { firstName: "C", lastName: "Mid", email: "m@yale.edu" }, committeeScores: [{ score: 3 }, { score: 4 }] }),
   ];
-  expect(lastNames(sortApplicants(apps, { key: "score", dir: "desc" }))).toEqual(["High", "Mid", "Low"]);
-  expect(lastNames(sortApplicants(apps, { key: "score", dir: "asc" }))).toEqual(["Low", "Mid", "High"]);
+  expect(lastNames(sortApplicants(apps, { key: "score", dir: "desc" }, "VOLUNTEER"))).toEqual(["High", "Mid", "Low"]);
+  expect(lastNames(sortApplicants(apps, { key: "score", dir: "asc" }, "VOLUNTEER"))).toEqual(["Low", "Mid", "High"]);
 });
 
 it("sinks unscored applicants to the bottom in BOTH directions", () => {
@@ -79,8 +79,8 @@ it("sinks unscored applicants to the bottom in BOTH directions", () => {
     app({ applicant: { firstName: "C", lastName: "High", email: "h@yale.edu" }, committeeScores: [{ score: 5 }] }),
   ];
   // Ascending must surface the genuinely low scorer, not a screenful of blanks.
-  expect(lastNames(sortApplicants(apps, { key: "score", dir: "asc" }))).toEqual(["Low", "High", "Unscored"]);
-  expect(lastNames(sortApplicants(apps, { key: "score", dir: "desc" }))).toEqual(["High", "Low", "Unscored"]);
+  expect(lastNames(sortApplicants(apps, { key: "score", dir: "asc" }, "VOLUNTEER"))).toEqual(["Low", "High", "Unscored"]);
+  expect(lastNames(sortApplicants(apps, { key: "score", dir: "desc" }, "VOLUNTEER"))).toEqual(["High", "Low", "Unscored"]);
 });
 
 it("sorts by stage in pipeline order, not alphabetically", () => {
@@ -95,8 +95,19 @@ it("sorts by stage in pipeline order, not alphabetically", () => {
     routedDepartmentCode: "EDUC",
   });
   const decided = app({ applicant: { firstName: "D", lastName: "Decided", email: "d@yale.edu" }, decision: "ACCEPT" });
-  const sorted = sortApplicants([decided, routed, awaiting, scoring], { key: "stage", dir: "asc" });
+  const sorted = sortApplicants([decided, routed, awaiting, scoring], { key: "stage", dir: "asc" }, "VOLUNTEER");
   expect(lastNames(sorted)).toEqual(["Awaiting", "Scoring", "Routed", "Decided"]);
+});
+
+it("sorts a director roster by its own stages, ignoring stray committee scores", () => {
+  // On a director cycle a scored row is still awaiting a director, so it must
+  // not sort apart from an unscored one as "Scoring" would.
+  const scored = app({ applicant: { firstName: "A", lastName: "Scored", email: "a@yale.edu" }, committeeScores: [{ score: 5 }] });
+  const waiting = app({ applicant: { firstName: "B", lastName: "Waiting", email: "b@yale.edu" } });
+  const interviewing = app({ applicant: { firstName: "C", lastName: "Interviewing", email: "c@yale.edu" }, interviews: [{ decision: "PENDING" }] });
+  const decided = app({ applicant: { firstName: "D", lastName: "Decided", email: "d@yale.edu" }, interviews: [{ decision: "ACCEPT" }] });
+  const sorted = sortApplicants([decided, interviewing, scored, waiting], { key: "stage", dir: "asc" }, "DIRECTOR");
+  expect(lastNames(sorted)).toEqual(["Scored", "Waiting", "Interviewing", "Decided"]);
 });
 
 it("sorts by decision in precedence order, not alphabetically", () => {
@@ -107,7 +118,7 @@ it("sorts by decision in precedence order, not alphabetically", () => {
   const waitlisted = app({ applicant: { firstName: "W", lastName: "Waitlisted", email: "w@yale.edu" }, decision: "WAITLIST" });
   const rejected = app({ applicant: { firstName: "R", lastName: "Rejected", email: "r@yale.edu" }, decision: "REJECT" });
   const none = app({ applicant: { firstName: "N", lastName: "None", email: "n@yale.edu" } });
-  const sorted = sortApplicants([none, rejected, accepted, waitlisted], { key: "decision", dir: "asc" });
+  const sorted = sortApplicants([none, rejected, accepted, waitlisted], { key: "decision", dir: "asc" }, "VOLUNTEER");
   expect(lastNames(sorted)).toEqual(["Accepted", "Waitlisted", "Rejected", "None"]);
 });
 
@@ -116,7 +127,7 @@ it("sorts by ranked department choices", () => {
     app({ applicant: { firstName: "A", lastName: "Second", email: "s@yale.edu" }, departmentChoices: ["MDIC"] }),
     app({ applicant: { firstName: "B", lastName: "First", email: "f@yale.edu" }, departmentChoices: ["CRAD", "EDUC"] }),
   ];
-  expect(lastNames(sortApplicants(apps, { key: "ranked", dir: "asc" }))).toEqual(["First", "Second"]);
+  expect(lastNames(sortApplicants(apps, { key: "ranked", dir: "asc" }, "VOLUNTEER"))).toEqual(["First", "Second"]);
 });
 
 it("keeps the incoming order for ties, preserving submission recency", () => {
@@ -124,13 +135,13 @@ it("keeps the incoming order for ties, preserving submission recency", () => {
   const older = app({ applicant: { firstName: "B", lastName: "Older", email: "o@yale.edu" }, committeeScores: [{ score: 4 }] });
   const oldest = app({ applicant: { firstName: "C", lastName: "Oldest", email: "x@yale.edu" }, committeeScores: [{ score: 4 }] });
   // Input arrives from the service already ordered submittedAt desc.
-  const sorted = sortApplicants([newest, older, oldest], { key: "score", dir: "desc" });
+  const sorted = sortApplicants([newest, older, oldest], { key: "score", dir: "desc" }, "VOLUNTEER");
   expect(lastNames(sorted)).toEqual(["Newest", "Older", "Oldest"]);
 });
 
 it("does not mutate the input array", () => {
   const apps = [named("Tracey"), named("Alvarez")];
-  sortApplicants(apps, { key: "name", dir: "asc" });
+  sortApplicants(apps, { key: "name", dir: "asc" }, "VOLUNTEER");
   expect(lastNames(apps)).toEqual(["Tracey", "Alvarez"]);
 });
 
@@ -170,14 +181,14 @@ it("sorts by language score, sinking the unassessed in both directions", () => {
     { ...named("Low"), languageScore: 2 },
     { ...named("High"), languageScore: 4.5 },
   ];
-  expect(lastNames(sortApplicants(rows, { key: "language", dir: "desc" }))).toEqual(["High", "Low", "Unassessed"]);
-  expect(lastNames(sortApplicants(rows, { key: "language", dir: "asc" }))).toEqual(["Low", "High", "Unassessed"]);
+  expect(lastNames(sortApplicants(rows, { key: "language", dir: "desc" }, "VOLUNTEER"))).toEqual(["High", "Low", "Unassessed"]);
+  expect(lastNames(sortApplicants(rows, { key: "language", dir: "asc" }, "VOLUNTEER"))).toEqual(["Low", "High", "Unassessed"]);
 });
 
 it("treats a roster with no language column at all as unscored", () => {
   const rows = [named("Beta"), named("Alpha")];
   // No languageScore on any row: the comparator must not throw or reorder.
-  expect(lastNames(sortApplicants(rows, { key: "language", dir: "desc" }))).toEqual(["Beta", "Alpha"]);
+  expect(lastNames(sortApplicants(rows, { key: "language", dir: "desc" }, "VOLUNTEER"))).toEqual(["Beta", "Alpha"]);
 });
 
 it("opens the language column descending, like Committee avg", () => {

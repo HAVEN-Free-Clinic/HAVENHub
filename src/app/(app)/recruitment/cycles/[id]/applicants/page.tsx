@@ -13,7 +13,7 @@ import { Badge } from "@/platform/ui/badge";
 import { Pagination } from "@/platform/ui/pagination";
 import { applicantTypeLabel } from "@/modules/recruitment/engine/visibility";
 import { serviceGapsForCycle } from "@/modules/recruitment/services/service-gap";
-import { formatScoreSummary, scoreAverage } from "@/modules/recruitment/engine/scoring";
+import { formatScoreSummary, scoreAverage, usesCommitteeScoring } from "@/modules/recruitment/engine/scoring";
 import { applicationStage, applicationStageLabel, isHandledStage } from "@/modules/recruitment/engine/application-stage";
 import { can } from "@/platform/rbac/engine";
 import { SpeedScoreLauncher } from "@/modules/recruitment/components/speed-score-launcher";
@@ -129,10 +129,13 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
     scorerQueueScope(id, person.personId),
   ]);
   const canScore = scope.all || canScorePerm;
+  // Volunteer cycles only. A director cycle is never committee-scored, so it gets
+  // no speed-score queue, no scorer-pool launcher and no Committee avg column.
+  const committeeScoring = usesCommitteeScoring(cycle.track);
   // The viewer's own saved comments, which the speed-score modal starts each
   // comment box from. Read on its own rather than through the roster query, which
   // would put every reviewer's comments in front of every scorer.
-  const myComments = canScore ? await myCommitteeComments(id, person.personId) : new Map<string, string | null>();
+  const myComments = canScore && committeeScoring ? await myCommitteeComments(id, person.personId) : new Map<string, string | null>();
   // Null on a cycle with no scorer pool. The column default would otherwise
   // read as a target nobody set and mark every under-two row short.
   const coverageTarget = queueScope.pooled ? cycle.scoresPerApplication : null;
@@ -159,13 +162,14 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
   // the two can never disagree about where an application sits.
   const stageOf = (a: (typeof apps)[number]) =>
     applicationStage({
+      track: cycle.track,
       scoreCount: a.committeeScores.length,
       routedDepartmentCode: a.routedDepartmentCode,
       returnedToRoutingAt: a.returnedToRoutingAt,
       applicationDecision: a.decision,
       interviews: a.interviews,
     });
-  const speedItems: SpeedScoreItem[] = canScore
+  const speedItems: SpeedScoreItem[] = canScore && committeeScoring
     ? apps
         .filter((a) => !a.isOwnApplication) // never queue your own application, linked to your account or not
         // Already with a department, in interviews, or decided: a committee score
@@ -219,7 +223,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
   const filtered = filterApplicantsByQuery(filterApplicantsByDepartment(byLanguage, departmentFilter), query);
   const sort = parseApplicantSort(sortParam, dirParam);
   // Sort after filtering and before slicing, so page boundaries stay correct.
-  const sorted = sort ? sortApplicants(filtered, sort) : filtered;
+  const sorted = sort ? sortApplicants(filtered, sort, cycle.track) : filtered;
   const pageCount = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
   const page = Math.min(Math.max(1, Number(pageParam) || 1), pageCount);
   const pageApps = sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -283,7 +287,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
         description={cycle.title}
         action={
           <div className="flex flex-wrap items-center gap-2">
-          {scope.all && (
+          {scope.all && committeeScoring && (
             <ScoringAssignmentLauncher
               cycleId={id}
               onLoad={loadScoringPanelAction}
@@ -359,7 +363,9 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
             <SortableTH columnKey="name" active={sort} hrefFor={sortHref}>Name</SortableTH>
             <SortableTH columnKey="email" active={sort} hrefFor={sortHref}>Email</SortableTH>
             <SortableTH columnKey="type" active={sort} hrefFor={sortHref}>Type</SortableTH>
-            <SortableTH columnKey="score" active={sort} hrefFor={sortHref}>Committee avg</SortableTH>
+            {committeeScoring && (
+              <SortableTH columnKey="score" active={sort} hrefFor={sortHref}>Committee avg</SortableTH>
+            )}
             {language.inLane && (
               <SortableTH columnKey="language" active={sort} hrefFor={sortHref}>Language</SortableTH>
             )}
@@ -437,19 +443,21 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
                     )}
                   </span>
                 </TD>
-                <TD className="whitespace-nowrap text-foreground-soft">
-                  {/* One line: "Not yet scored · 0 of 4" wrapped in every row,
-                      doubling the table's height for a short label.
-                      The target turns "3.7 avg" into "3.7 avg · 2 of 3
-                      reviewers" while a row is short, because speed routing
-                      ranks an average over two reads against one over three.
-                      The viewer's own application arrives with no scores
-                      (listApplicantsForReview), and says so rather than
-                      reading as "Not yet scored". */}
-                  {a.isOwnApplication
-                    ? "Hidden: your application"
-                    : formatScoreSummary(scoreAverage(a.committeeScores.map((c) => c.score)), coverageTarget)}
-                </TD>
+                {committeeScoring && (
+                  <TD className="whitespace-nowrap text-foreground-soft">
+                    {/* One line: "Not yet scored · 0 of 4" wrapped in every row,
+                        doubling the table's height for a short label.
+                        The target turns "3.7 avg" into "3.7 avg · 2 of 3
+                        reviewers" while a row is short, because speed routing
+                        ranks an average over two reads against one over three.
+                        The viewer's own application arrives with no scores
+                        (listApplicantsForReview), and says so rather than
+                        reading as "Not yet scored". */}
+                    {a.isOwnApplication
+                      ? "Hidden: your application"
+                      : formatScoreSummary(scoreAverage(a.committeeScores.map((c) => c.score)), coverageTarget)}
+                  </TD>
+                )}
                 {language.inLane && (
                   <TD>
                     <LanguageCell status={languageStatusFor(a.id)} />
@@ -497,7 +505,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
           })}
           {filtered.length === 0 && (
             <TR>
-              <TD colSpan={7 + (canBulk ? 1 : 0) + (language.inLane ? 1 : 0)} className="py-10 text-center text-subtle-foreground">
+              <TD colSpan={6 + (committeeScoring ? 1 : 0) + (canBulk ? 1 : 0) + (language.inLane ? 1 : 0)} className="py-10 text-center text-subtle-foreground">
                 {/* The filtered case goes through ListEmpty so it says the same
                     thing every other filtered list in the app says. The two
                     non-filtered branches stay bespoke: they carry scope

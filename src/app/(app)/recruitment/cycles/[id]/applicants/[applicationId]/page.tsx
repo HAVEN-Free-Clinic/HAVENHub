@@ -23,7 +23,7 @@ import { ExcuseAbsenceButton } from "@/modules/recruitment/components/excuse-abs
 import { listApplicationInterviews } from "@/modules/recruitment/services/interviews";
 import { DateTime } from "@/platform/dates/display";
 import { committeeScoreSummary } from "@/modules/recruitment/services/committee-scoring";
-import { formatScoreSummary } from "@/modules/recruitment/engine/scoring";
+import { formatScoreSummary, usesCommitteeScoring } from "@/modules/recruitment/engine/scoring";
 import { scorerQueueScope } from "@/modules/recruitment/services/score-assignment";
 import { reviewerIdentity } from "@/modules/recruitment/services/own-application";
 import { isOwnApplication } from "@/modules/recruitment/engine/own-application";
@@ -86,8 +86,10 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
     }),
   ]);
   const seeAll = scope.all || managesCycles;
-  // Committee scoring applies to both tracks; only routing is volunteer-only.
-  const canScore = scope.all || canScorePerm;
+  // Committee scoring is volunteer-only (usesCommitteeScoring): a director cycle
+  // shows no Committee score card and offers no score form.
+  const committeeScoring = usesCommitteeScoring(app.cycle.track);
+  const canScore = committeeScoring && (scope.all || canScorePerm);
   // Shared with the file-download route: mirror listApplicantsForReview exactly so
   // access to the detail page and its files can never drift (routing drives a
   // director's queue on volunteer cycles; ranking on director-track cycles).
@@ -241,7 +243,8 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
   // never its scores or who gave them, and is offered no score form
   // (submitCommitteeScore refuses a self-score regardless).
   const ownApplication = isOwnApplication(app.applicant, await reviewerIdentity(person.personId));
-  const scoreSummary = !ownApplication && (canScore || canDecideRouted) ? await committeeScoreSummary(applicationId, person.personId) : null;
+  const seesCommitteeCard = committeeScoring && (canScore || canDecideRouted);
+  const scoreSummary = !ownApplication && seesCommitteeCard ? await committeeScoreSummary(applicationId, person.personId) : null;
   const myScore = scoreSummary?.scores.find((s) => s.scorerId === person.personId) ?? null;
   // Every reviewer's score and comment, by name, for the people who act on them:
   // a lead (review_all) and the director deciding a routed application. A scorer
@@ -280,14 +283,6 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
         };
       })
     : [];
-  // Scheduling the first interview (or recording the first decision) moves the
-  // application out of committee scoring: off the speed-score queue and out of
-  // scorer assignments (isHandledStage). Not blocked, but said before it happens
-  // when the committee has not finished its reads.
-  const committeeReads = app.cycle.track === "DIRECTOR" && existingInterviews.length === 0
-    ? await prisma.committeeScore.count({ where: { applicationId } })
-    : null;
-  const readsShort = committeeReads != null && committeeReads < app.cycle.scoresPerApplication;
   // Info-session attendance (engine/info-session.ts). A flag for the reviewer,
   // never a decision: nothing on this page acts on it.
   const infoSession = (await infoSessionStatuses(id, [app])).byApplicationId.get(applicationId) ?? null;
@@ -537,7 +532,7 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
                 : " Their check-in will show here once they attend."}
             </Alert>
           )}
-          {ownApplication && (canScore || canDecideRouted) && (
+          {ownApplication && seesCommitteeCard && (
             <Card>
               <SectionHeader>Committee score</SectionHeader>
               <p className="mt-1 text-sm text-foreground-soft">
@@ -546,7 +541,7 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
               </p>
             </Card>
           )}
-          {scoreSummary && (canScore || canDecideRouted) && (
+          {scoreSummary && seesCommitteeCard && (
             <Card>
               <SectionHeader>Committee score</SectionHeader>
               <p className="mt-1 text-xs text-subtle-foreground">
@@ -626,13 +621,6 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
                 For each department this applicant ranked, extend an interview or decide without one. Decisions stay
                 confidential until they are released.
               </p>
-              {readsShort && (
-                <Alert tone="warning" className="mt-3">
-                  Only {committeeReads} of {app.cycle.scoresPerApplication} committee reads are in. Scheduling an
-                  interview or recording a decision takes this applicant out of the committee&apos;s scoring queue and
-                  scorer assignments.
-                </Alert>
-              )}
               {directorDeptRows.length > 0 && (
                 <ul className="mt-3 divide-y divide-border-subtle text-sm">
                   {directorDeptRows.map((row) => (
@@ -679,11 +667,7 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
                             <RowField label="Notes" hint="Optional. Internal only." width="grow">
                               <Input name="notes" />
                             </RowField>
-                            {readsShort ? (
-                              <ConfirmButton size="sm" label="Record decision" confirmLabel="Record before the committee finishes?" />
-                            ) : (
-                              <SubmitButton size="sm" pendingLabel="Recording…">Record decision</SubmitButton>
-                            )}
+                            <SubmitButton size="sm" pendingLabel="Recording…">Record decision</SubmitButton>
                           </FormRow>
                         </form>
                       )}
@@ -704,11 +688,7 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
                         {scheduleChoices.map((d) => (<option key={d} value={d}>{d}</option>))}
                       </Select>
                     </RowField>
-                    {readsShort ? (
-                      <ConfirmButton size="sm" label="Schedule interview" confirmLabel="Schedule before the committee finishes?" />
-                    ) : (
-                      <SubmitButton size="sm" pendingLabel="Scheduling…">Schedule interview</SubmitButton>
-                    )}
+                    <SubmitButton size="sm" pendingLabel="Scheduling…">Schedule interview</SubmitButton>
                   </FormRow>
                 </form>
               ) : directorDeptRows.length === 0 ? (

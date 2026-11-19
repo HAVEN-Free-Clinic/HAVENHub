@@ -1,28 +1,30 @@
-import { expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { APPLICATION_STAGE_ORDER, applicationStage, applicationStageLabel, isHandledStage } from "./application-stage";
+import { usesCommitteeScoring } from "./scoring";
 
 it("is AWAITING_SCORING with no scores, no routing, no interviews", () => {
-  expect(applicationStage({ scoreCount: 0, routedDepartmentCode: null, applicationDecision: "PENDING", interviews: [] })).toBe("AWAITING_SCORING");
+  expect(applicationStage({ track: "VOLUNTEER", scoreCount: 0, routedDepartmentCode: null, applicationDecision: "PENDING", interviews: [] })).toBe("AWAITING_SCORING");
 });
 it("is SCORING once a score exists but not routed", () => {
-  expect(applicationStage({ scoreCount: 2, routedDepartmentCode: null, applicationDecision: "PENDING", interviews: [] })).toBe("SCORING");
+  expect(applicationStage({ track: "VOLUNTEER", scoreCount: 2, routedDepartmentCode: null, applicationDecision: "PENDING", interviews: [] })).toBe("SCORING");
 });
 it("is ROUTED once routed with no interview", () => {
-  expect(applicationStage({ scoreCount: 2, routedDepartmentCode: "EDUC", applicationDecision: "PENDING", interviews: [] })).toBe("ROUTED");
+  expect(applicationStage({ track: "VOLUNTEER", scoreCount: 2, routedDepartmentCode: "EDUC", applicationDecision: "PENDING", interviews: [] })).toBe("ROUTED");
 });
 it("is INTERVIEWING once an interview exists but is undecided", () => {
-  expect(applicationStage({ scoreCount: 2, routedDepartmentCode: "EDUC", applicationDecision: "PENDING", interviews: [{ decision: "PENDING" }] })).toBe("INTERVIEWING");
+  expect(applicationStage({ track: "VOLUNTEER", scoreCount: 2, routedDepartmentCode: "EDUC", applicationDecision: "PENDING", interviews: [{ decision: "PENDING" }] })).toBe("INTERVIEWING");
 });
 it("is DECIDED once any interview has a non-pending decision", () => {
-  expect(applicationStage({ scoreCount: 2, routedDepartmentCode: "EDUC", applicationDecision: "PENDING", interviews: [{ decision: "ACCEPT" }] })).toBe("DECIDED");
+  expect(applicationStage({ track: "VOLUNTEER", scoreCount: 2, routedDepartmentCode: "EDUC", applicationDecision: "PENDING", interviews: [{ decision: "ACCEPT" }] })).toBe("DECIDED");
 });
 it("is DECIDED once the routed department decides a volunteer app directly (no interview)", () => {
-  expect(applicationStage({ scoreCount: 2, routedDepartmentCode: "EDUC", applicationDecision: "ACCEPT", interviews: [] })).toBe("DECIDED");
+  expect(applicationStage({ track: "VOLUNTEER", scoreCount: 2, routedDepartmentCode: "EDUC", applicationDecision: "ACCEPT", interviews: [] })).toBe("DECIDED");
 });
 
 it("is RETURNED when a department handed the applicant back and no re-routing has happened", () => {
   expect(
     applicationStage({
+      track: "VOLUNTEER",
       scoreCount: 2,
       routedDepartmentCode: null,
       returnedToRoutingAt: new Date(),
@@ -38,6 +40,7 @@ it("is RETURNED when a department handed the applicant back and no re-routing ha
 it("is ROUTED, not RETURNED, once re-routed", () => {
   expect(
     applicationStage({
+      track: "VOLUNTEER",
       scoreCount: 2,
       routedDepartmentCode: "MDIC",
       returnedToRoutingAt: new Date(),
@@ -52,6 +55,7 @@ it("is ROUTED, not RETURNED, once re-routed", () => {
 it("is DECIDED when a returned applicant is subsequently rejected", () => {
   expect(
     applicationStage({
+      track: "VOLUNTEER",
       scoreCount: 2,
       routedDepartmentCode: null,
       returnedToRoutingAt: new Date(),
@@ -70,9 +74,36 @@ it("orders stages along the recruitment pipeline", () => {
     // rather than at the end with DECIDED.
     "RETURNED",
     "ROUTED",
+    // Director-only, so it never shares a roster with the committee stages.
+    "AWAITING_INTERVIEW",
     "INTERVIEWING",
     "DECIDED",
   ]);
+});
+
+// Director cycles are never committee-scored (usesCommitteeScoring), so a
+// director application waits on a director, not on the committee.
+describe("director cycles", () => {
+  it("is AWAITING_INTERVIEW with no interview and no decision", () => {
+    expect(applicationStage({ track: "DIRECTOR", scoreCount: 0, routedDepartmentCode: null, applicationDecision: "PENDING", interviews: [] })).toBe("AWAITING_INTERVIEW");
+  });
+  it("never reads as scoring, even with stray committee scores on file", () => {
+    expect(applicationStage({ track: "DIRECTOR", scoreCount: 3, routedDepartmentCode: null, applicationDecision: "PENDING", interviews: [] })).toBe("AWAITING_INTERVIEW");
+  });
+  it("is INTERVIEWING once an interview exists but is undecided", () => {
+    expect(applicationStage({ track: "DIRECTOR", scoreCount: 0, routedDepartmentCode: null, applicationDecision: "PENDING", interviews: [{ decision: "PENDING" }] })).toBe("INTERVIEWING");
+  });
+  it("is DECIDED once a department decides, with or without an interview", () => {
+    expect(applicationStage({ track: "DIRECTOR", scoreCount: 0, routedDepartmentCode: null, applicationDecision: "PENDING", interviews: [{ decision: "WAITLIST" }] })).toBe("DECIDED");
+  });
+  it("leaves AWAITING_INTERVIEW unhandled: a director still owes it an interview or a decision", () => {
+    expect(isHandledStage("AWAITING_INTERVIEW")).toBe(false);
+  });
+});
+
+it("only volunteer cycles use committee scoring", () => {
+  expect(usesCommitteeScoring("VOLUNTEER")).toBe(true);
+  expect(usesCommitteeScoring("DIRECTOR")).toBe(false);
 });
 
 it("orders every stage that has a label", () => {
@@ -100,5 +131,6 @@ it("classifies every stage, so a new one cannot default into being hidden", () =
     "AWAITING_SCORING",
     "SCORING",
     "RETURNED",
+    "AWAITING_INTERVIEW",
   ]);
 });

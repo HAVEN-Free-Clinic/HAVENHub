@@ -295,12 +295,15 @@ describe("interviews", () => {
 
 describe("scoring and speed review", () => {
   it("score, summary and speed-score loader refuse a locked viewer", async () => {
-    const { ed, lead, other } = await seed();
-    await submitCommitteeScore(other.app.id, lead.id, 4, "Strong");
-    await expect(submitCommitteeScore(other.app.id, ed.id, 5, null)).rejects.toThrow(CycleLockedError);
-    expect(await committeeScoreSummary(other.app.id, ed.id)).toEqual({ average: null, count: 0, scores: [] });
-    expect((await committeeScoreSummary(other.app.id, lead.id)).count).toBe(1);
-    expect(await loadReviewApplication(other.app.id, ed.id)).toEqual({ error: CYCLE_LOCKED_MESSAGE });
+    // On the volunteer cycle: director cycles are not committee-scored at all,
+    // so the lock is exercised where scoring actually happens.
+    const { ed, lead, vCycle, vOther, mkApp } = await seed();
+    await mkApp(vCycle.id, { email: "eddie@gmail.com" }, { status: "DRAFT" });
+    await submitCommitteeScore(vOther.app.id, lead.id, 4, "Strong");
+    await expect(submitCommitteeScore(vOther.app.id, ed.id, 5, null)).rejects.toThrow(CycleLockedError);
+    expect(await committeeScoreSummary(vOther.app.id, ed.id)).toEqual({ average: null, count: 0, scores: [] });
+    expect((await committeeScoreSummary(vOther.app.id, lead.id)).count).toBe(1);
+    expect(await loadReviewApplication(vOther.app.id, ed.id)).toEqual({ error: CYCLE_LOCKED_MESSAGE });
   });
 
   it("speed route board refuses a lead who applied in the volunteer cycle", async () => {

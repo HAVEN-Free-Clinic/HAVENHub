@@ -1,15 +1,23 @@
+import { usesCommitteeScoring } from "./scoring";
+
 export type ApplicationStage =
   | "AWAITING_SCORING"
   | "SCORING"
   | "RETURNED"
   | "ROUTED"
+  | "AWAITING_INTERVIEW"
   | "INTERVIEWING"
   | "DECIDED";
 
 /** Derived pipeline stage. `status` on Application stays DRAFT|SUBMITTED; the
  *  stage is computed from committee scores, the routed department, the returned
- *  marker, and the application's interviews. */
+ *  marker, and the application's interviews.
+ *
+ *  Director cycles have no committee scoring (usesCommitteeScoring), so an
+ *  undecided director application with no interview is AWAITING_INTERVIEW, never
+ *  AWAITING_SCORING or SCORING, whatever stray committee scores it carries. */
 export function applicationStage(input: {
+  track: "VOLUNTEER" | "DIRECTOR";
   scoreCount: number;
   routedDepartmentCode: string | null;
   /** Set while a department has declined and the lead has not re-routed yet. */
@@ -21,6 +29,9 @@ export function applicationStage(input: {
   // director apps are decided on an Interview.
   if (input.applicationDecision !== "PENDING" || input.interviews.some((i) => i.decision !== "PENDING")) return "DECIDED";
   if (input.interviews.length > 0) return "INTERVIEWING";
+  // Directors are never routed or committee-scored: until a director extends an
+  // interview or records a decision, the application is waiting on them.
+  if (!usesCommitteeScoring(input.track)) return "AWAITING_INTERVIEW";
   if (input.routedDepartmentCode) return "ROUTED";
   // Checked after ROUTED so a re-routed application reads as ROUTED even if a
   // caller passes a stale returned marker. routeApplication clears the marker,
@@ -35,6 +46,7 @@ export const applicationStageLabel: Record<ApplicationStage, string> = {
   SCORING: "Scoring",
   RETURNED: "Needs re-routing",
   ROUTED: "Routed",
+  AWAITING_INTERVIEW: "Awaiting interview or decision",
   INTERVIEWING: "Interviewing",
   DECIDED: "Decided",
 };
@@ -45,12 +57,16 @@ export const applicationStageLabel: Record<ApplicationStage, string> = {
  *
  *  RETURNED sits just before ROUTED: a returned application is scored and
  *  waiting on the same lead action (routing) that a freshly-scored one is, so it
- *  belongs next to that work rather than filed at the end with DECIDED. */
+ *  belongs next to that work rather than filed at the end with DECIDED.
+ *
+ *  AWAITING_INTERVIEW is director-only, so it never shares a roster with the
+ *  committee stages; it sits just before INTERVIEWING, the stage it leads to. */
 export const APPLICATION_STAGE_ORDER: readonly ApplicationStage[] = [
   "AWAITING_SCORING",
   "SCORING",
   "RETURNED",
   "ROUTED",
+  "AWAITING_INTERVIEW",
   "INTERVIEWING",
   "DECIDED",
 ];
@@ -66,7 +82,10 @@ export const APPLICATION_STAGE_ORDER: readonly ApplicationStage[] = [
  * hides them behind a toggle.
  *
  * RETURNED is deliberately NOT handled: a department declined the applicant and
- * handed them back, so the lead still owes them a routing decision.
+ * handed them back, so the lead still owes them a routing decision. Nor is
+ * AWAITING_INTERVIEW: a director still owes it an interview or a decision. (It
+ * never reaches a committee surface anyway, since director cycles are not
+ * committee-scored.)
  */
 export function isHandledStage(stage: ApplicationStage): boolean {
   return stage === "ROUTED" || stage === "INTERVIEWING" || stage === "DECIDED";

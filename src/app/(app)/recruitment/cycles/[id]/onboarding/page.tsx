@@ -1,6 +1,7 @@
+import { lockedCycleView } from "@/modules/recruitment/components/cycle-locked-notice";
 import { notFound } from "next/navigation";
 import { PageBody } from "@/platform/ui/page-body";
-import { requirePermission } from "@/platform/auth/session";
+import { requirePermission, requirePersonSession } from "@/platform/auth/session";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { listOnboardingRows } from "@/modules/recruitment/services/onboarding";
 import { sendLinksAction, promoteAction, withdrawAction } from "./actions";
@@ -14,9 +15,11 @@ export default async function OnboardingPage({ params }: { params: Promise<{ id:
   const { id } = await params;
   await requirePermission("recruitment.access");
   await requirePermission("recruitment.review_all");
+  const locked = await lockedCycleView(id, { cycleWide: true });
+  if (locked) return locked;
   const cycle = await getCycle(id);
   if (!cycle) notFound();
-  const rows = await listOnboardingRows(id);
+  const rows = await listOnboardingRows(id, (await requirePersonSession()).personId);
   const hasConflicts = rows.some((r) => r.state === "CONFLICT");
   const hasDualAppointments = rows.some((r) => r.state === "DUAL");
 

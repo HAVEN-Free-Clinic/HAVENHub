@@ -6,6 +6,7 @@ import {
 } from "./visibility";
 import { isFieldVisible } from "./field-visibility";
 import { isDisplayOnlyNotice } from "./notice";
+import { departmentRankCount } from "./department-choice";
 
 export type FieldType =
   | "SHORT_TEXT"
@@ -29,7 +30,12 @@ export type FieldValidation = {
   regex?: string;
   maxFileMB?: number;
   acceptedTypes?: string[];
+  /** SUBCOMMITTEE_RANK (default 3) and DEPARTMENT_CHOICE (default 1): how many
+   *  ranked choices the applicant makes. */
   rankCount?: number;
+  /** SINGLE_SELECT only: answer this question from the applicant's HAVEN record
+   *  when they are known. See engine/haven-history.ts. */
+  derive?: string;
   /**
    * Soft target word count for paragraph (LONG_TEXT) fields. Surfaces a live
    * "127 / 300 words" counter to applicants but is NEVER enforced -- it is
@@ -123,8 +129,28 @@ function fieldSchema(field: FieldDef): z.ZodTypeAny {
     case "CHECKBOX":
     case "NOTICE":
       return field.required ? z.coerce.boolean().refine((b) => b === true, "required") : z.coerce.boolean().optional();
-    case "SINGLE_SELECT":
     case "DEPARTMENT_CHOICE": {
+      const values = (field.options ?? []).map((o) => o.value);
+      const base = values.length > 0 ? z.enum(values as [string, ...string[]]) : z.string();
+      const rankCount = departmentRankCount(field.validation);
+      // One choice keeps the scalar shape every existing cycle and stored answer
+      // uses. Ranked choices post one value per slot (an empty slot posts ""),
+      // so normalize to the ordered non-blank list before checking it.
+      if (rankCount === 1) return field.required ? base : z.union([base, z.literal("")]).optional();
+      const toList = (val: unknown) =>
+        (Array.isArray(val) ? val : val == null ? [] : [val]).map((v) => String(v)).filter((v) => v !== "");
+      const arr = z
+        .array(base)
+        .max(rankCount, `Choose at most ${rankCount} departments.`)
+        .refine((a) => new Set(a).size === a.length, "Choose a different department for each choice.");
+      return field.required
+        ? z.preprocess(toList, arr.min(1, "Please choose your 1st choice department."))
+        : z.preprocess((val) => {
+            const a = toList(val);
+            return a.length > 0 ? a : undefined;
+          }, arr.optional());
+    }
+    case "SINGLE_SELECT": {
       const values = (field.options ?? []).map((o) => o.value);
       const base = values.length > 0 ? z.enum(values as [string, ...string[]]) : z.string();
       return field.required ? base : z.union([base, z.literal("")]).optional();

@@ -18,6 +18,7 @@
  * declares, ops executes.
  */
 
+import { assertMayActOnApplicationId } from "./review-lock";
 import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { can } from "@/platform/rbac/engine";
@@ -305,6 +306,8 @@ export async function reopenWithdrawnApplication(applicationId: string, actorId:
   if (!(await can(actorId, "recruitment.manage_cycles"))) {
     throw new WithdrawError("You can't reopen withdrawn applications.");
   }
+  // Applied in this cycle: no say over its applications; never their own.
+  await assertMayActOnApplicationId(applicationId, actorId);
   const res = await prisma.application.updateMany({
     where: { id: applicationId, status: "WITHDRAWN" },
     data: { status: "SUBMITTED", withdrawnAt: null },

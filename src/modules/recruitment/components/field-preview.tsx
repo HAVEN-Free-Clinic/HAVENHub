@@ -3,7 +3,9 @@ import { Select } from "@/platform/ui/select";
 import { Checkbox } from "@/platform/ui/checkbox";
 import { Alert } from "@/platform/ui/alert";
 import { formatInline } from "@/platform/ui/inline-format";
+import { stripInlineFormatting } from "@/platform/ui/inline-markers";
 import { noticeAcknowledgeLabel } from "../engine/notice";
+import { departmentRankCount, rankOrdinal } from "../engine/department-choice";
 import { asPrefillList, isPrefillChecked, prefillString } from "./field-prefill";
 import { WordCountTextarea } from "./word-count-textarea";
 import { cx } from "@/platform/ui/cx";
@@ -181,10 +183,46 @@ export function FieldPreview({
       // falls back to the raw `departments` codes; removing the fallback would
       // blank the builder's dropdown.
       const deptOptions = f.options ?? departments.map((d) => ({ value: d, label: d }));
+      const deptRankCount = departmentRankCount(f.validation);
+      if (deptRankCount > 1) {
+        // Ranked: one select per slot, all named for the field, so the form posts
+        // them in rank order (an empty slot posts ""). Same shape as
+        // SUBCOMMITTEE_RANK below; only the 1st choice is required.
+        const ranks = asPrefillList(prefill);
+        const onRankChange = (e: React.ChangeEvent<HTMLSelectElement>) => onValueChange?.(f.key, namedFormValues(e.target, f.key));
+        control = (
+          <span className="mt-1 flex flex-col gap-2">
+            {Array.from({ length: deptRankCount }).map((_, i) => (
+              <div key={i} className="flex items-center gap-2 text-sm">
+                <span className="w-20 shrink-0 text-xs text-muted-foreground">{rankOrdinal(i)}</span>
+                <Select name={f.key} aria-label={`${stripInlineFormatting(f.label)}: ${rankOrdinal(i)}`} required={required && i === 0} disabled={disabled} {...(i === 0 ? errorAria : {})} defaultValue={ranks[i] ?? ""} className="flex-1" onChange={onRankChange}>
+                  <option value="">{i === 0 && required ? "Select…" : "None"}</option>
+                  {deptOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </Select>
+              </div>
+            ))}
+            <span className="text-xs text-muted-foreground">Choose a different department for each choice.</span>
+          </span>
+        );
+        break;
+      }
       control = <Select name={f.key} required={required} disabled={disabled} {...errorAria} className="mt-1.5" onChange={(e) => onValueChange?.(f.key, e.target.value)} defaultValue={prefillString(prefill)}><option value="" disabled>Select…</option>{deptOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</Select>;
       break;
     }
     case "SINGLE_SELECT":
+      if (locked && typeof prefill === "string" && prefill !== "") {
+        // A locked choice (an answer read from the applicant's HAVEN record) is
+        // shown, not offered. A disabled <select> drops out of the posted form,
+        // so the value rides in a hidden input beside a read-only display.
+        const shown = (f.options ?? []).find((o) => o.value === prefill)?.label ?? prefill;
+        control = (
+          <>
+            <Input type="text" value={shown} readOnly aria-readonly="true" className="mt-1.5 bg-muted text-muted-foreground" />
+            <input type="hidden" name={f.key} value={prefill} />
+          </>
+        );
+        break;
+      }
       control = <Select name={f.key} required={required} disabled={disabled} {...errorAria} className="mt-1.5" onChange={(e) => onValueChange?.(f.key, e.target.value)} defaultValue={prefillString(prefill)}><option value="" disabled>Select…</option>{(f.options ?? []).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</Select>;
       break;
     case "MULTI_SELECT": {
@@ -235,7 +273,7 @@ export function FieldPreview({
   // so wrapping them in one <label> would nest labels (invalid) or bind the group
   // name to only the first control. Use a fieldset/legend for those; a single
   // <label> keeps implicit association for all single-control types.
-  if (f.type === "MULTI_SELECT" || f.type === "SUBCOMMITTEE_RANK") {
+  if (f.type === "MULTI_SELECT" || f.type === "SUBCOMMITTEE_RANK" || (f.type === "DEPARTMENT_CHOICE" && departmentRankCount(f.validation) > 1)) {
     return (
       <fieldset className="block min-w-0 border-0 p-0">
         <legend className="block break-words p-0 text-sm font-medium text-foreground [overflow-wrap:anywhere]">{formatInline(f.label)}{req}</legend>

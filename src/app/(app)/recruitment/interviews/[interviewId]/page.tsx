@@ -6,8 +6,10 @@ import { zoneLabel } from "@/platform/dates/zone";
 import { formatForDateTimeInput } from "@/platform/dates";
 import { can } from "@/platform/rbac/engine";
 import { getInterview, listPanelistCandidates } from "@/modules/recruitment/services/interviews";
-import { reviewScope } from "@/modules/recruitment/services/review";
+import { reviewScope, recordApplicationView } from "@/modules/recruitment/services/review";
+import { CycleLockedNotice } from "@/modules/recruitment/components/cycle-locked-notice";
 import { evaluationSummary } from "@/modules/recruitment/engine/interview-eval";
+import { isDecidedWithoutInterview } from "@/modules/recruitment/engine/interview-mode";
 import { scheduleAction, addPanelistAction, removePanelistAction, sendInviteAction, decideAction, rescindAcceptanceAction, submitEvaluationAction } from "../actions";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { interviewDetailTrail } from "@/modules/recruitment/breadcrumbs";
@@ -33,8 +35,13 @@ const decisionTone = { PENDING: "default", ACCEPT: "success", REJECT: "critical"
 export default async function InterviewDetail({ params }: { params: Promise<{ interviewId: string }> }) {
   const { interviewId } = await params;
   const person = await requirePersonSession();
-  const iv = await getInterview(interviewId);
-  if (!iv) notFound();
+  // The review lock first (services/review-lock.ts): someone who applied in this
+  // cycle gets the locked notice, and their own interview is a 404 even with an
+  // exception, matched by account, NetID or address rather than the link alone.
+  const found = await getInterview(interviewId, person.personId);
+  if (!found) notFound();
+  if (found.locked) return <CycleLockedNotice />;
+  const iv = found.interview;
   const [scope, managesCycles, canScore] = await Promise.all([
     reviewScope(person.personId),
     can(person.personId, "recruitment.manage_cycles"),
@@ -52,6 +59,10 @@ export default async function InterviewDetail({ params }: { params: Promise<{ in
   const isStaff = scope.all || managesCycles || scope.departmentCodes.includes(iv.departmentCode);
   const canView = isStaff || canScore || isPanelist;
   if (!canView) notFound();
+  // This page shows the applicant's name, their interview and the panel's
+  // evaluations, so opening it is a view of their record like the applicant
+  // detail page (same ten-minute dedupe).
+  await recordApplicationView(person.personId, iv.applicationId);
   const canManage = scope.all || scope.departmentCodes.includes(iv.departmentCode);
   const candidates = canManage ? await listPanelistCandidates(interviewId) : [];
   const summary = evaluationSummary(iv.evaluations);
@@ -77,7 +88,9 @@ export default async function InterviewDetail({ params }: { params: Promise<{ in
       />
       <PageHeader
         title={`${iv.application.applicant.firstName} ${iv.application.applicant.lastName}`}
-        description={`${iv.departmentCode} director interview`}
+        description={isDecidedWithoutInterview({ ...iv, evaluationCount: iv.evaluations.length })
+          ? `${iv.departmentCode}: decided without interview`
+          : `${iv.departmentCode} director interview`}
         status={<Badge tone={decisionTone[iv.decision as keyof typeof decisionTone] ?? "default"}>{DECISION_LABELS[iv.decision as keyof typeof DECISION_LABELS] ?? iv.decision}</Badge>}
       />
       {canManage && (

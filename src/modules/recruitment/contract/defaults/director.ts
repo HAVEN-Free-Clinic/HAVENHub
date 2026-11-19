@@ -9,7 +9,7 @@ export const DIRECTOR_LAYOUT: ContractLayout = {
 
 Please complete this form to confirm your participation in the {{orgName}} Board of Directors. Failure to sign and submit the contract within the required timeframe may result in disqualification from the position.
 
-**DATA PRIVACY:** Protecting patient information is of utmost importance within {{orgName}}. Failure to submit this form will result in you being unable to continue as a volunteer for this term and removal from Microsoft Teams as necessary. Both new and returning volunteers must submit this form within 48 hours of their acceptance notification.
+**DATA PRIVACY:** Protecting patient information is of utmost importance within {{orgName}}. Failure to submit this form will result in you being unable to continue as a Director for this term and removal from Microsoft Teams as necessary. Both new and returning Directors must submit this form within 48 hours of their acceptance notification.
 
 **EMR ACCESS (if needed):** ${EPIC_PREAMBLE}` },
 
@@ -63,16 +63,6 @@ A tardy is defined as late to the extent that it impacts patient care or the wor
 **3 strikes are grounds for termination unless a different course of action is determined by the EDs after a meeting with the {{orgName}} Board member.**` },
 
     ...DEPARTMENT_RESPONSIBILITY_BLOCKS,
-
-    { kind: "custom_question", key: "second_department",
-      label: "Do you plan on volunteering with another department during your term?",
-      helpText: "You can only volunteer in a second patient-facing department if you have a non-patient-facing board position.",
-      type: "SINGLE_SELECT", required: true,
-      options: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }] },
-    { kind: "custom_question", key: "second_department_name",
-      label: "If yes, what department will you be volunteering with?",
-      type: "DEPARTMENT_CHOICE", required: true,
-      visibleWhen: { field: "second_department", op: "is", value: "yes" } },
 
     { kind: "section", id: "sec_hipaa", title: "HIPAA Training", body: "" },
     // The instructions ride on the block rather than the section, so they fold

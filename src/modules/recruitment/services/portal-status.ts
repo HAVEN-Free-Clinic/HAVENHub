@@ -125,9 +125,14 @@ export async function getApplicantStatus(identity: ApplicantIdentity): Promise<A
     } else if (released && waitlisted) {
       // Coming off a waitlist is a real thing to want, so the control stays.
       views.push({ ...base, state: "WAITLISTED", headline: "Waitlisted", detail: "We will be in touch if a spot opens.", canContinue: false, withdraw: { kind: "withdraw" } });
-    } else if (decidedForApp && app.acceptances.length === 0) {
+    } else if (decidedForApp && app.acceptances.length === 0 && !app.interviews.some((iv) => iv.decision === "PENDING")) {
       // Guard against the conflict case: if acceptance rows exist but none is emailed (pending resolution),
       // fall through to the neutral state rather than showing a false rejection.
+      // Likewise a director-track applicant with any department still PENDING
+      // (interview scheduled or not) has not been turned down by the clinic:
+      // Release may have run before that department decided. This is the same
+      // hold-back sendRejections applies, so the portal never says "Not selected"
+      // to someone the rejection email is still waiting on.
       // No control here: withdrawing from a decision already made is pointless.
       views.push({ ...base, state: "NOT_SELECTED", headline: "Not selected this cycle", detail: "Thank you for applying.", canContinue: false, withdraw: null });
     } else if (scheduledInterview?.scheduledAt) {

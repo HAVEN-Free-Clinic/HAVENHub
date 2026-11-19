@@ -10,6 +10,7 @@ import {
   CYCLE_REFUSAL,
   FILE_PLACEHOLDER,
   NO_RECRUITMENT_ACCESS,
+  CYCLE_LOCKED,
 } from "./tools";
 
 /**
@@ -194,7 +195,7 @@ describe("list_applicants", () => {
     expect(out.rows.map((r: { applicationId: string }) => r.applicationId).sort()).toEqual([f.routedSrhd.id, f.unrouted.id].sort());
   });
 
-  it("hides the scores on the caller's own application", async () => {
+  it("refuses the cycle to a caller who applied in it; with an exception, never their own application", async () => {
     const f = await seed();
     // The manager applied too, under their own account.
     const applicant = await prisma.applicant.create({
@@ -204,15 +205,14 @@ describe("list_applicants", () => {
       data: { cycleId: f.cycle.id, applicantId: applicant.id, applicantType: "NEW", departmentChoices: ["SRHD"], answers: {} },
     });
     await prisma.committeeScore.create({ data: { applicationId: own.id, scorerId: f.scorerA.id, score: 5, comments: "OWN-SECRET" } });
-    const text = await run("list_applicants", f.manager.id, { cycle_id: f.cycle.id });
-    const row = JSON.parse(text).rows.find((r: { applicationId: string }) => r.applicationId === own.id);
-    expect(row.committee).toEqual({ hidden: "your own application" });
-    expect(text).not.toContain("OWN-SECRET");
+    // The review lock (services/review-lock.ts).
+    expect(await run("list_applicants", f.manager.id, { cycle_id: f.cycle.id })).toBe(CYCLE_LOCKED);
 
-    // Also hidden on the detail read, even for a lead who would otherwise see every score.
-    await prisma.applicant.update({ where: { id: applicant.id }, data: { applicantPersonId: f.lead.id } });
-    const detail = JSON.parse(await run("get_application", f.lead.id, { application_id: own.id }));
-    expect(detail.committeeScores).toEqual({ hidden: "your own application" });
+    await prisma.cycleReviewException.create({ data: { cycleId: f.cycle.id, personId: f.manager.id, reason: "Logistics", grantedById: f.lead.id } });
+    const text = await run("list_applicants", f.manager.id, { cycle_id: f.cycle.id });
+    expect(JSON.parse(text).rows.map((r: { applicationId: string }) => r.applicationId)).not.toContain(own.id);
+    expect(text).not.toContain("OWN-SECRET");
+    expect(await run("get_application", f.manager.id, { application_id: own.id })).toBe(APPLICATION_REFUSAL);
   });
 });
 

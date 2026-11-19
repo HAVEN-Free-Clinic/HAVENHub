@@ -1,3 +1,4 @@
+import { assertCycleClear } from "./review-lock";
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { queueEmail } from "@/platform/email/send";
@@ -22,7 +23,10 @@ export type Conflict = {
   canBecomeDualAppointment: boolean;
 };
 
-export async function listConflicts(cycleId: string): Promise<Conflict[]> {
+/** Every summary and send on the Decisions page is cycle-wide, so each refuses
+ *  anyone with an application in the cycle (services/review-lock.ts). */
+export async function listConflicts(cycleId: string, viewerId: string): Promise<Conflict[]> {
+  await assertCycleClear(cycleId, viewerId);
   const [acceptances, approved] = await Promise.all([
     prisma.acceptance.findMany({
       where: { application: { cycleId } },
@@ -65,7 +69,7 @@ export async function listConflicts(cycleId: string): Promise<Conflict[]> {
   }));
 }
 
-export async function releaseSummary(cycleId: string): Promise<{
+export async function releaseSummary(cycleId: string, viewerId: string): Promise<{
   acceptedApplications: number;
   conflictedApplications: number;
   unnotified: number;
@@ -82,6 +86,7 @@ export async function releaseSummary(cycleId: string): Promise<{
   //
   // Application.status is non-nullable, so `not` drops no rows unexpectedly here
   // -- the same reasoning releaseDecisions records at its own filter.
+  await assertCycleClear(cycleId, viewerId);
   const [acceptances, approved] = await Promise.all([
     prisma.acceptance.findMany({
       where: { application: { cycleId, status: { not: "WITHDRAWN" } } },
@@ -229,6 +234,7 @@ export async function sendAcceptanceEmail(
  *  departments. Requires review_all. */
 export async function releaseDecisions(cycleId: string, actorId: string): Promise<{ sent: number; skippedConflicted: number }> {
   if (!(await can(actorId, "recruitment.review_all"))) throw new RecruitmentAuthError("Only SRR can release decisions.");
+  await assertCycleClear(cycleId, actorId);
   const cycle = await prisma.recruitmentCycle.findUnique({ where: { id: cycleId } });
   if (!cycle) throw new AcceptanceError("Cycle not found.");
   if (cycle.status === "DRAFT" || cycle.status === "ARCHIVED") {
@@ -383,7 +389,8 @@ export type RejectionSummary = {
   released: boolean;
 };
 
-export async function rejectionSummary(cycleId: string): Promise<RejectionSummary> {
+export async function rejectionSummary(cycleId: string, viewerId: string): Promise<RejectionSummary> {
+  await assertCycleClear(cycleId, viewerId);
   const [candidates, cycle] = await Promise.all([
     loadRejectionCandidates(cycleId),
     prisma.recruitmentCycle.findUnique({ where: { id: cycleId }, select: { decisionsReleasedAt: true } }),
@@ -402,6 +409,7 @@ export async function rejectionSummary(cycleId: string): Promise<RejectionSummar
  *  review_all, the same permission Release requires. */
 export async function sendRejections(cycleId: string, actorId: string): Promise<{ sent: number }> {
   if (!(await can(actorId, "recruitment.review_all"))) throw new RecruitmentAuthError("Only SRR can send rejections.");
+  await assertCycleClear(cycleId, actorId);
   const cycle = await prisma.recruitmentCycle.findUnique({ where: { id: cycleId } });
   if (!cycle) throw new AcceptanceError("Cycle not found.");
   // Same status gate Release enforces: a DRAFT cycle has not started and an
@@ -444,8 +452,23 @@ export async function sendRejections(cycleId: string, actorId: string): Promise<
       // on the decision and status we read closes the rest of the gap: a
       // concurrent reopen, waitlist, or withdrawal moves the row and this claim
       // matches nothing, so no email goes out on a decision that no longer holds.
+      //
+      // On a director cycle Application.decision is the unused slot and stays
+      // PENDING, so gating on it alone re-checks nothing: an interview flipped
+      // REJECT -> WAITLIST (or a department left PENDING) in the gap would still
+      // be told they were not selected. There the claim re-asserts the interview
+      // reading the candidate was loaded on: some REJECT, nothing PENDING or
+      // WAITLIST.
       const claimed = await tx.application.updateMany({
-        where: { id: candidate.id, rejectionEmailedAt: null, status: "SUBMITTED", decision: candidate.decision },
+        where: {
+          id: candidate.id,
+          rejectionEmailedAt: null,
+          status: "SUBMITTED",
+          decision: candidate.decision,
+          ...(cycle.track === "DIRECTOR"
+            ? { interviews: { some: { decision: "REJECT" }, none: { decision: { in: ["PENDING", "WAITLIST"] } } } }
+            : {}),
+        },
         data: { rejectionEmailedAt: new Date() },
       });
       if (claimed.count !== 1) return false;

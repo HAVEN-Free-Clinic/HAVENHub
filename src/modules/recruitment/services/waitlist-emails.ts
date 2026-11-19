@@ -1,3 +1,4 @@
+import { assertCycleClear } from "./review-lock";
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { queueEmail } from "@/platform/email/send";
@@ -123,7 +124,9 @@ export type WaitlistEmailSummary = {
   released: boolean;
 };
 
-export async function waitlistEmailSummary(cycleId: string): Promise<WaitlistEmailSummary> {
+export async function waitlistEmailSummary(cycleId: string, viewerId: string): Promise<WaitlistEmailSummary> {
+  // Cycle-wide: nobody with an application in the cycle (services/review-lock.ts).
+  await assertCycleClear(cycleId, viewerId);
   const [candidates, cycle] = await Promise.all([
     loadWaitlistCandidates(cycleId),
     prisma.recruitmentCycle.findUnique({ where: { id: cycleId }, select: { decisionsReleasedAt: true } }),
@@ -146,6 +149,7 @@ export async function sendWaitlistEmails(cycleId: string, actorId: string): Prom
   if (!(await can(actorId, "recruitment.review_all"))) {
     throw new RecruitmentAuthError("Only SRR can send these.");
   }
+  await assertCycleClear(cycleId, actorId);
   const cycle = await prisma.recruitmentCycle.findUnique({ where: { id: cycleId } });
   if (!cycle) throw new AcceptanceError("Cycle not found.");
   if (cycle.status === "DRAFT" || cycle.status === "ARCHIVED") {
@@ -176,9 +180,20 @@ export async function sendWaitlistEmails(cycleId: string, actorId: string): Prom
       const accepted = await tx.acceptance.count({ where: { applicationId: candidate.id } });
       if (accepted > 0) return false;
       // Atomic claim. Gating on the decision we read means a concurrent reject,
-      // reopen, or withdrawal moves the row and this matches nothing.
+      // reopen, or withdrawal moves the row and this matches nothing. On a
+      // director cycle the decision lives on the interviews (Application.decision
+      // stays PENDING), so the claim re-asserts that reading too: still some
+      // WAITLIST, nothing PENDING.
       const claimed = await tx.application.updateMany({
-        where: { id: candidate.id, waitlistEmailedAt: null, status: "SUBMITTED", decision: candidate.decision },
+        where: {
+          id: candidate.id,
+          waitlistEmailedAt: null,
+          status: "SUBMITTED",
+          decision: candidate.decision,
+          ...(cycle.track === "DIRECTOR"
+            ? { interviews: { some: { decision: "WAITLIST" }, none: { decision: "PENDING" } } }
+            : {}),
+        },
         data: { waitlistEmailedAt: new Date() },
       });
       if (claimed.count !== 1) return false;

@@ -134,6 +134,13 @@ describe("cycleNavItems", () => {
     ]);
   });
 
+  it("shows Interviews to a department director without recruitment.access on a DIRECTOR cycle", () => {
+    const items = cycleNavItems({ cycleId: CYCLE_ID, track: "DIRECTOR", canAccess: false, canManage: false, canReviewAll: false, hasReviewScope: true });
+    expect(items.map((i) => i.label)).toContain("Interviews");
+    const scorer = cycleNavItems({ cycleId: CYCLE_ID, track: "DIRECTOR", canAccess: false, canManage: false, canReviewAll: false });
+    expect(scorer.map((i) => i.label)).not.toContain("Interviews");
+  });
+
   describe("Dual appointments", () => {
     it("shows for a department director with no recruitment.access, who asks for volunteers there", () => {
       const items = cycleNavItems({ cycleId: CYCLE_ID, track: "VOLUNTEER", canAccess: false, canManage: false, canReviewAll: false, hasReviewScope: true });
@@ -158,7 +165,8 @@ describe("cycleNavItems", () => {
 
     it("shows on a DIRECTOR cycle too, where the roster is their own directors", () => {
       const items = cycleNavItems({ cycleId: CYCLE_ID, track: "DIRECTOR", canAccess: false, canManage: false, canReviewAll: false, hasReviewScope: true });
-      expect(items.map((i) => i.label)).toEqual(["Applicants", "Training"]);
+      // Interviews too: the director runs their department's interviews.
+      expect(items.map((i) => i.label)).toEqual(["Applicants", "Interviews", "Training"]);
     });
 
     it("stays hidden from a committee scorer, who directs no department", () => {

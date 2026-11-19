@@ -402,9 +402,9 @@ describe("submitContract visibility and Epic resolution", () => {
       confirmations: { board_responsibilities: true, strike_policy: true, training: true, dept_bvhd: true },
       // Every signature-kind agreement: data_privacy, haven_agreement, final_acknowledgement.
       signatures: { data_privacy: realSig(), haven_agreement: realSig(), final_acknowledgement: realSig() },
-      // second_department is required:true unconditionally; epic_needed_self
-      // is hidden (requirement is ALL, not SOME) so it is deliberately omitted.
-      customAnswers: { second_department: "no" },
+      // No custom question is required any more (second_department was
+      // removed); epic_needed_self is hidden (requirement is ALL, not SOME).
+      customAnswers: {},
       // The director default asks for a profile photo too.
       photoFile: { fileName: "me.png", mimeType: "image/png", bytes: PHOTO_PNG },
     });

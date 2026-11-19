@@ -91,7 +91,13 @@ export function cycleNavItems(opts: {
   // services/interviews.ts), so a VOLUNTEER cycle can never have an interview to
   // show. Volunteer applications are reviewed by committee scoring and
   // department routing instead. Do not widen this to make the tab "available".
-  if (opts.canAccess && opts.track === "DIRECTOR") items.push({ label: "Interviews", href: `${base}/interviews`, group: "review" });
+  //
+  // Like Applicants, the page admits a director without recruitment.access (the
+  // Director role does not grant it): directors run these interviews, and
+  // listInterviewsForReview scopes the rows to their departments.
+  if ((opts.canAccess || opts.hasReviewScope) && opts.track === "DIRECTOR") {
+    items.push({ label: "Interviews", href: `${base}/interviews`, group: "review" });
+  }
   if (opts.canAccess && opts.canReviewAll) items.push({ label: "Onboarding", href: `${base}/onboarding`, group: "accepted" });
   if (opts.canAccess && opts.canManage) items.push({ label: "Emails", href: `${base}/emails`, group: "setup" });
   if (opts.canAccess && opts.canManage) items.push({ label: "Quiz", href: `${base}/builder/quiz`, group: "setup" });

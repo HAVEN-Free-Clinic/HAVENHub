@@ -45,6 +45,7 @@ export default async function HistoricalApplicantDetailPage({ params }: PageProp
     netId: applicant.netId,
     emails: applicant.emails.map((e) => e.email),
     personId: applicant.personId,
+    viewerId: session.personId,
   });
 
   return (

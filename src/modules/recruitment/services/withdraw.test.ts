@@ -333,12 +333,12 @@ it("drops a withdrawn application out of the review queue and the digest count",
   // does not route, so route it here to get a realistic "pending review" fixture.
   await prisma.application.update({ where: { id: app.id }, data: { routedDepartmentCode: "SRHD" } });
   expect(await listApplicantsForReview(cycle.id, srr.id)).toHaveLength(1);
-  expect(await pendingReviewCount(["SRHD"])).toBe(1);
+  expect(await pendingReviewCount(["SRHD"], "nobody")).toBe(1);
 
   await withdrawApplication("w16", ID("reed@yale.edu"));
 
   expect(await listApplicantsForReview(cycle.id, srr.id)).toHaveLength(0);
-  expect(await pendingReviewCount(["SRHD"])).toBe(0);
+  expect(await pendingReviewCount(["SRHD"], "nobody")).toBe(0);
 });
 
 it("keeps a withdrawn applicant's interview visible to the panel, marked withdrawn", async () => {

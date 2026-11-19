@@ -1,5 +1,6 @@
 import { prisma } from "@/platform/db";
 import { deriveStage } from "@/platform/airtable/import/history/stages";
+import { visibleApplicationWhere } from "./review-lock";
 import { Prisma, type HistoricalOutcome, type HistoricalStage, type Track } from "@prisma/client";
 
 /**
@@ -51,8 +52,16 @@ export async function getApplicantHistory(q: {
   emails: string[];
   personId?: string | null;
   excludeApplicationId?: string;
+  /**
+   * Who is reading. Required, so no caller can forget it: live applications in
+   * a cycle the viewer applied in are left out (services/review-lock.ts), as is
+   * the viewer's own application anywhere. Archived history is unaffected. Pass
+   * null only for a caller with no human viewer.
+   */
+  viewerId: string | null;
 }): Promise<ApplicantHistory> {
   const emailLowers = q.emails.map((e) => e.toLowerCase());
+  const lockWhere = q.viewerId ? await visibleApplicationWhere(q.viewerId) : {};
 
   const archiveOr: Prisma.HistoricalApplicantWhereInput[] = [
     { emails: { some: { email: { in: emailLowers } } } },
@@ -90,6 +99,7 @@ export async function getApplicantHistory(q: {
           where: {
             status: { in: ["SUBMITTED", "WITHDRAWN"] },
             ...(q.excludeApplicationId ? { id: { not: q.excludeApplicationId } } : {}),
+            ...lockWhere,
           },
           include: {
             interviews: true,

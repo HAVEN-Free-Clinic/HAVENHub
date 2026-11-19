@@ -5,6 +5,8 @@ import { getObject } from "@/platform/storage";
 import { contentDisposition } from "@/platform/content-disposition";
 import { log } from "@/platform/logging";
 import { getContractHipaa } from "@/modules/recruitment/services/onboarding";
+import { assertCycleClearFor } from "@/modules/recruitment/services/review-lock";
+import { RecruitmentAuthError } from "@/modules/recruitment/services/review";
 import { INLINE_SAFE_MIME_TYPES } from "@/modules/recruitment/services/file-preview";
 
 type RouteContext = { params: Promise<{ contractId: string }> };
@@ -45,6 +47,14 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
   const { contractId } = await context.params;
   const meta = hasAccess && canReview ? await getContractHipaa(contractId) : null;
   if (!meta?.hipaaStoredName) return Response.json({ error: "Not found" }, { status: 404 });
+  // Onboarding is cycle-wide (services/review-lock.ts): nobody with an
+  // application in the contract's cycle reads its certificates, exception or not.
+  try {
+    await assertCycleClearFor({ contractIds: [contractId] }, activePerson.id);
+  } catch (err) {
+    if (err instanceof RecruitmentAuthError) return Response.json({ error: "Not found" }, { status: 404 });
+    throw err;
+  }
   if (!STORED_NAME_RE.test(meta.hipaaStoredName)) {
     return Response.json({ error: "Not found" }, { status: 404 });
   }

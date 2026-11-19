@@ -110,7 +110,7 @@ export default async function LanguageReviewPage({ searchParams }: PageProps) {
   // Both review tabs read the one queue and split it, so each tab's badge can
   // count the other.
   const [reviewRows, activeTerm] = await Promise.all([
-    activeTab === "queue" || activeTab === "later" ? listLanguageReviewQueue() : Promise.resolve([]),
+    activeTab === "queue" || activeTab === "later" ? listLanguageReviewQueue(viewer.personId) : Promise.resolve([]),
     getActiveTerm(),
   ]);
   const queueRows = reviewRows.filter((r) => r.reviewLater === null);

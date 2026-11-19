@@ -1,3 +1,4 @@
+import { assertCycleClear } from "./review-lock";
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { recordAudit } from "@/platform/audit";
@@ -35,6 +36,8 @@ export async function assignSubcommittees(
   actorId: string,
 ): Promise<number> {
   await assertLead(actorId);
+  // Cycle-wide: nobody with an application in the cycle (services/review-lock.ts).
+  await assertCycleClear(cycleId, actorId);
   if (changes.length === 0) return 0;
 
   const ids = new Set(changes.map((c) => c.applicationId));
@@ -108,6 +111,7 @@ export type AssignmentRow = {
  *  resolved to names + current assignment. Leads only. */
 export async function listAcceptedForAssignment(cycleId: string, viewerId: string): Promise<AssignmentRow[]> {
   await assertLead(viewerId);
+  await assertCycleClear(cycleId, viewerId);
 
   const apps = await prisma.application.findMany({
     where: { cycleId, acceptances: { some: {} } },

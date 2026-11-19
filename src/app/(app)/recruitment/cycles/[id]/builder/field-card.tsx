@@ -10,6 +10,7 @@ import { parseFieldCondition, type FieldCondition, type FieldConditionOp } from 
 import { updateFieldAction, deleteFieldAction, duplicateFieldAction } from "./actions";
 import { OptionsEditor } from "./options-editor";
 import type { Choice } from "@/modules/recruitment/engine/options";
+import { MAX_DEPARTMENT_RANK, departmentRankCount } from "@/modules/recruitment/engine/department-choice";
 import { DEFAULT_ACKNOWLEDGE_LABEL, isDisplayOnlyNotice, noticeAcknowledgeLabel, noticeDisplayLabel } from "@/modules/recruitment/engine/notice";
 // From availability-key, NOT incoming-roster: this is a client component, and
 // that module imports prisma. See availability-key.ts.
@@ -367,7 +368,28 @@ export function FieldCard({
           )}
 
           {field.type === "DEPARTMENT_CHOICE" && (
-            <p className="text-xs text-subtle-foreground">Choices come from this cycle&apos;s departments automatically.</p>
+            <>
+              <p className="text-xs text-subtle-foreground">Choices come from this cycle&apos;s departments automatically.</p>
+              <Field label="Number of ranked choices" hint={`1 asks for a single department. 2 or 3 asks for a 1st choice (required if this question is) and optional later choices. At most ${MAX_DEPARTMENT_RANK}.`}>
+                <Input
+                  type="number"
+                  min={1}
+                  max={MAX_DEPARTMENT_RANK}
+                  defaultValue={String(departmentRankCount(field.validation))}
+                  disabled={!editable}
+                  onBlur={(e) => {
+                    const n = departmentRankCount({ rankCount: Number(e.target.value) || 1 });
+                    if (n === departmentRankCount(field.validation)) return;
+                    // 1 drops the key, so a single-choice field stores exactly
+                    // what it always did.
+                    const validation: Record<string, unknown> = { ...(field.validation ?? {}) };
+                    if (n === 1) delete validation.rankCount;
+                    else validation.rankCount = n;
+                    save({ validation });
+                  }}
+                />
+              </Field>
+            </>
           )}
 
           {field.type === "SUBCOMMITTEE_RANK" && (

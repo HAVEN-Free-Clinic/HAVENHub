@@ -2,6 +2,7 @@ import Link from "next/link";
 import { can } from "@/platform/rbac/engine";
 import { listCycles, listArchivedCycles } from "@/modules/recruitment/services/cycles";
 import { listReviewableCycles } from "@/modules/recruitment/services/review";
+import { lockedCycleIds } from "@/modules/recruitment/services/review-lock";
 import { requireRecruitmentStaff } from "./cycles/access";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
@@ -23,10 +24,15 @@ export default async function RecruitmentPage() {
   // Only cycle managers can actually create a cycle (createCycleAction enforces
   // recruitment.manage_cycles), so hide the affordance from reviewers who hold
   // recruitment.access but not manage_cycles -- they'd hit /no-access otherwise.
-  const [canManageCycles, hasAccess] = await Promise.all([
+  const [canManageCycles, hasAccess, locked] = await Promise.all([
     can(session.personId, "recruitment.manage_cycles"),
     can(session.personId, "recruitment.access"),
+    lockedCycleIds(session.personId),
   ]);
+  // Cycles this person applied in (services/review-lock.ts). They stay on the
+  // full list, labelled, and open onto the locked notice; listReviewableCycles
+  // already leaves them out for reviewers without module access.
+  const lockedIds = new Set(locked);
   // Full module access sees every cycle, linking to the cycle overview. Reviewers
   // without module access (committee scorers, scope-only directors) see only the
   // cycles they have something to review in, linking straight to the roster.
@@ -64,6 +70,9 @@ export default async function RecruitmentPage() {
                 </Link>
                 {c.isTest && (
                   <Badge tone="warning" className="ml-2">Test run</Badge>
+                )}
+                {lockedIds.has(c.id) && (
+                  <Badge className="ml-2">You applied: applicants hidden</Badge>
                 )}
               </TD>
               <TD className="text-foreground-soft">{trackLabel(c.track)}</TD>
@@ -107,6 +116,9 @@ export default async function RecruitmentPage() {
                       <Link href={cycleHref(c.id)} className="font-medium text-foreground hover:text-brand-fg">
                         {c.title}
                       </Link>
+                      {lockedIds.has(c.id) && (
+                        <Badge className="ml-2">You applied: applicants hidden</Badge>
+                      )}
                     </TD>
                     <TD className="text-foreground-soft">{trackLabel(c.track)}</TD>
                     <TD>

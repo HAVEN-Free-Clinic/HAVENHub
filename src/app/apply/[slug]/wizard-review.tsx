@@ -1,6 +1,7 @@
 import { Card } from "@/platform/ui/card";
 import { Alert } from "@/platform/ui/alert";
 import { noticeDisplayLabel } from "@/modules/recruitment/engine/notice";
+import { departmentChoicesFromAnswer, formatRankedDepartments } from "@/modules/recruitment/engine/department-choice";
 import type { WizardField } from "./wizard-steps";
 import { stripInlineFormatting } from "@/platform/ui/inline-markers";
 
@@ -30,8 +31,14 @@ export function formatFieldValue(
     case "NOTICE":
       return raw === "on" || raw === true ? "Yes" : "No";
     case "SINGLE_SELECT":
-    case "DEPARTMENT_CHOICE":
       return f.options?.find((o) => o.value === one)?.label ?? one;
+    case "DEPARTMENT_CHOICE":
+      // One choice reads as its name; ranked choices read in order with their
+      // rank, "Surgery (1st), Pediatrics (2nd)". Empty slots are dropped.
+      return formatRankedDepartments(
+        departmentChoicesFromAnswer(raw),
+        (code) => f.options?.find((o) => o.value === code)?.label ?? code,
+      );
     case "MULTI_SELECT":
       return list.map((v) => f.options?.find((o) => o.value === v)?.label ?? v).join(", ");
     case "SUBCOMMITTEE_RANK":

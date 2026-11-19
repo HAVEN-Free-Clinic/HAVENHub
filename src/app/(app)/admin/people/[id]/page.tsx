@@ -71,6 +71,7 @@ export default async function PersonDetailPage({ params }: PageProps) {
     netId: person.netId,
     emails: [person.contactEmail].filter((e): e is string => Boolean(e)),
     personId: person.id,
+    viewerId: session.personId,
   });
 
   // Both actions re-require incidents.manage rather than the page's

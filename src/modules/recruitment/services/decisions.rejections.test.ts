@@ -235,14 +235,14 @@ it("rejectionSummary counts the cohort, the outstanding sends, and whether relea
   await mkApp(cycle.id, "r2@yale.edu", { decision: "REJECT" });
   await mkApp(cycle.id, "waitlisted@yale.edu", { decision: "WAITLIST" });
 
-  expect(await rejectionSummary(cycle.id)).toEqual({ rejected: 2, unnotified: 2, emailed: 0, released: true });
+  expect(await rejectionSummary(cycle.id, "test-viewer")).toEqual({ rejected: 2, unnotified: 2, emailed: 0, released: true });
 
   await sendRejections(cycle.id, srr.id);
-  expect(await rejectionSummary(cycle.id)).toEqual({ rejected: 2, unnotified: 0, emailed: 2, released: true });
+  expect(await rejectionSummary(cycle.id, "test-viewer")).toEqual({ rejected: 2, unnotified: 0, emailed: 2, released: true });
 });
 
 it("reports released: false before release, which is what disables the button", async () => {
   const { cycle } = await seed();
   await prisma.recruitmentCycle.update({ where: { id: cycle.id }, data: { decisionsReleasedAt: null } });
-  expect((await rejectionSummary(cycle.id)).released).toBe(false);
+  expect((await rejectionSummary(cycle.id, "test-viewer")).released).toBe(false);
 });

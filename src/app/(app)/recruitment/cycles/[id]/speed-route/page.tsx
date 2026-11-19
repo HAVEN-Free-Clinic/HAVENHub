@@ -1,3 +1,4 @@
+import { lockedCycleView } from "@/modules/recruitment/components/cycle-locked-notice";
 import { notFound } from "next/navigation";
 import { PageBody } from "@/platform/ui/page-body";
 import { requirePersonSession } from "@/platform/auth/session";
@@ -26,6 +27,8 @@ import { FormRow, RowField } from "@/platform/ui/form";
 export default async function SpeedRoutePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const person = await requirePersonSession();
+  const locked = await lockedCycleView(id);
+  if (locked) return locked;
   let board;
   try {
     board = await loadSpeedRouteBoard(id, person.personId);

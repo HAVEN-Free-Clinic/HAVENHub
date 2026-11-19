@@ -1,3 +1,4 @@
+import { lockedCycleView } from "@/modules/recruitment/components/cycle-locked-notice";
 import { notFound, redirect } from "next/navigation";
 import { PageBody } from "@/platform/ui/page-body";
 import { requirePersonSession } from "@/platform/auth/session";
@@ -73,6 +74,8 @@ export default async function TrainingRosterPage({ params }: { params: Promise<{
     reviewScope(viewer.personId),
   ]);
   if (!hasAccess && !scope.all && scope.departmentCodes.length === 0) redirect("/no-access");
+  const locked = await lockedCycleView(id);
+  if (locked) return locked;
   const cycle = await getCycle(id);
   if (!cycle) notFound();
   const trail = cycleTrail({ cycleId: id, cycleTitle: cycle.title, section: { label: "Training", slug: "training" } });

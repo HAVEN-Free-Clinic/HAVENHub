@@ -8,6 +8,7 @@ import { decideWithoutInterview } from "./interview-decisions";
 import { rankedDirectorDepartments } from "../engine/interview-mode";
 import { isOwnApplication } from "../engine/own-application";
 import { reviewerIdentity } from "./own-application";
+import { assertCycleClear } from "./review-lock";
 import {
   attendedInfoSession,
   infoSessionPhase,
@@ -126,7 +127,14 @@ export type FlaggedSummary = {
   rejectable: number;
 };
 
-export async function flaggedNoInfoSessionSummary(cycleId: string, now: Date = new Date()): Promise<FlaggedSummary> {
+export async function flaggedNoInfoSessionSummary(
+  cycleId: string,
+  viewerId: string,
+  now: Date = new Date(),
+): Promise<FlaggedSummary> {
+  // A cycle-wide count, like the other Decisions-page summaries: only someone
+  // with no application in the cycle may read it (an exception does not reach it).
+  await assertCycleClear(cycleId, viewerId);
   const { cycle, phase, lastEndsAt, flagged } = await loadFlagged(cycleId, now);
   const submitted = flagged.filter((a) => a.status === "SUBMITTED");
   const rejectable = cycle
@@ -170,6 +178,9 @@ export async function rejectFlaggedNoInfoSession(
   if (!(await can(actorId, "recruitment.review_all"))) {
     throw new RecruitmentAuthError("Only SRR can reject flagged applicants.");
   }
+  // A cycle-wide step over every applicant, so the same gate as Release and the
+  // rejection send: nobody with an application in the cycle, excepted or not.
+  await assertCycleClear(cycleId, actorId);
   const { cycle, phase, flagged } = await loadFlagged(cycleId, opts.now ?? new Date(), opts.where);
   if (!cycle) throw new AcceptanceError("Cycle not found.");
   if (cycle.track !== "DIRECTOR") throw new InterviewError("Rejecting flagged applicants without an interview applies to director cycles.");

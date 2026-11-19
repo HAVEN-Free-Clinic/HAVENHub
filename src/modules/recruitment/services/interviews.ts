@@ -5,6 +5,12 @@ import { can } from "@/platform/rbac/engine";
 import { queueEmail } from "@/platform/email/send";
 import { recordAudit } from "@/platform/audit";
 import { reviewScope, RecruitmentAuthError } from "./review";
+import {
+  assertMayActOnApplication,
+  cycleReviewLock,
+  isHiddenByLock,
+  visibleApplicationWhere,
+} from "./review-lock";
 import { renderCycleEmail } from "../email/render";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
 import { notify, type NotifyInput } from "@/platform/notifications/notify";
@@ -20,7 +26,14 @@ export class InterviewError extends Error {
   constructor(message: string) { super(message); this.name = "InterviewError"; }
 }
 
-async function assertCanManage(departmentCode: string, actorId: string): Promise<void> {
+/** Interview management on one application: never in a cycle the actor applied
+ *  in, never on their own application, and only for their departments. */
+async function assertCanManage(
+  departmentCode: string,
+  actorId: string,
+  app: { cycleId: string; applicantId: string },
+): Promise<void> {
+  await assertMayActOnApplication(app, actorId, "You can't manage your own interview.");
   const scope = await reviewScope(actorId);
   if (!(scope.all || scope.departmentCodes.includes(departmentCode))) {
     throw new RecruitmentAuthError("You can't manage interviews for that department.");
@@ -37,6 +50,9 @@ export async function createInterview(applicationId: string, departmentCode: str
   // decided directly by the routed department (decideRoutedApplication) with no interview.
   if (app.cycle.track !== "DIRECTOR") throw new InterviewError("Interviews apply to director cycles.");
   if (!app.cycle.departments.includes(departmentCode)) throw new InterviewError("That department is not part of this cycle.");
+  // Applied in this cycle: no interviews in it. With an exception, still not
+  // their own (services/review-lock.ts).
+  await assertMayActOnApplication(app, createdById, "You can't schedule your own interview.");
   const scope = await reviewScope(createdById);
   if (!(scope.all || scope.departmentCodes.includes(departmentCode))) {
     throw new RecruitmentAuthError("You can't manage interviews for that department.");
@@ -61,9 +77,12 @@ export async function updateInterview(
   patch: { scheduledAt?: Date | null; zoomLink?: string | null; notes?: string | null; applicantNote?: string | null },
   actorId: string
 ): Promise<Interview> {
-  const iv = await prisma.interview.findUnique({ where: { id: interviewId } });
+  const iv = await prisma.interview.findUnique({
+    where: { id: interviewId },
+    include: { application: { select: { cycleId: true, applicantId: true } } },
+  });
   if (!iv) throw new InterviewError("Interview not found.");
-  await assertCanManage(iv.departmentCode, actorId);
+  await assertCanManage(iv.departmentCode, actorId, iv.application);
   // A department that decided without an interview (decideWithoutInterview)
   // must not acquire one afterwards: a time on the row would put "Interview
   // scheduled" on the applicant's portal and unlock the invite email for an
@@ -136,7 +155,15 @@ export async function addPanelist(interviewId: string, personId: string, isLead:
     include: { application: { include: { applicant: { select: { firstName: true, lastName: true, preferredFirstName: true } } } } },
   });
   if (!iv) throw new InterviewError("Interview not found.");
-  await assertCanManage(iv.departmentCode, actorId);
+  await assertCanManage(iv.departmentCode, actorId, iv.application);
+  // Whoever is added must be allowed to see this applicant too: nobody who
+  // applied in the cycle sits on its panels unless they hold an exception, and
+  // nobody ever sits on their own. The message does not say which, so it does
+  // not tell the manager that the person applied.
+  const panelistLock = await cycleReviewLock(iv.application.cycleId, personId);
+  if (isHiddenByLock(iv.application, panelistLock)) {
+    throw new InterviewError("That person can't sit on this interview's panel.");
+  }
 
   let created: InterviewPanelist;
   try {
@@ -181,16 +208,19 @@ export async function listPanelistCandidates(interviewId: string): Promise<{ id:
 }
 
 export async function removePanelist(panelistId: string, actorId: string): Promise<void> {
-  const p = await prisma.interviewPanelist.findUnique({ where: { id: panelistId }, include: { interview: true } });
+  const p = await prisma.interviewPanelist.findUnique({
+    where: { id: panelistId },
+    include: { interview: { include: { application: { select: { cycleId: true, applicantId: true } } } } },
+  });
   if (!p) throw new InterviewError("Panelist not found.");
-  await assertCanManage(p.interview.departmentCode, actorId);
+  await assertCanManage(p.interview.departmentCode, actorId, p.interview.application);
   await prisma.interviewPanelist.delete({ where: { id: panelistId } });
 }
 
 export async function sendInterviewInvite(interviewId: string, actorId: string): Promise<void> {
   const iv = await prisma.interview.findUnique({ where: { id: interviewId }, include: { application: { include: { applicant: true, cycle: { select: { id: true } } } } } });
   if (!iv) throw new InterviewError("Interview not found.");
-  await assertCanManage(iv.departmentCode, actorId);
+  await assertCanManage(iv.departmentCode, actorId, iv.application);
   if (!iv.scheduledAt) throw new InterviewError("Set an interview time first.");
   const dept = await prisma.department.findUnique({ where: { code: iv.departmentCode }, select: { name: true } });
   const applicant = iv.application.applicant;
@@ -212,13 +242,21 @@ export async function sendInterviewInvite(interviewId: string, actorId: string):
 }
 
 export async function listInterviewsForReview(cycleId: string, viewerId: string) {
-  const [scope, managesCycles] = await Promise.all([
+  const [scope, managesCycles, lock] = await Promise.all([
     reviewScope(viewerId),
     can(viewerId, "recruitment.manage_cycles"),
+    cycleReviewLock(cycleId, viewerId),
   ]);
+  // Applied in this cycle: none of its interviews (services/review-lock.ts).
+  if (lock.state === "locked") return [];
   const seeAll = scope.all || managesCycles;
   const interviews = await prisma.interview.findMany({
-    where: { application: { cycleId } },
+    where: {
+      application: {
+        cycleId,
+        ...(lock.ownApplicantIds.length ? { applicantId: { notIn: lock.ownApplicantIds } } : {}),
+      },
+    },
     include: {
       application: { include: { applicant: { select: { firstName: true, lastName: true, email: true } } } },
       panelists: true,
@@ -236,8 +274,12 @@ export async function listInterviewsForReview(cycleId: string, viewerId: string)
  *  dropping the row is how a panelist dials into a call that was cancelled. The
  *  status rides along so the page can mark it and free the slot. */
 export async function myAssignedInterviews(personId: string) {
+  // A panel seat in a cycle the person has since applied in (or on their own
+  // application) does not survive the review lock: it is dropped from the list
+  // like everything else in that cycle.
+  const visible = await visibleApplicationWhere(personId);
   return prisma.interview.findMany({
-    where: { panelists: { some: { personId } } },
+    where: { panelists: { some: { personId } }, application: visible },
     include: {
       application: { include: { applicant: { select: { firstName: true, lastName: true } }, cycle: { select: { id: true, title: true } } } },
       evaluations: { where: { evaluatorId: personId } },
@@ -256,7 +298,26 @@ export const isInterviewPanelist = cache(async function isInterviewPanelist(
   return count > 0;
 });
 
-export async function getInterview(interviewId: string) {
+/**
+ * One interview for the interview page, as this viewer may see it. `locked`
+ * when the viewer applied in its cycle (the page shows the locked notice), null
+ * when it does not exist or is the viewer's own application, which stays hidden
+ * even with an exception. Role checks are the page's; this only applies the
+ * review lock, which outranks every role.
+ */
+export async function getInterview(
+  interviewId: string,
+  viewerId: string,
+): Promise<{ locked: true } | { locked: false; interview: NonNullable<Awaited<ReturnType<typeof loadInterview>>> } | null> {
+  const interview = await loadInterview(interviewId);
+  if (!interview) return null;
+  const lock = await cycleReviewLock(interview.application.cycleId, viewerId);
+  if (lock.state === "locked") return { locked: true };
+  if (isHiddenByLock(interview.application, lock)) return null;
+  return { locked: false, interview };
+}
+
+async function loadInterview(interviewId: string) {
   return prisma.interview.findUnique({
     where: { id: interviewId },
     include: {

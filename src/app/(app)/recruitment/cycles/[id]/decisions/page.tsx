@@ -1,6 +1,7 @@
+import { lockedCycleView } from "@/modules/recruitment/components/cycle-locked-notice";
 import { notFound } from "next/navigation";
 import { PageBody } from "@/platform/ui/page-body";
-import { requirePermission } from "@/platform/auth/session";
+import { requirePermission, requirePersonSession } from "@/platform/auth/session";
 import { getCycle } from "@/modules/recruitment/services/cycles";
 import { listConflicts, releaseSummary, rejectionSummary } from "@/modules/recruitment/services/decisions";
 import { assessmentHoldSummary } from "@/modules/recruitment/services/assessment-holds";
@@ -37,15 +38,18 @@ export default async function DecisionsPage({ params }: {
   const { id } = await params;
   await requirePermission("recruitment.access");
   await requirePermission("recruitment.review_all");
+  const locked = await lockedCycleView(id, { cycleWide: true });
+  if (locked) return locked;
   const cycle = await getCycle(id);
   if (!cycle) notFound();
+  const { personId } = await requirePersonSession();
   const [conflicts, summary, rejections, waitlist, holds, flaggedInfo] = await Promise.all([
-    listConflicts(id),
-    releaseSummary(id),
-    rejectionSummary(id),
-    waitlistEmailSummary(id),
-    assessmentHoldSummary(id),
-    flaggedNoInfoSessionSummary(id),
+    listConflicts(id, personId),
+    releaseSummary(id, personId),
+    rejectionSummary(id, personId),
+    waitlistEmailSummary(id, personId),
+    assessmentHoldSummary(id, personId),
+    flaggedNoInfoSessionSummary(id, personId),
   ]);
 
   // wide, not form: this holds a four-up StatCard grid over a conflicts list,

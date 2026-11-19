@@ -149,6 +149,16 @@ describe("decideWithoutInterview", () => {
     expect(await prisma.acceptance.count()).toBe(0);
   });
 
+  it("refuses a director who applied in the cycle, even for someone else's application (review lock)", async () => {
+    const { director, cycle } = await seed();
+    await mkApp(cycle.id, "dirsown");
+    await prisma.applicant.updateMany({ where: { cycleId: cycle.id, emailLower: "dirsown@y.edu" }, data: { applicantPersonId: director.id } });
+    const someoneElse = await mkApp(cycle.id, "else");
+
+    await expect(decideWithoutInterview(someoneElse.id, "EDUC", "REJECT", director.id, null)).rejects.toBeInstanceOf(RecruitmentAuthError);
+    expect(await prisma.interview.count()).toBe(0);
+  });
+
   it("never lets the row acquire a time or an invite afterwards", async () => {
     const { director, cycle } = await seed();
     const app = await mkApp(cycle.id, "ada");
@@ -170,7 +180,7 @@ describe("Release and the decision emails on a director cycle", () => {
     await decideWithoutInterview(accepted.id, "EDUC", "ACCEPT", director.id, null);
     await decideWithoutInterview(rejected.id, "EDUC", "REJECT", director.id, null);
 
-    expect((await rejectionSummary(cycle.id)).rejected).toBe(1);
+    expect((await rejectionSummary(cycle.id, srr.id)).rejected).toBe(1);
     const rel = await releaseDecisions(cycle.id, srr.id);
     expect(rel.sent).toBe(1);
     expect((await mails("recruitment.acceptance")).map((m) => m.toEmail)).toEqual(["acc@y.edu"]);
@@ -216,7 +226,7 @@ describe("Release and the decision emails on a director cycle", () => {
     await decideWithoutInterview(wait.id, "EDUC", "WAITLIST", srr.id, null);
     const flipIv = await decideWithoutInterview(flip.id, "EDUC", "WAITLIST", srr.id, null);
     await releaseDecisions(cycle.id, srr.id);
-    expect((await waitlistEmailSummary(cycle.id)).waitlisted).toBe(2);
+    expect((await waitlistEmailSummary(cycle.id, srr.id)).waitlisted).toBe(2);
 
     const real = render.resolveCycleEmail;
     vi.spyOn(render, "resolveCycleEmail").mockImplementationOnce(async (...args) => {
@@ -254,7 +264,7 @@ describe("assessment holds on a director cycle", () => {
     await decideWithoutInterview(accepted.id, "INTP", "WAITLIST", srr.id, null);
     await decideWithoutInterview(accepted.id, "EDUC", "ACCEPT", srr.id, null);
 
-    expect(await assessmentHoldSummary(cycle.id)).toEqual({ onHold: 1, unnotified: 1, emailed: 0 });
+    expect(await assessmentHoldSummary(cycle.id, srr.id)).toEqual({ onHold: 1, unnotified: 1, emailed: 0 });
     expect((await sendAssessmentHolds(cycle.id, srr.id)).sent).toBe(1);
     expect((await mails("recruitment.assessment_hold")).map((m) => m.toEmail)).toEqual(["held@y.edu"]);
     expect((await sendAssessmentHolds(cycle.id, srr.id)).sent).toBe(0);

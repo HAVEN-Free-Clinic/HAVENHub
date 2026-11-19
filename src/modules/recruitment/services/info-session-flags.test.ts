@@ -92,7 +92,7 @@ describe("infoSessionStatuses", () => {
 });
 
 describe("rejectFlaggedNoInfoSession", () => {
-  it("rejects every ranked department without an interview, skipping accepted, withdrawn and own rows", async () => {
+  it("rejects every ranked department without an interview, skipping accepted and withdrawn rows", async () => {
     const { srr, cycle, events } = await seed();
     const flagged = await mkApp(cycle.id, "flagged", { choices: ["EDUC", "PEDS"] });
     const attended = await mkApp(cycle.id, "attended");
@@ -100,15 +100,12 @@ describe("rejectFlaggedNoInfoSession", () => {
     const accepted = await mkApp(cycle.id, "accepted", { choices: ["EDUC", "PEDS"] });
     await decideWithoutInterview(accepted.id, "PEDS", "ACCEPT", srr.id, null);
     await mkApp(cycle.id, "withdrawn", { status: "WITHDRAWN" });
-    // SRR's own application, submitted signed out: matched by NetID.
-    const own = await mkApp(cycle.id, "own");
-    await prisma.applicant.update({ where: { id: own.applicantId }, data: { netId: "srr1" } });
 
-    expect(await flaggedNoInfoSessionSummary(cycle.id, AFTER)).toMatchObject({ phase: "ENDED", flagged: 3, rejectable: 2 });
+    expect(await flaggedNoInfoSessionSummary(cycle.id, srr.id, AFTER)).toMatchObject({ phase: "ENDED", flagged: 2, rejectable: 1 });
 
     const res = await rejectFlaggedNoInfoSession(cycle.id, srr.id, { now: AFTER });
     expect(res.rejected).toBe(1);
-    expect(res.skipped.map((s) => s.name).sort()).toEqual(["accepted X", "own X", "withdrawn X"]);
+    expect(res.skipped.map((s) => s.name).sort()).toEqual(["accepted X", "withdrawn X"]);
 
     const ivs = await prisma.interview.findMany({ where: { applicationId: flagged.id }, orderBy: { departmentCode: "asc" } });
     expect(ivs.map((i) => [i.departmentCode, i.decision, i.scheduledAt, i.invitedAt])).toEqual([
@@ -116,16 +113,14 @@ describe("rejectFlaggedNoInfoSession", () => {
       ["PEDS", "REJECT", null, null],
     ]);
     expect(await prisma.interview.count({ where: { applicationId: attended.id } })).toBe(0);
-    expect(await prisma.interview.count({ where: { applicationId: own.id } })).toBe(0);
     // The accepted applicant's acceptance and EDUC are untouched.
     expect(await prisma.acceptance.count({ where: { applicationId: accepted.id } })).toBe(1);
     expect(await prisma.interview.count({ where: { applicationId: accepted.id, departmentCode: "EDUC" } })).toBe(0);
     // Confidential until Release: nothing was emailed.
     expect(await prisma.emailLog.count()).toBe(0);
 
-    // Idempotent: the second press rejects nothing new. The summary is not
-    // actor-aware, so SRR's own row still counts (another lead could reject it).
-    expect(await flaggedNoInfoSessionSummary(cycle.id, AFTER)).toMatchObject({ rejectable: 1 });
+    // Idempotent: the second press rejects nothing new.
+    expect(await flaggedNoInfoSessionSummary(cycle.id, srr.id, AFTER)).toMatchObject({ rejectable: 0 });
     expect((await rejectFlaggedNoInfoSession(cycle.id, srr.id, { now: AFTER })).rejected).toBe(1);
   });
 
@@ -153,6 +148,23 @@ describe("rejectFlaggedNoInfoSession", () => {
     await prisma.attendanceEvent.deleteMany({});
     await expect(rejectFlaggedNoInfoSession(cycle.id, srr.id, { now: AFTER })).rejects.toBeInstanceOf(AcceptanceError);
     expect(await prisma.interview.count()).toBe(0);
+  });
+
+  it("refuses the summary and the bulk reject to a lead who applied in the cycle (review lock)", async () => {
+    const { srr, cycle } = await seed();
+    const role = await prisma.role.findFirstOrThrow({ where: { name: "Rec Admin" } });
+    const lead2 = await prisma.person.create({ data: { name: "Lead Two", status: "ACTIVE" } });
+    await prisma.roleAssignment.create({ data: { personId: lead2.id, roleId: role.id } });
+    await mkApp(cycle.id, "lead2app", { personId: lead2.id });
+    const other = await mkApp(cycle.id, "other");
+
+    await expect(flaggedNoInfoSessionSummary(cycle.id, lead2.id, AFTER)).rejects.toBeInstanceOf(RecruitmentAuthError);
+    await expect(rejectFlaggedNoInfoSession(cycle.id, lead2.id, { now: AFTER })).rejects.toBeInstanceOf(RecruitmentAuthError);
+    expect(await prisma.interview.count()).toBe(0);
+
+    // A lead with no application in the cycle still can, and rejects both.
+    expect((await rejectFlaggedNoInfoSession(cycle.id, srr.id, { now: AFTER })).rejected).toBe(2);
+    expect(await prisma.interview.count({ where: { applicationId: other.id } })).toBe(1);
   });
 
   it("can be narrowed with an extra filter", async () => {

@@ -129,6 +129,35 @@ describe("GET /api/recruitment/applications/[applicationId]/files/[key]", () => 
     expect(vi.mocked(getObject)).not.toHaveBeenCalled();
   });
 
+  it("refuses a reviewer who applied in the same cycle (review lock), even one holding review_all", async () => {
+    const reviewer = await prisma.person.create({ data: { name: "Lead Who Applied", netId: "lw9" } });
+    await grant(reviewer.id, "recruitment.review_all");
+    const app = await applicationWithResume(reviewer.id);
+    // Their own application in the cycle, submitted signed out: matched by NetID.
+    const mine = await prisma.applicant.create({
+      data: { cycleId: app.cycleId, firstName: "L", lastName: "W", email: "lw@else.org", emailLower: "lw@else.org", netId: "LW9" },
+    });
+    signedInAs(reviewer.id);
+
+    expect((await call(app.id, "resume")).status).toBe(404);
+    expect(vi.mocked(getObject)).not.toHaveBeenCalled();
+
+    // An exception lets them read everyone else's files again...
+    const granter = await person("Granter");
+    await prisma.cycleReviewException.create({ data: { cycleId: app.cycleId, personId: reviewer.id, reason: "Logistics", grantedById: granter.id } });
+    expect((await call(app.id, "resume")).status).toBe(200);
+    // ...but never their own.
+    const own = await prisma.application.create({
+      data: {
+        cycleId: app.cycleId,
+        applicantId: mine.id,
+        answers: { resume: { storedName: STORED_NAME, fileName: "Mine.pdf", mimeType: "application/pdf" } },
+        departmentChoices: [],
+      },
+    });
+    expect((await call(own.id, "resume")).status).toBe(404);
+  });
+
   it("refuses an unauthenticated request", async () => {
     const creator = await person("Cycle Creator");
     const app = await applicationWithResume(creator.id);

@@ -12,7 +12,7 @@ describe("listOnboardingRows", () => {
   // into the RSC payload. The contract row carries a standing-credential token.
   it("never exposes the onboarding token", async () => {
     const { cycleId, acceptances } = await seedCycle([{ contract: { status: "PENDING" } }]);
-    const rows = await listOnboardingRows(cycleId);
+    const rows = await listOnboardingRows(cycleId, "test-viewer");
     expect(JSON.stringify(rows)).not.toContain("tok-");
     expect(rows[0]).toEqual({
       acceptanceId: acceptances[0].id,
@@ -32,7 +32,7 @@ describe("listOnboardingRows", () => {
     const { cycleId } = await seedCycle([
       { contract: { status: "PENDING", expiresAt: new Date("2026-01-01T00:00:00Z") } },
     ]);
-    const rows = await listOnboardingRows(cycleId, new Date("2026-08-07T12:00:00Z"));
+    const rows = await listOnboardingRows(cycleId, "test-viewer", new Date("2026-08-07T12:00:00Z"));
     expect(rows[0].state).toBe("EXPIRED");
   });
 
@@ -40,13 +40,13 @@ describe("listOnboardingRows", () => {
     const { cycleId } = await seedCycle([
       { contract: { status: "PENDING", expiresAt: new Date("2026-12-01T00:00:00Z") } },
     ]);
-    const rows = await listOnboardingRows(cycleId, new Date("2026-08-07T12:00:00Z"));
+    const rows = await listOnboardingRows(cycleId, "test-viewer", new Date("2026-08-07T12:00:00Z"));
     expect(rows[0].state).toBe("SENT");
   });
 
   it("marks an acceptance with no contract NO_CONTRACT", async () => {
     const { cycleId } = await seedCycle([{}]);
-    const rows = await listOnboardingRows(cycleId);
+    const rows = await listOnboardingRows(cycleId, "test-viewer");
     expect(rows[0].state).toBe("NO_CONTRACT");
     expect(rows[0].contractId).toBeNull();
   });
@@ -58,7 +58,7 @@ describe("listOnboardingRows", () => {
       { applicationKey: "shared", dept: "SRHD", contract: { status: "SUBMITTED" } },
       { applicationKey: "shared", dept: "PCAR" },
     ]);
-    const rows = await listOnboardingRows(cycleId);
+    const rows = await listOnboardingRows(cycleId, "test-viewer");
     expect(rows).toHaveLength(2);
     expect(rows.every((r) => r.state === "CONFLICT")).toBe(true);
   });
@@ -68,7 +68,7 @@ describe("listOnboardingRows", () => {
       { contract: { status: "PROMOTED", promotedPersonId: null } },
     ]);
     await prisma.onboardingContract.updateMany({ data: { promotedPersonId: srrId } });
-    const rows = await listOnboardingRows(cycleId);
+    const rows = await listOnboardingRows(cycleId, "test-viewer");
     expect(rows[0].state).toBe("PROMOTED");
     expect(rows[0].onRoster).toBe(true);
   });
@@ -88,7 +88,7 @@ describe("listOnboardingRows", () => {
         customAnswers: { tshirt: "M", confirm__strikes: "on" },
       },
     }]);
-    const rows = await listOnboardingRows(cycleId);
+    const rows = await listOnboardingRows(cycleId, "test-viewer");
     expect(rows[0].customAnswers).toEqual([{ label: "T-shirt size", value: "M" }]);
   });
 });

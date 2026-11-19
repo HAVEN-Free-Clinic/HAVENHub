@@ -3,9 +3,10 @@ import { prisma } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
 import { reviewScope, RecruitmentAuthError, AcceptanceError } from "./review";
 import { InterviewError } from "./interviews";
-import { isInterviewUnderWay, rankedDirectorDepartments } from "../engine/interview-mode";
-import { isOwnApplication } from "../engine/own-application";
+import { assertMayActOnApplication } from "./review-lock";
 import { reviewerIdentity } from "./own-application";
+import { isOwnApplication } from "../engine/own-application";
+import { isInterviewUnderWay, rankedDirectorDepartments } from "../engine/interview-mode";
 
 export type InterviewOutcome = "ACCEPT" | "REJECT" | "WAITLIST";
 
@@ -17,17 +18,31 @@ export async function decideInterview(
 ): Promise<Interview> {
   const iv = await prisma.interview.findUnique({
     where: { id: interviewId },
-    include: { application: { select: { status: true, applicant: { select: { applicantPersonId: true } } } } },
+    include: {
+      application: {
+        select: {
+          status: true,
+          cycleId: true,
+          applicantId: true,
+          applicant: { select: { applicantPersonId: true, emailLower: true, netId: true } },
+        },
+      },
+    },
   });
   if (!iv) throw new InterviewError("Interview not found.");
   // A DRAFT application is not a real submission, so an ACCEPT here must not
   // mint an Acceptance for it (audit3 L1).
   if (iv.application.status !== "SUBMITTED") throw new InterviewError("This application hasn't been submitted yet.");
-  // Separation of duties: a signed-in incumbent (e.g. a director re-applying into a
-  // department they manage) must not decide their own interview.
-  if (iv.application.applicant.applicantPersonId && iv.application.applicant.applicantPersonId === deciderId) {
+  // Separation of duties: an incumbent (e.g. a director re-applying into a
+  // department they manage) must not decide their own interview. Recognised by
+  // account link, NetID or address (engine/own-application.ts), not the link
+  // alone, which is missing when they applied signed out (#889). The review lock
+  // already keeps them out of the whole cycle; this stays explicit for someone
+  // holding an exception, and so it reads where the decision is made.
+  if (isOwnApplication(iv.application.applicant, await reviewerIdentity(deciderId))) {
     throw new RecruitmentAuthError("You can't decide your own interview.");
   }
+  await assertMayActOnApplication(iv.application, deciderId, "You can't decide your own interview.");
   const scope = await reviewScope(deciderId);
   if (!(scope.all || scope.departmentCodes.includes(iv.departmentCode))) {
     throw new RecruitmentAuthError("You can't decide interviews for that department.");
@@ -132,6 +147,8 @@ export async function decideWithoutInterview(
     where: { id: applicationId },
     select: {
       status: true,
+      cycleId: true,
+      applicantId: true,
       departmentChoices: true,
       renewalDepartment: true,
       cycle: { select: { track: true, departments: true } },
@@ -144,12 +161,14 @@ export async function decideWithoutInterview(
   if (!rankedDirectorDepartments(app, app.cycle.departments).includes(departmentCode)) {
     throw new InterviewError("This applicant did not rank that department.");
   }
-  // Separation of duties, matched the way committee scoring matches it: the
-  // account link, or the NetID / an address the decider is known by, so an
-  // incumbent who applied signed out (no link) is still caught.
+  // The same two guards decideInterview runs, in the same shape, so nothing is
+  // written before they pass: separation of duties by account link, NetID or
+  // address (#889), then the cycle review lock (an excepted lead still never
+  // reaches their own application).
   if (isOwnApplication(app.applicant, await reviewerIdentity(deciderId))) {
     throw new RecruitmentAuthError("You can't decide your own application.");
   }
+  await assertMayActOnApplication(app, deciderId, "You can't decide your own application.");
   const scope = await reviewScope(deciderId);
   if (!(scope.all || scope.departmentCodes.includes(departmentCode))) {
     throw new RecruitmentAuthError("You can't decide for that department.");

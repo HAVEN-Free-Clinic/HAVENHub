@@ -107,7 +107,7 @@ describe("listApplicantsForReview", () => {
     expect(scored.committeeScores[0]).toMatchObject({ score: 4, scorerId: scorer.id });
     expect(scored.applicant).toHaveProperty("applicantPersonId");
   });
-  it("hides the scores on a reviewer's own application and marks it theirs, even when unlinked", async () => {
+  it("hides the whole cycle from a reviewer who applied in it, even when unlinked; with an exception, everyone but them", async () => {
     const { scorer, srr, cycle, appSrhd, appMdic } = await seed();
     // The scorer applied signed out under s@yale.edu, so only the address says
     // the application is theirs.
@@ -116,15 +116,15 @@ describe("listApplicantsForReview", () => {
     await prisma.committeeScore.create({ data: { applicationId: appSrhd.id, scorerId: colleague.id, score: 2 } });
     await prisma.committeeScore.create({ data: { applicationId: appMdic.id, scorerId: colleague.id, score: 5 } });
 
-    const apps = await listApplicantsForReview(cycle.id, scorer.id);
-    const own = apps.find((a) => a.id === appSrhd.id)!;
-    expect(own.isOwnApplication).toBe(true);
-    expect(own.committeeScores).toEqual([]);
-    const theirs = apps.find((a) => a.id === appMdic.id)!;
-    expect(theirs.isOwnApplication).toBe(false);
-    expect(theirs.committeeScores).toHaveLength(1);
+    // The review lock (services/review-lock.ts): nobody in the cycle, themselves included.
+    expect(await listApplicantsForReview(cycle.id, scorer.id)).toEqual([]);
 
-    // Hidden from the applicant only: everyone else still sees the score.
+    await prisma.cycleReviewException.create({ data: { cycleId: cycle.id, personId: scorer.id, reason: "Logistics", grantedById: srr.id } });
+    const apps = await listApplicantsForReview(cycle.id, scorer.id);
+    expect(apps.map((a) => a.id)).toEqual([appMdic.id]);
+    expect(apps[0].committeeScores).toHaveLength(1);
+
+    // Everyone else still sees the applicant and their score.
     const srrView = await listApplicantsForReview(cycle.id, srr.id);
     expect(srrView.find((a) => a.id === appSrhd.id)!.committeeScores).toHaveLength(1);
   });
@@ -258,16 +258,19 @@ describe("revokeAcceptance", () => {
 describe("canViewApplication (pure, mirrors listApplicantsForReview)", () => {
   const dirScope = { all: false, departmentCodes: ["SRHD"] };
   const noScope = { all: false, departmentCodes: [] as string[] };
+  const clear = { state: "clear" as const, ownApplicantIds: [] as string[] };
   const flags = (o: Partial<{ managesCycles: boolean; canScore: boolean }> = {}) => ({
     managesCycles: o.managesCycles ?? false,
     canScore: o.canScore ?? false,
+    lock: clear,
   });
   const volApp = (o: Partial<{ choices: string[]; routed: string | null }> = {}) => ({
+    applicantId: "applicant-1",
     departmentChoices: o.choices ?? ["SRHD"],
     routedDepartmentCode: o.routed ?? null,
     cycle: { track: "VOLUNTEER" },
   });
-  const dirApp = (choices: string[]) => ({ departmentChoices: choices, routedDepartmentCode: null, cycle: { track: "DIRECTOR" } });
+  const dirApp = (choices: string[]) => ({ applicantId: "applicant-1", departmentChoices: choices, routedDepartmentCode: null, cycle: { track: "DIRECTOR" } });
 
   it("SRR (review_all) sees any application", () => {
     expect(canViewApplication(volApp(), { scope: { all: true, departmentCodes: [] }, ...flags() })).toBe(true);
@@ -287,6 +290,14 @@ describe("canViewApplication (pure, mirrors listApplicantsForReview)", () => {
   it("director-track cycle: a director sees an app that RANKED their dept", () => {
     expect(canViewApplication(dirApp(["SRHD"]), { scope: dirScope, ...flags() })).toBe(true);
     expect(canViewApplication(dirApp(["MDIC"]), { scope: dirScope, ...flags() })).toBe(false);
+  });
+  it("the review lock outranks every role: locked sees nothing, excepted never their own", () => {
+    const all = { all: true, departmentCodes: [] };
+    const locked = { state: "locked" as const, ownApplicantIds: ["applicant-9"] };
+    expect(canViewApplication(volApp(), { scope: all, managesCycles: true, canScore: true, lock: locked })).toBe(false);
+    const excepted = { state: "excepted" as const, ownApplicantIds: ["applicant-1"] };
+    expect(canViewApplication(volApp(), { scope: all, managesCycles: true, canScore: true, lock: excepted })).toBe(false);
+    expect(canViewApplication({ ...volApp(), applicantId: "applicant-2" }, { scope: all, managesCycles: false, canScore: false, lock: excepted })).toBe(true);
   });
 });
 

@@ -50,7 +50,7 @@ it("counts and emails a waitlisted applicant still awaiting an evaluation", asyn
   const { lead, cycle } = await seed();
   await waitlistedApplicant(cycle.id, "ada");
 
-  expect(await assessmentHoldSummary(cycle.id)).toEqual({ onHold: 1, unnotified: 1, emailed: 0 });
+  expect(await assessmentHoldSummary(cycle.id, "test-viewer")).toEqual({ onHold: 1, unnotified: 1, emailed: 0 });
 
   const res = await sendAssessmentHolds(cycle.id, lead.id);
   expect(res.sent).toBe(1);
@@ -65,7 +65,7 @@ it("counts and emails a waitlisted applicant still awaiting an evaluation", asyn
   // Their own claimed language, written out rather than as a code.
   expect(mail[0].html).toContain("Arabic");
 
-  expect(await assessmentHoldSummary(cycle.id)).toEqual({ onHold: 1, unnotified: 0, emailed: 1 });
+  expect(await assessmentHoldSummary(cycle.id, "test-viewer")).toEqual({ onHold: 1, unnotified: 0, emailed: 1 });
 });
 
 it("is idempotent: a second run tells nobody twice", async () => {
@@ -89,7 +89,7 @@ it("drops an applicant once their language has a verdict", async () => {
     data: { applicationId: app.id, language: "ar", verified: true, verifiedById: lead.id },
   });
 
-  expect((await assessmentHoldSummary(cycle.id)).onHold).toBe(0);
+  expect((await assessmentHoldSummary(cycle.id, "test-viewer")).onHold).toBe(0);
   expect((await sendAssessmentHolds(cycle.id, lead.id)).sent).toBe(0);
 });
 
@@ -98,7 +98,7 @@ it("ignores a waitlisted applicant whose department does not assess language", a
   const { lead, cycle } = await seed();
   await waitlistedApplicant(cycle.id, "bo", { department: "MDIC", languages: [] });
 
-  expect((await assessmentHoldSummary(cycle.id)).onHold).toBe(0);
+  expect((await assessmentHoldSummary(cycle.id, "test-viewer")).onHold).toBe(0);
   expect((await sendAssessmentHolds(cycle.id, lead.id)).sent).toBe(0);
 });
 
@@ -107,7 +107,7 @@ it("ignores an applicant who is not waitlisted", async () => {
   const app = await waitlistedApplicant(cycle.id, "cy");
   await prisma.application.update({ where: { id: app.id }, data: { decision: "PENDING" } });
 
-  expect((await assessmentHoldSummary(cycle.id)).onHold).toBe(0);
+  expect((await assessmentHoldSummary(cycle.id, "test-viewer")).onHold).toBe(0);
   expect((await sendAssessmentHolds(cycle.id, lead.id)).sent).toBe(0);
 });
 

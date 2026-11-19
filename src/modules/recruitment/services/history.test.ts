@@ -85,14 +85,14 @@ async function seedTwoLiveApplications(email: string): Promise<{
 describe("getApplicantHistory", () => {
   it("finds archive entries by email, case-insensitively", async () => {
     await seedArchive("ada@yale.edu");
-    const h = await getApplicantHistory({ emails: ["Ada@Yale.edu"] });
+    const h = await getApplicantHistory({ viewerId: null, emails: ["Ada@Yale.edu"] });
     expect(h.entries).toHaveLength(1);
     expect(h.entries[0].era).toBe("archive");
     expect(h.entries[0].cycleLabel).toBe("Fall 2025 Volunteer Recruitment");
   });
 
   it("returns an empty history rather than throwing for an unknown applicant", async () => {
-    const h = await getApplicantHistory({ emails: ["nobody@yale.edu"] });
+    const h = await getApplicantHistory({ viewerId: null, emails: ["nobody@yale.edu"] });
     expect(h.entries).toEqual([]);
     expect(h.applicationCount).toBe(0);
     expect(h.furthest).toBeNull();
@@ -109,7 +109,7 @@ describe("getApplicantHistory", () => {
         departmentChoices: [], furthestStage: "APPLIED", outcome: "REJECTED",
       },
     });
-    const h = await getApplicantHistory({ emails: ["ada@yale.edu"] });
+    const h = await getApplicantHistory({ viewerId: null, emails: ["ada@yale.edu"] });
     expect(h.applicationCount).toBe(2);
     expect(h.furthest!.stage).toBe("FINAL_ROUND");
     expect(h.furthest!.cycleLabel).toBe("Fall 2025 Volunteer Recruitment");
@@ -127,7 +127,7 @@ describe("getApplicantHistory", () => {
       data: { status: "DRAFT", submittedAt: null },
     });
 
-    const h = await getApplicantHistory({
+    const h = await getApplicantHistory({ viewerId: null,
       emails: ["ada@yale.edu"],
       excludeApplicationId: current.id,
     });
@@ -145,7 +145,7 @@ describe("getApplicantHistory", () => {
       data: { status: "WITHDRAWN" },
     });
 
-    const h = await getApplicantHistory({
+    const h = await getApplicantHistory({ viewerId: null,
       emails: ["ada@yale.edu"],
       excludeApplicationId: current.id,
     });
@@ -168,7 +168,7 @@ describe("getApplicantHistory", () => {
         },
       },
     });
-    const h = await getApplicantHistory({ netId: "al123", emails: ["brand-new@gmail.com"] });
+    const h = await getApplicantHistory({ viewerId: null, netId: "al123", emails: ["brand-new@gmail.com"] });
     expect(h.entries).toHaveLength(1);
   });
 
@@ -178,7 +178,7 @@ describe("getApplicantHistory", () => {
     // exclusion from an empty result set.
     const { current, sibling } = await seedTwoLiveApplications("ada@yale.edu");
 
-    const h = await getApplicantHistory({
+    const h = await getApplicantHistory({ viewerId: null,
       emails: ["ada@yale.edu"],
       excludeApplicationId: current.id,
     });
@@ -200,7 +200,7 @@ describe("getApplicantHistory", () => {
       data: { applicationId: current.id, departmentCode: "HTEST", approvedById: srr.id },
     });
     const entryFor = async (id: string) =>
-      (await getApplicantHistory({ emails: ["ada@yale.edu"] })).entries.find((e) => e.href?.endsWith(`/${id}`))!;
+      (await getApplicantHistory({ viewerId: null, emails: ["ada@yale.edu"] })).entries.find((e) => e.href?.endsWith(`/${id}`))!;
 
     // Control: while the acceptance stands, the row is genuinely ACCEPTED.
     const accepted = await entryFor(current.id);
@@ -226,7 +226,7 @@ describe("getApplicantHistory", () => {
         submittedAt: new Date("2024-09-01T00:00:00Z"),
       },
     });
-    const h = await getApplicantHistory({ emails: ["ada@yale.edu"] });
+    const h = await getApplicantHistory({ viewerId: null, emails: ["ada@yale.edu"] });
     const interest = h.entries.find((e) => e.kind === "interest");
     expect(interest).toBeDefined();
     expect(interest!.furthestStage).toBeNull();
@@ -244,7 +244,7 @@ describe("getApplicantHistory", () => {
         submittedAt: new Date("2020-01-01T00:00:00Z"),
       },
     });
-    const h = await getApplicantHistory({ emails: ["ada@yale.edu"] });
+    const h = await getApplicantHistory({ viewerId: null, emails: ["ada@yale.edu"] });
     expect(h.entries[h.entries.length - 1].kind).toBe("interest");
   });
 });

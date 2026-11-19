@@ -299,6 +299,10 @@ model Person {
   recruitmentCyclesCreated       RecruitmentCycle[]           @relation("RecruitmentCycleCreatedBy")
   /// Invite links this person issued to admit an applicant past a closed deadline.
   recruitmentInvitesCreated      RecruitmentInvite[]          @relation("recruitmentInviteCreatedBy")
+  /// Cycles this person may review despite having applied in them.
+  cycleReviewExceptions          CycleReviewException[]       @relation("cycleReviewExceptionPerson")
+  /// Review exceptions this person granted.
+  cycleReviewExceptionsGranted   CycleReviewException[]       @relation("cycleReviewExceptionGrantedBy")
   recruitmentAcceptances         Acceptance[]                 @relation("recruitmentAcceptanceApprover")
   /// Dual-role offers this person made (VADM/INTP alongside their department).
   dualRoleInterests              DualRoleInterest[]           @relation("dualRoleInterestPerson")
@@ -348,9 +352,9 @@ model Person {
   addedToEhs                     Boolean                      @default(false)
   ehsCompletions                 EhsCompletion[]              @relation("ehsCompletionPerson")
   ehsCompletionsMarked           EhsCompletion[]              @relation("ehsCompletionMarkedBy")
-  ehsProvisionalClearances EhsProvisionalClearance[] @relation("ehsProvisionalPerson")
-  ehsProvisionalGranted    EhsProvisionalClearance[] @relation("ehsProvisionalGrantedBy")
-  ehsProvisionalRevoked    EhsProvisionalClearance[] @relation("ehsProvisionalRevokedBy")
+  ehsProvisionalClearances       EhsProvisionalClearance[]    @relation("ehsProvisionalPerson")
+  ehsProvisionalGranted          EhsProvisionalClearance[]    @relation("ehsProvisionalGrantedBy")
+  ehsProvisionalRevoked          EhsProvisionalClearance[]    @relation("ehsProvisionalRevokedBy")
   /// Shift requests this person raised.
   shiftRequests                  ShiftRequest[]               @relation("shiftRequestRequester")
   /// Shift requests targeting this person as the swap partner.
@@ -1491,14 +1495,14 @@ model SendingIdentityGrant {
 }
 
 model EmailCampaign {
-  id                String              @id @default(cuid())
+  id                String                  @id @default(cuid())
   name              String
-  recordType        String              @default("PERSON")
+  recordType        String                  @default("PERSON")
   audienceJson      Json
-  subject           String              @default("")
-  body              String              @default("")
-  status            EmailCampaignStatus @default(DRAFT)
-  scheduleType      String              @default("NOW") // NOW | SCHEDULED | RECURRING
+  subject           String                  @default("")
+  body              String                  @default("")
+  status            EmailCampaignStatus     @default(DRAFT)
+  scheduleType      String                  @default("NOW") // NOW | SCHEDULED | RECURRING
   scheduledAt       DateTime?
   cronExpr          String?
   lastRunAt         DateTime?
@@ -1507,25 +1511,25 @@ model EmailCampaign {
   /// skipped on later runs, so a recurring campaign catches only newly-matching
   /// people. Left false, every run mails everyone who matches, which is correct
   /// for a digest.
-  sendOncePerPerson Boolean             @default(false)
+  sendOncePerPerson Boolean                 @default(false)
   /// People always considered for this campaign regardless of the conditions.
   /// Still intersected with the campaign's scope: an include is an addition
   /// WITHIN the boundary, never a way around it.
-  includePersonIds  String[]            @default([])
+  includePersonIds  String[]                @default([])
   /// People never mailed by this campaign. Applied last, so exclusion beats
   /// both the conditions and an explicit include.
-  excludePersonIds  String[]            @default([])
+  excludePersonIds  String[]                @default([])
   /// Raw addresses pasted by the sender, resolved to people at send time and
   /// then subject to exactly the same scope intersection as includePersonIds.
   /// On an unscoped campaign, an address matching no Person is emailed as a
   /// bare address instead of being dropped.
-  pastedEmails      String[]            @default([])
+  pastedEmails      String[]                @default([])
   /// Recruitment cycles whose applicants this campaign also emails, at the
   /// address each applied with, whether or not they have a HAVEN Hub account.
   /// Resolved live at send time. Honoured only on an UNSCOPED campaign: an
   /// applicant with no Person cannot be tested against a scope, so a scoped
   /// campaign ignores this entirely. See resolveCampaignAudience.
-  applicantCycleIds String[]            @default([])
+  applicantCycleIds String[]                @default([])
   /// The sending identity CHOSEN for this campaign, or null to take whatever the
   /// resolution order yields (the scope identity, then an address issued to the
   /// sender; there is no third layer, and sender-identity.ts records at length
@@ -1542,26 +1546,26 @@ model EmailCampaign {
   /// so a departed chooser degrades to "no claim" and the run falls back down the
   /// resolution order rather than sending as an address nobody can still vouch for.
   fromEmailSetById  String?
-  fromEmailSetBy    Person?             @relation("campaignFromEmailSetBy", fields: [fromEmailSetById], references: [id], onDelete: SetNull)
+  fromEmailSetBy    Person?                 @relation("campaignFromEmailSetBy", fields: [fromEmailSetById], references: [id], onDelete: SetNull)
   createdById       String?
-  createdBy         Person?             @relation("campaignCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
+  createdBy         Person?                 @relation("campaignCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
   /// Who last saved the compose form (name, subject, body, audience, sender).
   /// Manual-list edits and status changes do not move it; the activity log
   /// (AuditLog rows for this campaign) records those.
   updatedById       String?
-  updatedBy         Person?             @relation("campaignUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  updatedBy         Person?                 @relation("campaignUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
   /// Optimistic-concurrency token for the compose form, bumped by every
   /// updateCampaign. A save carries the version it was loaded at and is
   /// refused if someone else saved in between, instead of silently
   /// overwriting their edits. Deliberately NOT updatedAt: manual-list edits
   /// bump updatedAt too, and those never conflict with the compose form.
-  contentVersion    Int                 @default(0)
+  contentVersion    Int                     @default(0)
   runs              EmailCampaignRun[]
   presence          EmailCampaignPresence[]
   scopeId           String?
-  scope             AudienceScope?      @relation(fields: [scopeId], references: [id], onDelete: Restrict)
+  scope             AudienceScope?          @relation(fields: [scopeId], references: [id], onDelete: Restrict)
 
   /// Declared here only to match what migration 20260831120000 already CREATEd.
   /// It was missing from this model, so every `prisma migrate diff` since Phase 1
@@ -2717,21 +2721,22 @@ model RecruitmentCycle {
   createdAt            DateTime    @default(now())
   updatedAt            DateTime    @updatedAt
 
-  term           Term                      @relation(fields: [termId], references: [id], onDelete: Restrict)
-  createdBy      Person                    @relation("RecruitmentCycleCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
-  sections       FormSection[]
-  fields         FormField[]
-  applicants     Applicant[]
-  applications   Application[]
-  trainings      Training[]
-  cycleEmails    RecruitmentCycleEmail[]
-  contract       RecruitmentCycleContract?
-  invites        RecruitmentInvite[]
-  events         AttendanceEvent[]
-  absenceExcuses TrainingAbsenceExcuse[]
-  scorers        CycleScorer[]
+  term             Term                      @relation(fields: [termId], references: [id], onDelete: Restrict)
+  createdBy        Person                    @relation("RecruitmentCycleCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  sections         FormSection[]
+  fields           FormField[]
+  applicants       Applicant[]
+  applications     Application[]
+  trainings        Training[]
+  cycleEmails      RecruitmentCycleEmail[]
+  contract         RecruitmentCycleContract?
+  invites          RecruitmentInvite[]
+  events           AttendanceEvent[]
+  absenceExcuses   TrainingAbsenceExcuse[]
+  scorers          CycleScorer[]
+  reviewExceptions CycleReviewException[]
   /// The online course that makes up this cycle's morning session, if any.
-  makeupCourse   Course?                   @relation("courseMakeupForCycle")
+  makeupCourse     Course?                   @relation("courseMakeupForCycle")
 
   @@index([status, track])
   /// Every edit to a real cycle's form, emails or settings looks up its test
@@ -2746,6 +2751,36 @@ model RecruitmentCycleContract {
   updatedAt DateTime @updatedAt
 
   cycle RecruitmentCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+}
+
+/// A named person's exception to a cycle's review lock (see
+/// modules/recruitment/services/review-lock.ts). Anyone with an application in a
+/// cycle (draft, submitted or withdrawn) sees none of that cycle's applicants,
+/// whatever roles they hold. A recruitment.review_all holder can grant this for
+/// logistical reasons within the person's department, approved by their ED. It
+/// lets them back into the cycle, but never into their own application: they
+/// still cannot see, score, evaluate, decide or sit on the panel for it.
+///
+/// Revoking deletes the row. Grant and revoke are both written to the audit log
+/// (recruitment.review_exception_grant / _revoke) with the reason, so the trail
+/// survives the row.
+model CycleReviewException {
+  id          String   @id @default(cuid())
+  cycleId     String
+  personId    String
+  /// Why the exception was granted. Required.
+  reason      String
+  grantedById String
+  createdAt   DateTime @default(now())
+
+  cycle     RecruitmentCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  person    Person           @relation("cycleReviewExceptionPerson", fields: [personId], references: [id], onDelete: Cascade)
+  /// Restrict: the granter is the accountable party for letting someone review a
+  /// cycle they applied in.
+  grantedBy Person           @relation("cycleReviewExceptionGrantedBy", fields: [grantedById], references: [id], onDelete: Restrict)
+
+  @@unique([cycleId, personId])
+  @@index([personId])
 }
 
 /// A single-use link that admits ONE applicant to a cycle they could not
@@ -3917,29 +3952,28 @@ enum EhsCompletionSource {
 }
 
 model EhsTraining {
-  id             String                  @id @default(cuid())
-  name           String                  @unique
-  description    String?
-  isActive       Boolean                 @default(true)
+  id                    String                    @id @default(cuid())
+  name                  String                    @unique
+  description           String?
+  isActive              Boolean                   @default(true)
   /// When true, required for every active person regardless of department.
-  requiredForAll Boolean                 @default(false)
+  requiredForAll        Boolean                   @default(false)
   /// Ordering in the catalog and dashboard columns.
-  position       Int                     @default(0)
+  position              Int                       @default(0)
   /// Where the member actually completes this item. Most EHS trainings live in
   /// Workday Learning, but the health requirements (TB baseline, HepB immunity)
   /// are done in HealthOnTrack. Null falls back to Workday.
-  completionUrl  String?
+  completionUrl         String?
   /// Whether this item can be cleared provisionally while its result is pending.
   /// Only the health items that take days to come back (the TB blood test, the
   /// mask fit) set this; online courses never do. Checked on every grant.
-  allowsProvisional Boolean                 @default(false)
-  createdAt      DateTime                @default(now())
-  updatedAt      DateTime                @updatedAt
-  departments    EhsTrainingDepartment[]
-  completions    EhsCompletion[]
+  allowsProvisional     Boolean                   @default(false)
+  createdAt             DateTime                  @default(now())
+  updatedAt             DateTime                  @updatedAt
+  departments           EhsTrainingDepartment[]
+  completions           EhsCompletion[]
   provisionalClearances EhsProvisionalClearance[]
 }
-
 
 model EhsTrainingDepartment {
   id           String      @id @default(cuid())
@@ -4324,27 +4358,27 @@ enum FormResponseSource {
 /// and every response snapshots the layout it answered, so editing a form
 /// after responses arrive never reinterprets old answers.
 model Form {
-  id             String         @id @default(cuid())
-  title          String
-  description    String         @default("")
-  status         FormStatus     @default(DRAFT)
-  layout         Json
+  id            String           @id @default(cuid())
+  title         String
+  description   String           @default("")
+  status        FormStatus       @default(DRAFT)
+  layout        Json
   /// Bumped on every layout save; a save loaded at an older version is
   /// refused instead of overwriting someone else's edit.
-  layoutVersion  Int            @default(0)
+  layoutVersion Int              @default(0)
   /// Anyone signed in with the link may respond, not only assignees.
-  openToAnyone   Boolean        @default(false)
+  openToAnyone  Boolean          @default(false)
   /// Respondents may change their answers while the form is open.
-  allowEdits     Boolean        @default(true)
-  closesAt       DateTime?
-  createdById    String?
-  createdBy      Person?        @relation("formCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  updatedById    String?
-  updatedBy      Person?        @relation("formUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-  assignments    FormAssignment[]
-  responses      FormResponse[]
+  allowEdits    Boolean          @default(true)
+  closesAt      DateTime?
+  createdById   String?
+  createdBy     Person?          @relation("formCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedById   String?
+  updatedBy     Person?          @relation("formUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  assignments   FormAssignment[]
+  responses     FormResponse[]
 
   @@index([status])
 }
@@ -4352,13 +4386,13 @@ model Form {
 /// Someone asked to fill a form. Drives "Forms to fill out" and the
 /// completion count; a response from a non-assignee (open link) needs none.
 model FormAssignment {
-  id           String   @id @default(cuid())
+  id           String    @id @default(cuid())
   formId       String
-  form         Form     @relation(fields: [formId], references: [id], onDelete: Cascade)
+  form         Form      @relation(fields: [formId], references: [id], onDelete: Cascade)
   personId     String
-  person       Person   @relation("formAssignee", fields: [personId], references: [id], onDelete: Cascade)
+  person       Person    @relation("formAssignee", fields: [personId], references: [id], onDelete: Cascade)
   assignedById String?
-  assignedAt   DateTime @default(now())
+  assignedAt   DateTime  @default(now())
   remindedAt   DateTime?
 
   @@unique([formId, personId])

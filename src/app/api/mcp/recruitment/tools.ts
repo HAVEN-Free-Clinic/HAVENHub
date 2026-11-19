@@ -14,6 +14,7 @@ import {
 import { loadReviewApplication } from "@/modules/recruitment/services/speed-score";
 import { listInterviewsForReview } from "@/modules/recruitment/services/interviews";
 import { committeeScoreSummary } from "@/modules/recruitment/services/committee-scoring";
+import { cycleReviewLock, lockedCycleIds, CYCLE_LOCKED_MESSAGE } from "@/modules/recruitment/services/review-lock";
 import { reviewerIdentity } from "@/modules/recruitment/services/own-application";
 import { isOwnApplication } from "@/modules/recruitment/engine/own-application";
 import { applicantTypeLabel } from "@/modules/recruitment/engine/visibility";
@@ -71,6 +72,9 @@ export const NO_RECRUITMENT_ACCESS = "You do not have access to recruitment in t
 export const CYCLE_REFUSAL = "No recruitment cycle with that id is available to you.";
 export const APPLICATION_REFUSAL = "No application with that id is available to you.";
 export const INVALID_INPUT = "The arguments to this tool were not valid.";
+/** Someone who applied in the cycle (services/review-lock.ts): said plainly,
+ *  rather than passed off as an unknown id, so the assistant can explain. */
+export const CYCLE_LOCKED = CYCLE_LOCKED_MESSAGE;
 
 /** Stands in for a FILE answer. The file itself never leaves the Hub. */
 export const FILE_PLACEHOLDER = "[uploaded file: not available through this connector]";
@@ -134,6 +138,9 @@ type CycleRow = {
   title: string;
   track: string;
   status: string;
+  /** True for a cycle the caller applied in: its applicants are hidden from
+   *  them, so every other tool refuses it. */
+  reviewLocked?: boolean;
   termName?: string | null;
   opensAt?: string | null;
   closesAt?: string | null;
@@ -149,8 +156,9 @@ type CycleRow = {
  */
 async function visibleCycles(personId: string, caller: Caller): Promise<CycleRow[]> {
   if (caller.hasAccess) {
-    const [active, archived] = await Promise.all([listCycles(), listArchivedCycles()]);
+    const [active, archived, locked] = await Promise.all([listCycles(), listArchivedCycles(), lockedCycleIds(personId)]);
     const all = [...active, ...archived];
+    const lockedIds = new Set(locked);
     const terms = await prisma.term.findMany({
       where: { id: { in: [...new Set(all.map((c) => c.termId))] } },
       select: { id: true, name: true },
@@ -161,6 +169,7 @@ async function visibleCycles(personId: string, caller: Caller): Promise<CycleRow
       title: c.title,
       track: c.track,
       status: c.status,
+      ...(lockedIds.has(c.id) ? { reviewLocked: true } : {}),
       termName: termName.get(c.termId) ?? null,
       opensAt: c.opensAt?.toISOString() ?? null,
       closesAt: c.closesAt?.toISOString() ?? null,
@@ -181,7 +190,7 @@ async function visibleCycles(personId: string, caller: Caller): Promise<CycleRow
 async function rosterFor(
   personId: string,
   cycleId: string,
-): Promise<{ caller: Caller; cycle: { id: string; title: string; track: string; status: string }; apps: ReviewApplication[] } | null> {
+): Promise<{ caller: Caller; cycle: { id: string; title: string; track: string; status: string }; apps: ReviewApplication[] } | "locked" | null> {
   const caller = await resolveCaller(personId);
   if (!caller.isStaff) return null;
   const cycle = await prisma.recruitmentCycle.findUnique({
@@ -189,6 +198,7 @@ async function rosterFor(
     select: { id: true, title: true, track: true, status: true },
   });
   if (!cycle) return null;
+  if ((await cycleReviewLock(cycleId, personId)).state === "locked") return "locked";
   const apps = await listApplicantsForReview(cycleId, personId);
   if (apps.length === 0) {
     const listed = caller.hasAccess || (await listReviewableCycles(personId)).some((c) => c.id === cycleId);
@@ -279,6 +289,7 @@ export const cycleSummaryTool: RecruitmentTool = {
     if (!input) return INVALID_INPUT;
     const roster = await rosterFor(ctx.personId, input.cycle_id);
     if (!roster) return CYCLE_REFUSAL;
+    if (roster === "locked") return CYCLE_LOCKED;
     const { cycle, apps } = roster;
 
     const scorable = apps.filter((a) => !a.isOwnApplication);
@@ -351,6 +362,7 @@ export const listApplicantsTool: RecruitmentTool = {
     if (!input) return INVALID_INPUT;
     const roster = await rosterFor(ctx.personId, input.cycle_id);
     if (!roster) return CYCLE_REFUSAL;
+    if (roster === "locked") return CYCLE_LOCKED;
     const { cycle, apps } = roster;
 
     let filtered = filterApplicantsByDepartment(apps, input.department_code ?? null);
@@ -464,7 +476,7 @@ export const getApplicationTool: RecruitmentTool = {
       if (own) {
         committeeScores = { hidden: "your own application" };
       } else {
-        const summary = await committeeScoreSummary(app.id);
+        const summary = await committeeScoreSummary(app.id, personId);
         const showEveryScore = scope.all || canDecideRouted;
         const mine = summary.scores.find((s) => s.scorerId === personId);
         committeeScores = {
@@ -558,7 +570,7 @@ const listInterviewsSchema = z.object({
 
 /**
  * Mirrors the cycle interviews page (src/app/(app)/recruitment/cycles/[id]/interviews/page.tsx),
- * which requires recruitment.access and lists listInterviewsForReview's rows:
+ * which requires recruitment.access or a review scope and lists listInterviewsForReview's rows:
  * candidate, department, status, time, panel size, evaluation progress.
  *
  * Evaluations (evaluator, score, comments) are added because the interview
@@ -582,13 +594,17 @@ export const listInterviewsTool: RecruitmentTool = {
   run: async (ctx, args) => {
     const input = parseArgs(listInterviewsSchema, args);
     if (!input) return INVALID_INPUT;
-    // The page's own gate is requirePermission("recruitment.access").
-    if (!(await can(ctx.personId, "recruitment.access"))) return CYCLE_REFUSAL;
+    // The page's own gate: recruitment.access, or a review scope (a department
+    // director, whose role does not grant recruitment.access, runs these
+    // interviews; listInterviewsForReview scopes the rows to their departments).
+    const caller = await resolveCaller(ctx.personId);
+    if (!caller.hasAccess && !caller.scope.all && caller.scope.departmentCodes.length === 0) return CYCLE_REFUSAL;
     const cycle = await prisma.recruitmentCycle.findUnique({
       where: { id: input.cycle_id },
       select: { id: true, title: true, track: true, status: true },
     });
     if (!cycle) return CYCLE_REFUSAL;
+    if ((await cycleReviewLock(cycle.id, ctx.personId)).state === "locked") return CYCLE_LOCKED;
 
     const interviews = await listInterviewsForReview(cycle.id, ctx.personId);
     const paged = page(interviews, input);
@@ -662,6 +678,7 @@ export const listWaitlistTool: RecruitmentTool = {
       select: { id: true, title: true, track: true, status: true },
     });
     if (!cycle) return CYCLE_REFUSAL;
+    if ((await cycleReviewLock(cycle.id, ctx.personId)).state === "locked") return CYCLE_LOCKED;
     const entries = await listWaitlisted(cycle.id, ctx.personId);
     // Acceptances for every waitlisted application, in one query. Accepted
     // departments are already on the Applicants page for anyone who can see

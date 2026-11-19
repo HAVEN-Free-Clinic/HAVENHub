@@ -96,7 +96,7 @@ describe("requests and approvals", () => {
     const { roster } = await approveDualAppointment(s.manager.id, req.id, "Agreed.");
     expect(roster).toBe("at_promotion");
     expect(await acceptedCodes(s.app.id)).toEqual(["FOOD", "QAQI"]);
-    expect(await listConflicts(s.cycle.id)).toEqual([]);
+    expect(await listConflicts(s.cycle.id, "test-viewer")).toEqual([]);
     expect(
       await prisma.emailLog.count({ where: { template: "recruitment.dual_appointment_decided", toEmail: "dana@yale.edu" } }),
     ).toBe(1);
@@ -122,7 +122,7 @@ describe("requests and approvals", () => {
     const third = await requestDualAppointment(s.manager.id, { applicationId: s.app.id, departmentCode: "JCTP" });
     expect(third.status).toBe("APPROVED");
     expect(await acceptedCodes(s.app.id)).toEqual(["FOOD", "JCTP", "QAQI"]);
-    expect(await listConflicts(s.cycle.id)).toEqual([]);
+    expect(await listConflicts(s.cycle.id, "test-viewer")).toEqual([]);
     // A fourth is one too many.
     await expect(
       requestDualAppointment(s.manager.id, { applicationId: s.app.id, departmentCode: "INTP" }),
@@ -200,19 +200,19 @@ describe("decisions", () => {
   it("without an approval two departments are still a conflict, and keeping both settles it", async () => {
     const s = await seed();
     await prisma.acceptance.create({ data: { applicationId: s.app.id, departmentCode: "QAQI", approvedById: s.manager.id } });
-    const conflicts = await listConflicts(s.cycle.id);
+    const conflicts = await listConflicts(s.cycle.id, "test-viewer");
     expect(conflicts).toHaveLength(1);
     expect(conflicts[0].canBecomeDualAppointment).toBe(true);
 
     await requestDualAppointment(s.manager.id, { applicationId: s.app.id, departmentCode: "QAQI" });
-    expect(await listConflicts(s.cycle.id)).toEqual([]);
+    expect(await listConflicts(s.cycle.id, "test-viewer")).toEqual([]);
     expect(await acceptedCodes(s.app.id)).toEqual(["FOOD", "QAQI"]);
   });
 
   it("release sends one acceptance email naming both departments", async () => {
     const s = await seed();
     await requestDualAppointment(s.manager.id, { applicationId: s.app.id, departmentCode: "QAQI" });
-    const summary = await releaseSummary(s.cycle.id);
+    const summary = await releaseSummary(s.cycle.id, "test-viewer");
     expect(summary).toMatchObject({ acceptedApplications: 1, conflictedApplications: 0, unnotified: 1, dualAppointments: 1 });
 
     expect(await releaseDecisions(s.cycle.id, s.manager.id)).toEqual({ sent: 1, skippedConflicted: 0 });
@@ -234,7 +234,7 @@ describe("decisions", () => {
       data: { name: "Quality Assurance and Quality Improvement" },
     });
     expect(await acceptedCodes(s.app.id)).toEqual(["FOOD", "JCTP", "QAQI"]);
-    expect(await listConflicts(s.cycle.id)).toEqual([]);
+    expect(await listConflicts(s.cycle.id, "test-viewer")).toEqual([]);
 
     // Release: ONE email, naming every department that accepted them.
     expect(await releaseDecisions(s.cycle.id, s.manager.id)).toEqual({ sent: 1, skippedConflicted: 0 });
@@ -248,7 +248,7 @@ describe("decisions", () => {
     expect(await prisma.acceptance.count({ where: { applicationId: s.app.id, emailedAt: null } })).toBe(0);
 
     // Onboarding: the two dual appointments ride on the routed department's form.
-    const rows = await listOnboardingRows(s.cycle.id);
+    const rows = await listOnboardingRows(s.cycle.id, "test-viewer");
     expect(rows.filter((r) => r.state === "DUAL").map((r) => r.departmentCode).sort()).toEqual(["JCTP", "QAQI"]);
     const anchor = rows.find((r) => r.state !== "DUAL")!;
     expect(anchor.departmentCode).toBe("FOOD");
@@ -330,14 +330,14 @@ describe("onboarding and promotion", () => {
       data: { acceptanceId: qaqiAcceptance.id, termId: s.term.id, departmentId: s.qaqi.id, clinicDate, role: "VOLUNTEER" },
     });
 
-    const rows = await listOnboardingRows(s.cycle.id);
+    const rows = await listOnboardingRows(s.cycle.id, "test-viewer");
     const foodRow = rows.find((r) => r.departmentCode === "FOOD")!;
     const qaqiRow = rows.find((r) => r.departmentCode === "QAQI")!;
     expect(foodRow.state).toBe("NO_CONTRACT");
     expect(qaqiRow).toMatchObject({ state: "DUAL", onboardsWith: "FOOD" });
     await expect(createOrResendContract(qaqiRow.acceptanceId, s.manager.id, "https://hub.test")).rejects.toThrow(/one form/);
 
-    expect((await listIncomingMembers({ termId: s.term.id, departmentCode: "QAQI", clinicDates: [] })).map((m) => m.acceptanceId)).toEqual([
+    expect((await listIncomingMembers({ viewerId: "test-viewer", termId: s.term.id, departmentCode: "QAQI", clinicDates: [] })).map((m) => m.acceptanceId)).toEqual([
       qaqiAcceptance.id,
     ]);
 
@@ -355,11 +355,11 @@ describe("onboarding and promotion", () => {
     expect(await prisma.shiftAssignment.count({ where: { personId: person.id, departmentId: s.qaqi.id, clinicDate } })).toBe(1);
     expect(await prisma.incomingShiftAssignment.count()).toBe(0);
     // No longer incoming anywhere: they are a member of both departments now.
-    expect(await listIncomingMembers({ termId: s.term.id, departmentCode: "QAQI", clinicDates: [] })).toEqual([]);
+    expect(await listIncomingMembers({ viewerId: "test-viewer", termId: s.term.id, departmentCode: "QAQI", clinicDates: [] })).toEqual([]);
 
     const welcome = await prisma.emailLog.findFirstOrThrow({ where: { template: "recruitment.roster_welcome" } });
     expect(welcome.html).toContain("Food Pantry and Quality Improvement");
-    const after = await listOnboardingRows(s.cycle.id);
+    const after = await listOnboardingRows(s.cycle.id, "test-viewer");
     expect(after.find((r) => r.departmentCode === "QAQI")!.onRoster).toBe(true);
   });
 

@@ -1,4 +1,7 @@
 import type { Application, Prisma } from "@prisma/client";
+import { assertMayActOnApplicationId } from "./review-lock";
+import { reviewerIdentity } from "./own-application";
+import { isOwnApplication } from "../engine/own-application";
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { recordAudit } from "@/platform/audit";
@@ -124,6 +127,9 @@ export async function routeApplication(
     },
   });
   if (!app) throw new RoutingError("Application not found.");
+  // Applied in this cycle: no say in it at all; with an exception, still not
+  // on their own application (services/review-lock.ts).
+  await assertMayActOnApplicationId(applicationId, actorId, "You can't decide your own application.");
   if (app.status !== "SUBMITTED") throw new RoutingError("This application hasn't been submitted yet.");
   if (app.cycle.track !== "VOLUNTEER") throw new RoutingError("Routing applies to volunteer cycles.");
   if (!app.cycle.departments.includes(departmentCode)) throw new RoutingError("That department is not part of this cycle.");
@@ -246,18 +252,21 @@ export async function decideRoutedApplication(
       dualFallbackAt: true,
       dualFallbackFromDepartmentCode: true,
       cycle: { select: { track: true, departments: true } },
-      applicant: { select: { applicantPersonId: true } },
+      applicant: { select: { applicantPersonId: true, emailLower: true, netId: true } },
       dualAppointments: { select: { departmentCode: true, status: true } },
     },
   });
   if (!app) throw new RoutingError("Application not found.");
+  // Applied in this cycle: no say in it at all; with an exception, still not
+  // on their own application (services/review-lock.ts).
+  await assertMayActOnApplicationId(applicationId, deciderId, "You can't decide your own application.");
   if (app.status !== "SUBMITTED") throw new RoutingError("This application hasn't been submitted yet.");
   if (app.cycle.track !== "VOLUNTEER") throw new RoutingError("Director applications are decided from the interview.");
   if (!app.routedDepartmentCode) throw new RoutingError("Route this applicant to a department before deciding.");
   const departmentCode = app.routedDepartmentCode;
   // Separation of duties: a signed-in applicant who also reviews must not decide
   // their own application (mirrors acceptApplicant/decideInterview).
-  if (app.applicant.applicantPersonId && app.applicant.applicantPersonId === deciderId) {
+  if (isOwnApplication(app.applicant, await reviewerIdentity(deciderId))) {
     throw new RecruitmentAuthError("You can't decide your own application.");
   }
   const scope = await reviewScope(deciderId);
@@ -350,17 +359,20 @@ export async function returnToRouting(
       decision: true,
       routedDepartmentCode: true,
       cycle: { select: { track: true } },
-      applicant: { select: { applicantPersonId: true } },
+      applicant: { select: { applicantPersonId: true, emailLower: true, netId: true } },
     },
   });
   if (!app) throw new RoutingError("Application not found.");
+  // Applied in this cycle: no say in it at all; with an exception, still not
+  // on their own application (services/review-lock.ts).
+  await assertMayActOnApplicationId(applicationId, actorId, "You can't decide your own application.");
   if (app.status !== "SUBMITTED") throw new RoutingError("This application hasn't been submitted yet.");
   if (app.cycle.track !== "VOLUNTEER") throw new RoutingError("Returning for re-routing applies to volunteer cycles.");
   if (!app.routedDepartmentCode) throw new RoutingError("This applicant isn't routed to a department.");
   const departmentCode = app.routedDepartmentCode;
   // Separation of duties, mirroring decideRoutedApplication: a signed-in
   // applicant who also reviews must not dispose of their own application.
-  if (app.applicant.applicantPersonId && app.applicant.applicantPersonId === actorId) {
+  if (isOwnApplication(app.applicant, await reviewerIdentity(actorId))) {
     throw new RecruitmentAuthError("You can't decide your own application.");
   }
   const scope = await reviewScope(actorId);
@@ -467,16 +479,19 @@ export async function rejectApplication(
     where: { id: applicationId },
     include: {
       cycle: { select: { track: true, departments: true } },
-      applicant: { select: { applicantPersonId: true } },
+      applicant: { select: { applicantPersonId: true, emailLower: true, netId: true } },
       acceptances: { select: { departmentCode: true, emailedAt: true, contract: { select: { id: true } } } },
       dualAppointments: { select: { departmentCode: true, status: true } },
     },
   });
   if (!app) throw new RoutingError("Application not found.");
+  // Applied in this cycle: no say in it at all; with an exception, still not
+  // on their own application (services/review-lock.ts).
+  await assertMayActOnApplicationId(applicationId, actorId, "You can't decide your own application.");
   if (app.status !== "SUBMITTED") throw new RoutingError("This application hasn't been submitted yet.");
   if (app.cycle.track !== "VOLUNTEER") throw new RoutingError("Routing applies to volunteer cycles.");
   // Separation of duties: a signed-in applicant who reviews must not decide their own.
-  if (app.applicant.applicantPersonId && app.applicant.applicantPersonId === actorId) {
+  if (isOwnApplication(app.applicant, await reviewerIdentity(actorId))) {
     throw new RecruitmentAuthError("You can't decide your own application.");
   }
   // An emailed acceptance or an onboarding contract must be torn down first (mirrors
@@ -538,6 +553,9 @@ export async function reopenDecision(applicationId: string, actorId: string): Pr
     },
   });
   if (!app) throw new RoutingError("Application not found.");
+  // Applied in this cycle: no say in it at all; with an exception, still not
+  // on their own application (services/review-lock.ts).
+  await assertMayActOnApplicationId(applicationId, actorId, "You can't decide your own application.");
   if (app.status !== "SUBMITTED") throw new RoutingError("This application hasn't been submitted yet.");
   if (app.cycle.track !== "VOLUNTEER") throw new RoutingError("Routing applies to volunteer cycles.");
   if (app.decision === "PENDING") throw new RoutingError("This application has no decision to reopen.");

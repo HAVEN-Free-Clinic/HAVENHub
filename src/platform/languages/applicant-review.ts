@@ -14,6 +14,7 @@
 
 import { prisma, type TransactionClient } from "@/platform/db";
 import { recordAudit } from "@/platform/audit";
+import { cycleReviewLock, isHiddenByLock, visibleApplicationWhere } from "@/platform/recruitment/review-lock";
 import { LanguageValidationError, SPANISH, isLanguageCode, isSpanishScore, languageLabel } from "./catalog";
 import { clearApplicantReviewLater } from "./review-later";
 
@@ -311,7 +312,10 @@ export type ApplicantQueueRow = {
  * assesses it for every applicant. An INTP applicant who claimed nothing is in
  * the lane but has nothing to queue.
  */
-export async function listApplicantLanguageQueue(): Promise<ApplicantQueueRow[]> {
+export async function listApplicantLanguageQueue(viewerId: string): Promise<ApplicantQueueRow[]> {
+  // Nobody is queued to an assessor in a cycle the assessor applied in, and
+  // nobody ever assesses their own application (recruitment/review-lock.ts).
+  const visible = await visibleApplicationWhere(viewerId);
   const laneDepartments = await prisma.department.findMany({
     where: { assessLanguageBeforeAcceptance: true },
     select: { code: true, assessSpanishRegardlessOfClaim: true },
@@ -324,6 +328,7 @@ export async function listApplicantLanguageQueue(): Promise<ApplicantQueueRow[]>
 
   const applications = await prisma.application.findMany({
     where: {
+      ...visible,
       status: "SUBMITTED",
       withdrawnAt: null,
       // Undecided, tested twice on purpose. Application.decision carries the
@@ -499,6 +504,15 @@ export async function recordApplicationLanguageAssessment(
         `Only ${languageLabel(SPANISH)} carries a proficiency score.`,
       );
     }
+  }
+  // The review lock: no assessing anyone in a cycle the assessor applied in, and
+  // never their own application, exception or not (recruitment/review-lock.ts).
+  const target = await prisma.application.findUnique({
+    where: { id: input.applicationId },
+    select: { cycleId: true, applicantId: true },
+  });
+  if (target && isHiddenByLock(target, await cycleReviewLock(target.cycleId, actorPersonId))) {
+    throw new LanguageValidationError("You can't assess this applicant: you have an application in the same cycle.");
   }
 
   const key = {

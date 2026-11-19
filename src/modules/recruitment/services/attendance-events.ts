@@ -34,6 +34,7 @@
  * EventAttendance (see the schema comment) is for.
  */
 
+import { cycleReviewLock, assertMayActOnApplication } from "./review-lock";
 import type { AttendanceEvent, AttendanceEventKind, EventAttendance, Track } from "@prisma/client";
 import { prisma, isUniqueConstraintError, type TransactionClient } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
@@ -562,6 +563,13 @@ export async function listCheckInCandidates(
   if (!authority.all && authority.departmentCodes.length === 0) {
     throw new RecruitmentAuthError("You can't record attendance.");
   }
+  // The applicant halves below are the cycle's accepted and waitlisted
+  // applicants. Someone who applied in that cycle gets neither (the member half
+  // still works the door), and with an exception never their own row
+  // (services/review-lock.ts).
+  const lock = event.cycleId ? await cycleReviewLock(event.cycleId, actorId) : null;
+  const applicantHalves = Boolean(event.cycleId && authority.all && lock?.state !== "locked");
+  const notOwn = lock?.ownApplicantIds.length ? { applicantId: { notIn: lock.ownApplicantIds } } : {};
 
   const memberships = await prisma.termMembership.findMany({
     where: { termId: event.termId, status: "ACTIVE" },
@@ -619,9 +627,9 @@ export async function listCheckInCandidates(
     // assertion with no department to check it against, which is why they may not
     // add walk-ups either (see authorizeTarget). Filtered in the query rather
     // than the projection so their payload never carries a list they cannot act on.
-    event.cycleId && authority.all
+    applicantHalves && event.cycleId
       ? prisma.acceptance.findMany({
-          where: { application: { cycleId: event.cycleId } },
+          where: { application: { cycleId: event.cycleId, ...notOwn } },
           select: {
             id: true,
             departmentCode: true,
@@ -655,10 +663,11 @@ export async function listCheckInCandidates(
     // interview. Anyone holding an Acceptance is excluded here rather than
     // deduped later: accepted beats waitlisted (rosterDecision's precedence), and
     // the accepted half above already answers for them under a stronger claim.
-    event.cycleId && authority.all
+    applicantHalves && event.cycleId
       ? prisma.application.findMany({
           where: {
             cycleId: event.cycleId,
+            ...notOwn,
             status: "SUBMITTED",
             acceptances: { none: {} },
             OR: [{ decision: "WAITLIST" }, { interviews: { some: { decision: "WAITLIST" } } }],
@@ -1086,12 +1095,15 @@ export async function recordEventCheckIn(
           application: {
             select: {
               cycleId: true,
+              applicantId: true,
               applicant: { select: { firstName: true, lastName: true, email: true } },
             },
           },
         },
       });
       if (!acceptance) throw new AttendanceEventError("That acceptance no longer exists.");
+      // Not in a cycle the operator applied in, and never their own row.
+      await assertMayActOnApplication(acceptance.application, actorId);
       // The acceptance id came from this event's own candidate list, but it is a
       // browser-supplied id and the event is the thing being written to: an
       // acceptance from a different cycle is not a candidate here.
@@ -1105,6 +1117,7 @@ export async function recordEventCheckIn(
         where: { id: target.applicationId },
         select: {
           cycleId: true,
+          applicantId: true,
           status: true,
           decision: true,
           acceptances: { select: { id: true }, take: 1 },
@@ -1113,6 +1126,7 @@ export async function recordEventCheckIn(
         },
       });
       if (!application) throw new AttendanceEventError("That application no longer exists.");
+      await assertMayActOnApplication(application, actorId);
       if (application.cycleId !== event.cycle?.id) {
         throw new AttendanceEventError("That applicant did not apply to this event's cycle.");
       }

@@ -54,7 +54,7 @@ export async function requestDualAppointmentAction(cycleId: string, formData: Fo
   let result: Awaited<ReturnType<typeof requestDualAppointment>>;
   try {
     if (!applicationId && identifier) {
-      const found = await findApplicationByEmailOrNetId(cycleId, identifier);
+      const found = await findApplicationByEmailOrNetId(cycleId, identifier, person.personId);
       if (!found) throw new DualAppointmentError("No active application in this cycle matches that email or NetID.");
       applicationId = found.id;
     }

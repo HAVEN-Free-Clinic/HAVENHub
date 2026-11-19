@@ -6,6 +6,7 @@ import { prisma } from "@/platform/db";
 import { cycleNavItems } from "@/modules/recruitment/cycle-nav";
 import { CycleNavTabs } from "@/modules/recruitment/components/cycle-nav-tabs";
 import { reviewScope } from "@/modules/recruitment/services/review";
+import { cycleReviewLock } from "@/modules/recruitment/services/review-lock";
 import { Alert } from "@/platform/ui/alert";
 import { TextLink } from "@/platform/ui/text-link";
 
@@ -36,15 +37,22 @@ export default async function CycleWorkspaceLayout({ children, params }: LayoutP
   // resolveAvailabilityOptions) is the module's heaviest query. This layout
   // only needs track, so it selects just that instead of paying for the full
   // load a second time on every render.
-  const [cycle, canAccess, canManage, canReviewAll, scope] = await Promise.all([
+  const [cycle, canAccess, canManage, canReviewAll, scope, lock] = await Promise.all([
     prisma.recruitmentCycle.findUnique({ where: { id }, select: { track: true, isTest: true, testSourceCycleId: true } }),
     can(session.personId, "recruitment.access"),
     can(session.personId, "recruitment.manage_cycles"),
     can(session.personId, "recruitment.review_all"),
     // Request-cached; the subtree gate above already resolved it.
     reviewScope(session.personId),
+    // Request-cached; every page below asks the same question.
+    cycleReviewLock(id, session.personId),
   ]);
   if (!cycle) notFound();
+  // Applied in this cycle: no tabs, since every one of them would show the same
+  // locked notice. The notice itself comes from the page (lockedCycleView): a
+  // layout cannot stop the page under it from rendering, so it must not be the
+  // thing that hides the cycle (services/review-lock.ts).
+  if (lock.state === "locked") return <div className="space-y-6">{children}</div>;
 
   // On every page of a test run, so whoever opens its form builder, emails or
   // contract learns before trying to edit that those follow the real cycle.

@@ -1,3 +1,4 @@
+import { lockedCycleView } from "@/modules/recruitment/components/cycle-locked-notice";
 import { notFound } from "next/navigation";
 import { PageBody } from "@/platform/ui/page-body";
 import { requirePermission, requirePersonSession } from "@/platform/auth/session";
@@ -22,6 +23,8 @@ export default async function AssignSubcommitteesPage({ params }: PageProps) {
   const { id } = await params;
   await requirePermission("recruitment.access");
   const [person, cycle] = await Promise.all([requirePersonSession(), getCycle(id)]);
+  const locked = await lockedCycleView(id, { cycleWide: true });
+  if (locked) return locked;
   if (!cycle) notFound();
 
   let rows;

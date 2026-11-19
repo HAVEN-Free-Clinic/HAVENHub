@@ -468,6 +468,8 @@ async function dualViewable(applicationId: string) {
   const app = await prisma.application.findUniqueOrThrow({
     where: { id: applicationId },
     select: {
+      cycleId: true,
+      applicantId: true,
       departmentChoices: true,
       routedDepartmentCode: true,
       cycle: { select: { track: true } },

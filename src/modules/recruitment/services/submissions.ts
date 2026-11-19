@@ -15,7 +15,7 @@ import {
 } from "../engine/schema-builder";
 import { visibleSections, type ApplicantType } from "../engine/visibility";
 import { isFieldVisible, mergeDepartmentAnswer, answersForConditions } from "../engine/field-visibility";
-import { departmentChoicesFromAnswer } from "../engine/department-choice";
+import { departmentChoicesFromAnswer, departmentRankCount } from "../engine/department-choice";
 import { derivedAnswers, fieldDerivation } from "../engine/haven-history";
 import { loadHavenHistory } from "./haven-history";
 import { getRenewalContext, resolveReturningPersonId, type SsoClaim } from "./renewal";
@@ -247,6 +247,20 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
     // slot, first choice first, with "" for an empty slot. A single-choice field
     // posts the bare code. Both read as the ranked list of codes.
     selectedDepartmentCodes = departmentChoicesFromAnswer(raw);
+    // The answer schema below rejects unknown codes, extra slots and repeats too,
+    // but this list decides which supplement sections are visible BEFORE that
+    // parse runs, so check it here where it is computed rather than trusting the
+    // later validation to catch a crafted post.
+    if (deptField) {
+      const allowed = new Set(cycle.departments);
+      if (
+        selectedDepartmentCodes.some((d) => !allowed.has(d)) ||
+        new Set(selectedDepartmentCodes).size !== selectedDepartmentCodes.length ||
+        selectedDepartmentCodes.length > departmentRankCount(deptField.validation)
+      ) {
+        throw fieldProblem(deptField.key, "Choose your departments from the list.");
+      }
+    }
     if (input.applicantType === "TRANSFER") {
       // A transfer may not target a department the person already belongs to;
       // that is a renewal, not a transfer.

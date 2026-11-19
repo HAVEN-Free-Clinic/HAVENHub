@@ -112,6 +112,19 @@ it("rejects the same department ranked twice", async () => {
   ).rejects.toBeInstanceOf(SubmissionValidationError);
 });
 
+it("rejects a department outside the cycle and more choices than the field allows", async () => {
+  await openDirectorCycle();
+  for (const choice of [["MDIC", "NOPE"], ["MDIC", "SRHD", "SCTP"]]) {
+    await expect(
+      submitApplication("apply-d", {
+        applicantType: "NEW",
+        answers: { ...BASE, prev_volunteered: "no", returning_board: "no", department_choice: choice },
+        files: {},
+      }),
+    ).rejects.toMatchObject({ fieldErrors: { department_choice: expect.any(String) } });
+  }
+});
+
 it("rejects a transfer that ranks its current department in any slot", async () => {
   await openDirectorCycle();
   const person = await personWith([{ kind: "DIRECTOR", termCode: "FA26", dept: "SRHD" }]);

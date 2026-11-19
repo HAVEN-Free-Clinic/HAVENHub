@@ -7,6 +7,7 @@ import { captureEvent, GROUP_DEPARTMENT } from "@/platform/posthog/capture";
 import { termGroupForCycle } from "@/platform/posthog/groups";
 import { RecruitmentAuthError, AcceptanceError, revokeAcceptance, canViewerOpenApplication, recordApplicationView } from "@/modules/recruitment/services/review";
 import { createInterview, InterviewError } from "@/modules/recruitment/services/interviews";
+import { decideWithoutInterview } from "@/modules/recruitment/services/interview-decisions";
 import { submitCommitteeScore, CommitteeScoreError } from "@/modules/recruitment/services/committee-scoring";
 import { routeApplication, decideRoutedApplication, returnToRouting, reopenDecision, applyTierRejects, applyBulkWaitlists, applyBulkReopens, RoutingError, type BatchResult } from "@/modules/recruitment/services/routing";
 import { loadReviewApplication, type ReviewApplicationView } from "@/modules/recruitment/services/speed-score";
@@ -204,6 +205,34 @@ export async function scheduleInterviewAction(cycleId: string, applicationId: st
     }
     throw err;
   }
+}
+
+/** Director cycles: record a department's outcome without extending an
+ *  interview. The service creates or reuses that department's Interview row
+ *  (never scheduled, never invited) and decides it like any other interview. */
+export async function decideWithoutInterviewAction(cycleId: string, applicationId: string, formData: FormData) {
+  const person = await requirePersonSession();
+  const departmentCode = String(formData.get("departmentCode") ?? "").trim();
+  const outcome = String(formData.get("outcome") ?? "");
+  const notes = String(formData.get("notes") ?? "").trim() || null;
+  if (outcome !== "ACCEPT" && outcome !== "REJECT" && outcome !== "WAITLIST") {
+    redirect(bounce(cycleId, applicationId, { error: "Invalid outcome." }));
+  }
+  try {
+    const iv = await decideWithoutInterview(applicationId, departmentCode, outcome, person.personId, notes);
+    await captureEvent({
+      distinctId: person.personId,
+      event: "application_decided",
+      properties: { cycle_id: cycleId, application_id: applicationId, outcome, department_code: departmentCode, interview_id: iv.id, without_interview: true },
+      groups: await termGroupForCycle(cycleId, { [GROUP_DEPARTMENT]: departmentCode }),
+    });
+  } catch (err) {
+    if (err instanceof RecruitmentAuthError || err instanceof InterviewError || err instanceof AcceptanceError) {
+      redirect(bounce(cycleId, applicationId, { error: err.message }));
+    }
+    throw err;
+  }
+  redirect(bounce(cycleId, applicationId, { saved: "decision" }));
 }
 
 /** Score an application and return a result object (no redirect): the speed-score

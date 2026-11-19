@@ -55,6 +55,9 @@ import { FilterField } from "@/platform/ui/filter-bar";
 import { ResultCount } from "@/platform/ui/result-count";
 import { ListEmpty } from "@/platform/ui/list-empty";
 import { LanguageFilter } from "@/modules/recruitment/components/language-filter";
+import { InfoSessionFilter } from "@/modules/recruitment/components/info-session-filter";
+import { infoSessionStatuses } from "@/modules/recruitment/services/info-session-flags";
+import { INFO_SESSION_BADGE } from "@/modules/recruitment/engine/info-session";
 import {
   RosterRowCheckbox,
   RosterSelectAll,
@@ -83,6 +86,7 @@ function rosterQuery(parts: {
   decision: string | null;
   department: string | null;
   language: string | null;
+  info?: string | null;
   sort: string | null;
   dir: string | null;
   page: number | null;
@@ -92,6 +96,7 @@ function rosterQuery(parts: {
   if (parts.decision) q.set("decision", parts.decision);
   if (parts.department) q.set("department", parts.department);
   if (parts.language) q.set("language", parts.language);
+  if (parts.info) q.set("info", parts.info);
   if (parts.sort && parts.dir) {
     q.set("sort", parts.sort);
     q.set("dir", parts.dir);
@@ -101,9 +106,9 @@ function rosterQuery(parts: {
   return s ? `?${s}` : "";
 }
 
-export default async function ApplicantsPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ page?: string; q?: string; decision?: string; department?: string; language?: string; sort?: string; dir?: string }> }) {
+export default async function ApplicantsPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ page?: string; q?: string; decision?: string; department?: string; language?: string; info?: string; sort?: string; dir?: string }> }) {
   const { id } = await params;
-  const { page: pageParam, q: queryParam, decision: decisionParam, department: departmentParam, language: languageParam, sort: sortParam, dir: dirParam } = await searchParams;
+  const { page: pageParam, q: queryParam, decision: decisionParam, department: departmentParam, language: languageParam, info: infoParam, sort: sortParam, dir: dirParam } = await searchParams;
   const [person, cycle] = await Promise.all([requirePersonSession(), getCycle(id)]);
   if (!cycle) notFound();
   const locked = await lockedCycleView(id);
@@ -194,13 +199,21 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
     : null;
   const query = normalizeApplicantQuery(queryParam);
   const languageFilter = parseLanguageFilter(languageParam);
+  // Info-session attendance, for the whole roster in two queries. Empty on a
+  // cycle with no info sessions, and the badge, filter and count stay off the
+  // page in that case.
+  const infoSessions = await infoSessionStatuses(id, apps);
+  const infoFilter = infoSessions.phase !== "NONE" && infoParam === "flagged" ? "flagged" : null;
   const byDecision = decisionFilter
     ? rows.filter((a) => rosterDecision({ acceptances: a.acceptances, applicationDecision: a.decision, interviews: a.interviews, dualAppointments: a.dualAppointments }).status === decisionFilter)
     : rows;
   // "Awaiting assessment" is the filter this column exists for: it is how a
   // lead finds everyone the interpreting department still owes a verdict on,
   // which is the cohort they then decide together with the bulk bar.
-  const byLanguage = filterApplicantsByLanguage(byDecision, (a) => languageStatusFor(a.id), languageFilter);
+  const byInfo = infoFilter
+    ? byDecision.filter((a) => infoSessions.byApplicationId.get(a.id) === "FLAGGED")
+    : byDecision;
+  const byLanguage = filterApplicantsByLanguage(byInfo, (a) => languageStatusFor(a.id), languageFilter);
   // Search last in the chain, on the same rows the count and the pager read, so
   // "3 applicants" is always the number of rows the search actually returned.
   const filtered = filterApplicantsByQuery(filterApplicantsByDepartment(byLanguage, departmentFilter), query);
@@ -245,6 +258,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
       decision: decisionFilter,
       department: departmentFilter,
       language: languageFilter,
+      info: infoFilter,
       sort: key,
       dir: nextSortDirection(sort, key),
       page: null,
@@ -297,6 +311,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
           <NavForm className={FORM_ROW}>
             {decisionFilter && <input type="hidden" name="decision" value={decisionFilter} />}
             {departmentFilter && <input type="hidden" name="department" value={departmentFilter} />}
+            {infoFilter && <input type="hidden" name="info" value={infoFilter} />}
             {sort && <input type="hidden" name="sort" value={sort.key} />}
             {sort && <input type="hidden" name="dir" value={sort.dir} />}
             {/* Labelled like every other filter row in the app. The two
@@ -320,6 +335,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
           <DecisionFilter />
           <DepartmentFilter options={departmentOptions} />
           {language.inLane && <LanguageFilter />}
+          {infoSessions.phase !== "NONE" && <InfoSessionFilter />}
         </FormRow>
         <ResultCount total={filtered.length} noun="applicant" />
       </div>
@@ -385,6 +401,11 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
                         Invited
                       </Badge>
                     )}
+                    {(() => {
+                      const status = infoSessions.byApplicationId.get(a.id);
+                      const badge = status ? INFO_SESSION_BADGE[status] : null;
+                      return badge ? <Badge tone={badge.tone}>{badge.label}</Badge> : null;
+                    })()}
                     {dual && (
                       <Badge
                         tone={dual.status === "APPROVED" ? "success" : "warning"}
@@ -504,6 +525,7 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
             decision: decisionFilter,
             department: departmentFilter,
             language: languageFilter,
+            info: infoFilter,
             sort: sort?.key ?? null,
             dir: sort?.dir ?? null,
             page: p,

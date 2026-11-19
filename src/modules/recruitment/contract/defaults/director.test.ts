@@ -19,6 +19,13 @@ describe("DIRECTOR_LAYOUT", () => {
     expect(firstDeptAt).toBeGreaterThan(boardAt);
   });
 
+  it("addresses directors, not volunteers, in the 48-hour deadline", () => {
+    const intro = DIRECTOR_LAYOUT.blocks.find((b) => b.kind === "section" && b.id === "sec_intro");
+    const body = intro && "body" in intro ? intro.body : "";
+    expect(body).toContain("Both new and returning Directors must submit this form within 48 hours");
+    expect(body).not.toMatch(/volunteers must submit/);
+  });
+
   it("closes with a full-name signature", () => {
     const last = DIRECTOR_LAYOUT.blocks[DIRECTOR_LAYOUT.blocks.length - 1];
     expect(last.kind).toBe("agreement");
@@ -40,12 +47,13 @@ describe("DIRECTOR_LAYOUT", () => {
     }
   });
 
-  it("gates staffTitle, second_department_name, the Epic section and block correctly", () => {
+  it("gates staffTitle, the Epic section and block correctly", () => {
     const staffTitle = DIRECTOR_LAYOUT.blocks.find((b) => b.kind === "system_field" && b.systemKey === "staffTitle");
     expect(staffTitle?.visibleWhen).toMatchObject({ field: "yaleAffiliation", op: "is", value: "staff" });
 
-    const secondDeptName = DIRECTOR_LAYOUT.blocks.find((b) => b.kind === "custom_question" && b.key === "second_department_name");
-    expect(secondDeptName?.visibleWhen).toMatchObject({ field: "second_department", op: "is", value: "yes" });
+    // The second-department questions were answered and then read nowhere, so
+    // they are no longer asked.
+    expect(DIRECTOR_LAYOUT.blocks.some((b) => b.kind === "custom_question" && b.key.startsWith("second_department"))).toBe(false);
 
     // Epic follows the department: never a question to the director.
     expect(DIRECTOR_LAYOUT.blocks.some((b) => b.kind === "custom_question" && b.key === "epic_needed_self")).toBe(false);

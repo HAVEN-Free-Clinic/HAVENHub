@@ -12,7 +12,7 @@ import { reviewScope, listAcceptances, canViewApplication, recordApplicationView
 import { cycleReviewLock } from "@/modules/recruitment/services/review-lock";
 import { CycleLockedNotice } from "@/modules/recruitment/components/cycle-locked-notice";
 import { can } from "@/platform/rbac/engine";
-import { scheduleInterviewAction, committeeScoreAction, routeAction, decideRoutedAction, reopenDecisionAction, rescindAcceptanceAction, reopenWithdrawnAction, excuseApplicantAbsenceAction, clearApplicantExcuseAction, assessApplicantLanguageAction, requestDualAppointmentFromApplicantAction, decideDualAppointmentFromApplicantAction } from "../actions";
+import { scheduleInterviewAction, decideWithoutInterviewAction, committeeScoreAction, routeAction, decideRoutedAction, reopenDecisionAction, rescindAcceptanceAction, reopenWithdrawnAction, excuseApplicantAbsenceAction, clearApplicantExcuseAction, assessApplicantLanguageAction, requestDualAppointmentFromApplicantAction, decideDualAppointmentFromApplicantAction } from "../actions";
 import { listDualAppointments, type DualAppointmentRow } from "@/modules/recruitment/services/dual-appointments";
 import { MAX_APPOINTED_DEPARTMENTS } from "@/modules/recruitment/engine/dual-appointments";
 import { getApplicantAbsenceExcuse } from "@/modules/recruitment/services/training";
@@ -46,7 +46,10 @@ import { ApplicantHistory } from "@/modules/recruitment/components/applicant-his
 import { EmptyState } from "@/platform/ui/empty-state";
 import { TextLink } from "@/platform/ui/text-link";
 import { FormRow, RowField } from "@/platform/ui/form";
-import { DECISION_LABELS } from "@/modules/recruitment/components/status-badge";
+import { DECISION_LABELS, DecisionBadge } from "@/modules/recruitment/components/status-badge";
+import { isDecidedWithoutInterview, isInterviewUnderWay, rankedDirectorDepartments } from "@/modules/recruitment/engine/interview-mode";
+import { infoSessionStatuses } from "@/modules/recruitment/services/info-session-flags";
+import { INFO_SESSION_BADGE } from "@/modules/recruitment/engine/info-session";
 
 
 const DUAL_STATUS: Record<DualAppointmentRow["status"], { label: string; tone: "default" | "success" | "warning" }> = {
@@ -256,6 +259,38 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
   const offMyPile = queueScope?.pooled === true && !queueScope.assignedIds.has(applicationId);
   const canRoute = scope.all && app.cycle.track === "VOLUNTEER"; // recruitment.review_all; routing is volunteer-only
   const routedOffChoice = app.routedDepartmentCode != null && !app.departmentChoices.includes(app.routedDepartmentCode);
+  // Director cycles: one row per department the applicant ranked (plus any
+  // department that already holds an interview row), each either extending an
+  // interview or deciding without one. A department's outcome is shown only to
+  // someone who could decide it, or who sees every department, so one
+  // department's verdict is not read off this page by another's director.
+  const interviewByDept = new Map(existingInterviews.map((iv) => [iv.departmentCode, iv]));
+  const directorDeptRows = app.cycle.track === "DIRECTOR"
+    ? [...new Set([...rankedDirectorDepartments(app, app.cycle.departments), ...interviewByDept.keys()])].map((code) => {
+        const iv = interviewByDept.get(code) ?? null;
+        const inScope = scope.all || scope.departmentCodes.includes(code);
+        return {
+          code,
+          iv,
+          showOutcome: seeAll || inScope,
+          canDecide: inScope && !ownApplication && app.status === "SUBMITTED",
+          underWay: iv ? isInterviewUnderWay(iv) : false,
+          withoutInterview: iv ? isDecidedWithoutInterview(iv) : false,
+        };
+      })
+    : [];
+  // Scheduling the first interview (or recording the first decision) moves the
+  // application out of committee scoring: off the speed-score queue and out of
+  // scorer assignments (isHandledStage). Not blocked, but said before it happens
+  // when the committee has not finished its reads.
+  const committeeReads = app.cycle.track === "DIRECTOR" && existingInterviews.length === 0
+    ? await prisma.committeeScore.count({ where: { applicationId } })
+    : null;
+  const readsShort = committeeReads != null && committeeReads < app.cycle.scoresPerApplication;
+  // Info-session attendance (engine/info-session.ts). A flag for the reviewer,
+  // never a decision: nothing on this page acts on it.
+  const infoSession = (await infoSessionStatuses(id, [app])).byApplicationId.get(applicationId) ?? null;
+  const infoSessionBadge = infoSession ? INFO_SESSION_BADGE[infoSession] : null;
   return (
     <PageBody width="full">
       <SetBreadcrumb
@@ -493,6 +528,14 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
           aria-label="Review"
           className="space-y-6 lg:sticky lg:top-24 lg:-m-1 lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto lg:p-1"
         >
+          {infoSessionBadge && (
+            <Alert tone={infoSession === "FLAGGED" ? "warning" : "info"}>
+              {infoSessionBadge.label}.
+              {infoSession === "FLAGGED"
+                ? " No check-in at any of this cycle's info sessions, by account or by email. A flag, not a decision."
+                : " Their check-in will show here once they attend."}
+            </Alert>
+          )}
           {ownApplication && (canScore || canDecideRouted) && (
             <Card>
               <SectionHeader>Committee score</SectionHeader>
@@ -577,14 +620,77 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
 
           {app.cycle.track === "DIRECTOR" ? (
             <Card>
-              <SectionHeader>Interview</SectionHeader>
-              {existingInterviews.length > 0 && (
-                <ul className="mt-3 space-y-1 text-sm">
-                  {existingInterviews.map((iv) => (
-                    <li key={iv.id}>
-                      <TextLink className="font-medium" href={`/recruitment/interviews/${iv.id}`}>
-                        Interview for {iv.departmentCode}
-                      </TextLink>
+              <SectionHeader>Interviews and decisions</SectionHeader>
+              <p className="mt-2 text-xs text-subtle-foreground">
+                For each department this applicant ranked, extend an interview or decide without one. Decisions stay
+                confidential until they are released.
+              </p>
+              {readsShort && (
+                <Alert tone="warning" className="mt-3">
+                  Only {committeeReads} of {app.cycle.scoresPerApplication} committee reads are in. Scheduling an
+                  interview or recording a decision takes this applicant out of the committee&apos;s scoring queue and
+                  scorer assignments.
+                </Alert>
+              )}
+              {directorDeptRows.length > 0 && (
+                <ul className="mt-3 divide-y divide-border-subtle text-sm">
+                  {directorDeptRows.map((row) => (
+                    <li key={row.code} className="space-y-2 py-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <strong className="text-foreground">{row.code}</strong>
+                        {row.showOutcome && row.iv && row.iv.decision !== "PENDING" && (
+                          <DecisionBadge decision={row.iv.decision} />
+                        )}
+                        {row.showOutcome && (
+                          <span className="text-xs text-subtle-foreground">
+                            {!row.iv
+                              ? "No interview or decision yet"
+                              : row.withoutInterview
+                                ? "Decided without interview"
+                                : row.iv.decision !== "PENDING"
+                                  ? "Decided after interview"
+                                  : row.iv.scheduledAt
+                                    ? "Interview scheduled"
+                                    : "Interview not scheduled yet"}
+                          </span>
+                        )}
+                        {row.iv && (
+                          <TextLink className="text-xs" href={`/recruitment/interviews/${row.iv.id}`}>
+                            {row.withoutInterview ? "Details" : "Open interview"}
+                          </TextLink>
+                        )}
+                      </div>
+                      {row.canDecide && !row.underWay && (
+                        <form action={decideWithoutInterviewAction.bind(null, id, applicationId)}>
+                          <input type="hidden" name="departmentCode" value={row.code} />
+                          <FormRow>
+                            <RowField label="Decide without interview">
+                              <Select
+                                name="outcome"
+                                required
+                                defaultValue={row.iv && row.iv.decision !== "PENDING" ? row.iv.decision : "ACCEPT"}
+                              >
+                                <option value="ACCEPT">Accept</option>
+                                <option value="REJECT">Reject</option>
+                                <option value="WAITLIST">Waitlist</option>
+                              </Select>
+                            </RowField>
+                            <RowField label="Notes" hint="Optional. Internal only." width="grow">
+                              <Input name="notes" />
+                            </RowField>
+                            {readsShort ? (
+                              <ConfirmButton size="sm" label="Record decision" confirmLabel="Record before the committee finishes?" />
+                            ) : (
+                              <SubmitButton size="sm" pendingLabel="Recording…">Record decision</SubmitButton>
+                            )}
+                          </FormRow>
+                        </form>
+                      )}
+                      {row.canDecide && row.underWay && row.iv?.decision === "PENDING" && (
+                        <p className="text-xs text-subtle-foreground">
+                          An interview is under way. Record the decision on the interview page.
+                        </p>
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -592,15 +698,19 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
               {scheduleChoices.length > 0 ? (
                 <form action={scheduleInterviewAction.bind(null, id, applicationId)}>
                   <FormRow className="mt-4 border-t border-border-subtle pt-4">
-                    <RowField label="Department">
+                    <RowField label="Extend an interview for">
                       <Select name="departmentCode" required>
                         {scheduleChoices.map((d) => (<option key={d} value={d}>{d}</option>))}
                       </Select>
                     </RowField>
-                    <SubmitButton size="sm" pendingLabel="Scheduling…">Schedule interview</SubmitButton>
+                    {readsShort ? (
+                      <ConfirmButton size="sm" label="Schedule interview" confirmLabel="Schedule before the committee finishes?" />
+                    ) : (
+                      <SubmitButton size="sm" pendingLabel="Scheduling…">Schedule interview</SubmitButton>
+                    )}
                   </FormRow>
                 </form>
-              ) : existingInterviews.length === 0 ? (
+              ) : directorDeptRows.length === 0 ? (
                 <EmptyState inline className="mt-3">No eligible department to interview for in your scope.</EmptyState>
               ) : null}
             </Card>

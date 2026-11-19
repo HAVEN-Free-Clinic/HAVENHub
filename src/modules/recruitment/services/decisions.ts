@@ -452,8 +452,23 @@ export async function sendRejections(cycleId: string, actorId: string): Promise<
       // on the decision and status we read closes the rest of the gap: a
       // concurrent reopen, waitlist, or withdrawal moves the row and this claim
       // matches nothing, so no email goes out on a decision that no longer holds.
+      //
+      // On a director cycle Application.decision is the unused slot and stays
+      // PENDING, so gating on it alone re-checks nothing: an interview flipped
+      // REJECT -> WAITLIST (or a department left PENDING) in the gap would still
+      // be told they were not selected. There the claim re-asserts the interview
+      // reading the candidate was loaded on: some REJECT, nothing PENDING or
+      // WAITLIST.
       const claimed = await tx.application.updateMany({
-        where: { id: candidate.id, rejectionEmailedAt: null, status: "SUBMITTED", decision: candidate.decision },
+        where: {
+          id: candidate.id,
+          rejectionEmailedAt: null,
+          status: "SUBMITTED",
+          decision: candidate.decision,
+          ...(cycle.track === "DIRECTOR"
+            ? { interviews: { some: { decision: "REJECT" }, none: { decision: { in: ["PENDING", "WAITLIST"] } } } }
+            : {}),
+        },
         data: { rejectionEmailedAt: new Date() },
       });
       if (claimed.count !== 1) return false;

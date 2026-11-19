@@ -792,6 +792,20 @@ const FLASH_REGISTRY: readonly FlashRegistryEntry[] = [
   },
 
   {
+    // recruitment/cycles/[id]/decisions/actions.ts (rejectFlaggedNoInfoSessionAction).
+    params: ["flaggedRejected", "flaggedSkipped"],
+    pathnames: ["/recruitment/cycles/*/decisions"],
+    tone: (values) => (values.get("flaggedSkipped") === "0" ? "success" : "warning"),
+    message: (values) => {
+      const rejected = values.get("flaggedRejected") ?? "0";
+      const skipped = values.get("flaggedSkipped") ?? "0";
+      const base = `Rejected ${rejected} flagged ${rejected === "1" ? "applicant" : "applicants"} without an interview.`;
+      return skipped === "0"
+        ? base
+        : `${base} Left ${skipped} as they were (accepted, withdrawn, your own, or a department already deciding); see the applicant roster.`;
+    },
+  },
+  {
     // recruitment/cycles/[id]/decisions/page.tsx:36-40 and actions.ts:28.
     params: ["sent", "skipped"],
     tone: "success",

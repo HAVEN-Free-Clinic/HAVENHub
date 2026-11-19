@@ -83,6 +83,13 @@ export async function updateInterview(
   });
   if (!iv) throw new InterviewError("Interview not found.");
   await assertCanManage(iv.departmentCode, actorId, iv.application);
+  // A department that decided without an interview (decideWithoutInterview)
+  // must not acquire one afterwards: a time on the row would put "Interview
+  // scheduled" on the applicant's portal and unlock the invite email for an
+  // interview the department chose not to extend.
+  if (patch.scheduledAt != null && iv.scheduledAt == null && iv.decision !== "PENDING") {
+    throw new InterviewError("This department already decided without an interview, so no interview time can be set.");
+  }
   return prisma.interview.update({
     where: { id: interviewId },
     data: {
@@ -325,5 +332,17 @@ async function loadInterview(interviewId: string) {
 }
 
 export async function listApplicationInterviews(applicationId: string) {
-  return prisma.interview.findMany({ where: { applicationId }, select: { id: true, departmentCode: true } });
+  const rows = await prisma.interview.findMany({
+    where: { applicationId },
+    select: {
+      id: true,
+      departmentCode: true,
+      decision: true,
+      scheduledAt: true,
+      invitedAt: true,
+      decidedAt: true,
+      _count: { select: { evaluations: true } },
+    },
+  });
+  return rows.map(({ _count, ...iv }) => ({ ...iv, evaluationCount: _count.evaluations }));
 }

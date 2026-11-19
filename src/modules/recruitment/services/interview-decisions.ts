@@ -6,6 +6,7 @@ import { InterviewError } from "./interviews";
 import { assertMayActOnApplication } from "./review-lock";
 import { reviewerIdentity } from "./own-application";
 import { isOwnApplication } from "../engine/own-application";
+import { isInterviewUnderWay, rankedDirectorDepartments } from "../engine/interview-mode";
 
 export type InterviewOutcome = "ACCEPT" | "REJECT" | "WAITLIST";
 
@@ -110,4 +111,102 @@ export async function decideInterview(
   });
   await recordAudit({ actorPersonId: deciderId, action: "recruitment.interview_decide", entityType: "Interview", entityId: interviewId, after: { decision: outcome } });
   return updated;
+}
+
+/**
+ * Decide a director-track department's outcome without extending an interview.
+ *
+ * Reviewers choose between "extend interview" and "not extend interview" for
+ * each department an applicant ranked. The second has no Interview of its own
+ * to decide, so this creates (or reuses) that department's Interview row with no
+ * time and no invite, and decides it through decideInterview. Everything that
+ * reads a director decision (the Acceptance it mints, the emailed-acceptance
+ * and separation-of-duties guards, Release, the rejection and waitlist sends,
+ * the waitlist promote, conflict checks) keeps working unchanged, because to
+ * all of them this is simply a decided interview.
+ *
+ * It is also the only way a never-interviewed director applicant can be
+ * rejected, and so the only way they can be sent a rejection email: every
+ * non-interview decision path refuses director cycles.
+ *
+ * Nothing is sent to the applicant here. The row is never scheduled and never
+ * invited (updateInterview refuses to put a time on it afterwards), so no
+ * interview invite can go out for it, and the portal never shows it as an
+ * interview. The outcome stays confidential until Release like any other.
+ *
+ * Auth runs before the row is written, so a refused caller leaves nothing behind.
+ */
+export async function decideWithoutInterview(
+  applicationId: string,
+  departmentCode: string,
+  outcome: InterviewOutcome,
+  deciderId: string,
+  notes: string | null,
+): Promise<Interview> {
+  const app = await prisma.application.findUnique({
+    where: { id: applicationId },
+    select: {
+      status: true,
+      cycleId: true,
+      applicantId: true,
+      departmentChoices: true,
+      renewalDepartment: true,
+      cycle: { select: { track: true, departments: true } },
+      applicant: { select: { applicantPersonId: true, netId: true, emailLower: true } },
+    },
+  });
+  if (!app) throw new InterviewError("Application not found.");
+  if (app.status !== "SUBMITTED") throw new InterviewError("This application hasn't been submitted yet.");
+  if (app.cycle.track !== "DIRECTOR") throw new InterviewError("Deciding without an interview applies to director cycles.");
+  if (!rankedDirectorDepartments(app, app.cycle.departments).includes(departmentCode)) {
+    throw new InterviewError("This applicant did not rank that department.");
+  }
+  // The same two guards decideInterview runs, in the same shape, so nothing is
+  // written before they pass: separation of duties by account link, NetID or
+  // address (#889), then the cycle review lock (an excepted lead still never
+  // reaches their own application).
+  if (isOwnApplication(app.applicant, await reviewerIdentity(deciderId))) {
+    throw new RecruitmentAuthError("You can't decide your own application.");
+  }
+  await assertMayActOnApplication(app, deciderId, "You can't decide your own application.");
+  const scope = await reviewScope(deciderId);
+  if (!(scope.all || scope.departmentCodes.includes(departmentCode))) {
+    throw new RecruitmentAuthError("You can't decide for that department.");
+  }
+
+  // Race-safe find-or-create on @@unique([applicationId, departmentCode]).
+  const created = await prisma.interview.createMany({
+    data: [{ applicationId, departmentCode, createdById: deciderId }],
+    skipDuplicates: true,
+  });
+  const iv = await prisma.interview.findUniqueOrThrow({
+    where: { applicationId_departmentCode: { applicationId, departmentCode } },
+    select: { id: true, scheduledAt: true, invitedAt: true, _count: { select: { evaluations: true } } },
+  });
+  if (created.count === 1) {
+    await recordAudit({
+      actorPersonId: deciderId,
+      action: "recruitment.interview_create",
+      entityType: "Interview",
+      entityId: iv.id,
+      after: { applicationId, departmentCode, withoutInterview: true },
+    });
+  }
+  if (isInterviewUnderWay({ scheduledAt: iv.scheduledAt, invitedAt: iv.invitedAt, evaluationCount: iv._count.evaluations })) {
+    throw new InterviewError(`${departmentCode} already has an interview under way. Record the decision on the interview page.`);
+  }
+  try {
+    return await decideInterview(iv.id, outcome, deciderId, notes);
+  } catch (err) {
+    // A row this call created and then failed to decide would linger as an
+    // undecided, unscheduled interview, which every downstream reader treats as
+    // a PENDING department (the portal holds back "Not selected" on it). Remove
+    // it, guarded so a row someone else has since scheduled or decided survives.
+    if (created.count === 1) {
+      await prisma.interview.deleteMany({
+        where: { id: iv.id, decision: "PENDING", scheduledAt: null, invitedAt: null, evaluations: { none: {} } },
+      });
+    }
+    throw err;
+  }
 }

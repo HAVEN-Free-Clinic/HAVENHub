@@ -227,3 +227,56 @@ it("offers nothing once the applicant was not selected", async () => {
   expect(v.withdraw).toBeNull();
 });
 
+// Director track: decisions live on Interview rows, one per department.
+async function directorApp(slug: string, email: string) {
+  const srr = await prisma.person.create({ data: { name: "SRR", status: "ACTIVE" } });
+  const role = await prisma.role.create({ data: { name: "RA " + slug, grants: { create: [{ permission: "recruitment.review_all" }] } } });
+  await prisma.roleAssignment.create({ data: { personId: srr.id, roleId: role.id } });
+  const term = await prisma.term.create({ data: { code: "FA26-" + slug, name: "F", startDate: new Date(), endDate: new Date(), status: "ACTIVE" } });
+  for (const [code, name] of [["EDUC", "Education"], ["PEDS", "Pediatrics"]]) {
+    await prisma.department.upsert({ where: { code }, update: {}, create: { code, name } });
+  }
+  const cycle = await prisma.recruitmentCycle.create({ data: { track: "DIRECTOR", termId: term.id, title: "Directors", publicSlug: slug, departments: ["EDUC", "PEDS"], createdById: srr.id, status: "OPEN" } });
+  const applicant = await prisma.applicant.create({ data: { cycleId: cycle.id, firstName: "Dee", lastName: "R", email, emailLower: email } });
+  const app = await prisma.application.create({ data: { cycleId: cycle.id, applicantId: applicant.id, answers: {}, applicantType: "NEW", departmentChoices: ["EDUC", "PEDS"], status: "SUBMITTED", submittedAt: new Date() } });
+  return { srr, cycle, app };
+}
+
+it("director: after Release, a rejection with another department still PENDING (unscheduled) reads Submitted, not Not selected", async () => {
+  const { srr, cycle, app } = await directorApp("dr1", "dee@yale.edu");
+  await prisma.interview.create({ data: { applicationId: app.id, departmentCode: "EDUC", decision: "REJECT", createdById: srr.id } });
+  await prisma.interview.create({ data: { applicationId: app.id, departmentCode: "PEDS", createdById: srr.id } });
+  await releaseDecisions(cycle.id, srr.id);
+  const [v] = await getApplicantStatus(ID("dee@yale.edu"));
+  expect(v.state).toBe("SUBMITTED");
+});
+
+it("director: after Release, a rejection with another department's scheduled interview still PENDING reads Interview", async () => {
+  const { srr, cycle, app } = await directorApp("dr2", "dee@yale.edu");
+  await prisma.interview.create({ data: { applicationId: app.id, departmentCode: "EDUC", decision: "REJECT", createdById: srr.id } });
+  await prisma.interview.create({ data: { applicationId: app.id, departmentCode: "PEDS", scheduledAt: new Date("2026-12-04T15:00:00Z"), createdById: srr.id } });
+  await releaseDecisions(cycle.id, srr.id);
+  const [v] = await getApplicantStatus(ID("dee@yale.edu"));
+  expect(v.state).toBe("INTERVIEW");
+});
+
+it("director: Not selected once every department has decided and none accepted", async () => {
+  const { srr, cycle, app } = await directorApp("dr3", "dee@yale.edu");
+  await prisma.interview.create({ data: { applicationId: app.id, departmentCode: "EDUC", decision: "REJECT", createdById: srr.id } });
+  await prisma.interview.create({ data: { applicationId: app.id, departmentCode: "PEDS", decision: "REJECT", createdById: srr.id } });
+  await releaseDecisions(cycle.id, srr.id);
+  const [v] = await getApplicantStatus(ID("dee@yale.edu"));
+  expect(v.state).toBe("NOT_SELECTED");
+});
+
+it("director: a department decided without interview never reads as an interview, before or after Release", async () => {
+  const { srr, cycle, app } = await directorApp("dr4", "dee@yale.edu");
+  // No scheduledAt, no invitedAt: the decide-without-interview row.
+  await prisma.interview.create({ data: { applicationId: app.id, departmentCode: "EDUC", decision: "WAITLIST", createdById: srr.id } });
+  const [before] = await getApplicantStatus(ID("dee@yale.edu"));
+  expect(before.state).toBe("SUBMITTED");
+  await releaseDecisions(cycle.id, srr.id);
+  const [after] = await getApplicantStatus(ID("dee@yale.edu"));
+  expect(after.state).toBe("WAITLISTED");
+});
+

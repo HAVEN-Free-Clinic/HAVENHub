@@ -1,3 +1,4 @@
+import type { Prisma, Track } from "@prisma/client";
 import { assertCycleClear } from "./review-lock";
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
@@ -44,9 +45,24 @@ type HoldCandidate = {
   languages: string[];
 };
 
+/**
+ * Where a waitlist decision lives. Volunteer cycles decide on the application
+ * itself; director cycles decide on each department's Interview row and leave
+ * Application.decision PENDING forever, so a director "waitlisted" means a
+ * WAITLIST interview and no acceptance from any department (rosterDecision's
+ * reading). Used both to load candidates and to re-check them at the claim.
+ */
+function waitlistedWhere(track: Track): Prisma.ApplicationWhereInput {
+  return track === "DIRECTOR"
+    ? { interviews: { some: { decision: "WAITLIST" } }, acceptances: { none: {} } }
+    : { decision: "WAITLIST" };
+}
+
 async function loadHoldCandidates(cycleId: string): Promise<HoldCandidate[]> {
+  const cycle = await prisma.recruitmentCycle.findUnique({ where: { id: cycleId }, select: { track: true } });
+  if (!cycle) return [];
   const apps = await prisma.application.findMany({
-    where: { cycleId, status: "SUBMITTED", withdrawnAt: null, decision: "WAITLIST" },
+    where: { cycleId, status: "SUBMITTED", withdrawnAt: null, ...waitlistedWhere(cycle.track) },
     select: {
       id: true,
       applicantId: true,
@@ -131,9 +147,10 @@ export async function sendAssessmentHolds(cycleId: string, actorId: string): Pro
       // Atomic claim, mirroring sendRejections. Gating on the decision and status
       // we read closes the gap: a concurrent accept, reject, or reopen moves the
       // row and this claim matches nothing, so nobody is told their evaluation is
-      // still coming after someone has already decided them.
+      // still coming after someone has already decided them. On a director cycle
+      // the decision is the interview's, so that is what is re-checked.
       const claimed = await tx.application.updateMany({
-        where: { id: candidate.id, assessmentHoldEmailedAt: null, status: "SUBMITTED", decision: "WAITLIST" },
+        where: { id: candidate.id, assessmentHoldEmailedAt: null, status: "SUBMITTED", ...waitlistedWhere(cycle.track) },
         data: { assessmentHoldEmailedAt: new Date() },
       });
       if (claimed.count !== 1) return false;

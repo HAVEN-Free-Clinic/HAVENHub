@@ -6,12 +6,15 @@ import { getCycle } from "@/modules/recruitment/services/cycles";
 import { listConflicts, releaseSummary, rejectionSummary } from "@/modules/recruitment/services/decisions";
 import { assessmentHoldSummary } from "@/modules/recruitment/services/assessment-holds";
 import { waitlistEmailSummary } from "@/modules/recruitment/services/waitlist-emails";
+import { flaggedNoInfoSessionSummary } from "@/modules/recruitment/services/info-session-flags";
+import { DateTime } from "@/platform/dates/display";
 import {
   releaseDecisionsAction,
   sendRejectionsAction,
   sendWaitlistEmailsAction,
   sendAssessmentHoldsAction,
   keepBothDepartmentsAction,
+  rejectFlaggedNoInfoSessionAction,
 } from "./actions";
 import { SubmitButton } from "@/platform/ui/submit-button";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
@@ -40,12 +43,13 @@ export default async function DecisionsPage({ params }: {
   const cycle = await getCycle(id);
   if (!cycle) notFound();
   const { personId } = await requirePersonSession();
-  const [conflicts, summary, rejections, waitlist, holds] = await Promise.all([
+  const [conflicts, summary, rejections, waitlist, holds, flaggedInfo] = await Promise.all([
     listConflicts(id, personId),
     releaseSummary(id, personId),
     rejectionSummary(id, personId),
     waitlistEmailSummary(id, personId),
     assessmentHoldSummary(id, personId),
+    flaggedNoInfoSessionSummary(id, personId),
   ]);
 
   // wide, not form: this holds a four-up StatCard grid over a conflicts list,
@@ -118,6 +122,34 @@ export default async function DecisionsPage({ params }: {
           </ul>
         )}
       </section>
+
+      {/* Info-session attendance. Director cycles with info sessions only: the
+          bulk reject records REJECT without an interview per ranked department,
+          which is a director-track decision. It is a flag acted on
+          deliberately, never an automatic outcome. */}
+      {cycle.track === "DIRECTOR" && flaggedInfo.phase !== "NONE" && (
+        <section className="space-y-3">
+          <SectionHeader>No info session attended</SectionHeader>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <StatCard label="Flagged" value={flaggedInfo.flagged} tone={flaggedInfo.flagged > 0 ? "critical" : "default"} />
+            <StatCard label="Left to reject" value={flaggedInfo.rejectable} />
+          </div>
+          <form action={rejectFlaggedNoInfoSessionAction.bind(null, id)} className="space-y-2">
+            <ConfirmButton
+              label="Reject all flagged"
+              confirmLabel={`Reject ${flaggedInfo.rejectable} flagged ${flaggedInfo.rejectable === 1 ? "applicant" : "applicants"}?`}
+              disabled={flaggedInfo.phase !== "ENDED" || flaggedInfo.rejectable === 0}
+            />
+            <p className="text-xs text-subtle-foreground">
+              {flaggedInfo.phase !== "ENDED" ? (
+                <>Available once the last info session has ended{flaggedInfo.lastEndsAt ? <> (<DateTime value={flaggedInfo.lastEndsAt} />)</> : null}. Until then nobody is flagged, only &ldquo;not yet&rdquo;.</>
+              ) : (
+                "Records Reject without an interview for every department each flagged applicant ranked. Anyone accepted anywhere, withdrawn, your own application, or a department that already waitlisted them or has an interview under way is left alone. Nothing is emailed: the outcome waits for Release and the rejection send below."
+              )}
+            </p>
+          </form>
+        </section>
+      )}
 
       <form action={releaseDecisionsAction.bind(null, id)} className="space-y-2">
         <ConfirmButton label="Release decisions" confirmLabel="Send acceptance emails?" />

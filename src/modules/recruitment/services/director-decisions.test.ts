@@ -121,6 +121,18 @@ describe("decideWithoutInterview", () => {
     expect(await prisma.interview.count()).toBe(0);
   });
 
+  it("removes the row it created when the decision itself fails, so no phantom PENDING department is left", async () => {
+    const { director, cycle } = await seed();
+    const app = await mkApp(cycle.id, "cy", { choices: ["EDUC"] });
+    const spy = vi.spyOn(prisma, "$transaction").mockRejectedValueOnce(new Error("db down"));
+    try {
+      await expect(decideWithoutInterview(app.id, "EDUC", "ACCEPT", director.id, null)).rejects.toThrow("db down");
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await prisma.interview.count({ where: { applicationId: app.id } })).toBe(0);
+  });
+
   it("refuses a decider whose own application carries no account link but matches their NetID or email (#889)", async () => {
     const { director, cycle } = await seed();
     await prisma.person.update({ where: { id: director.id }, data: { netId: "dir42", contactEmail: "dir@personal.com" } });

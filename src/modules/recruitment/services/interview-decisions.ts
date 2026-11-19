@@ -176,5 +176,18 @@ export async function decideWithoutInterview(
   if (isInterviewUnderWay({ scheduledAt: iv.scheduledAt, invitedAt: iv.invitedAt, evaluationCount: iv._count.evaluations })) {
     throw new InterviewError(`${departmentCode} already has an interview under way. Record the decision on the interview page.`);
   }
-  return decideInterview(iv.id, outcome, deciderId, notes);
+  try {
+    return await decideInterview(iv.id, outcome, deciderId, notes);
+  } catch (err) {
+    // A row this call created and then failed to decide would linger as an
+    // undecided, unscheduled interview, which every downstream reader treats as
+    // a PENDING department (the portal holds back "Not selected" on it). Remove
+    // it, guarded so a row someone else has since scheduled or decided survives.
+    if (created.count === 1) {
+      await prisma.interview.deleteMany({
+        where: { id: iv.id, decision: "PENDING", scheduledAt: null, invitedAt: null, evaluations: { none: {} } },
+      });
+    }
+    throw err;
+  }
 }

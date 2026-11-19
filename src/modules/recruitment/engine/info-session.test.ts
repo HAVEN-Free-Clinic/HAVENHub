@@ -26,6 +26,18 @@ describe("infoSessionPhase", () => {
   });
 });
 
+describe("attendedInfoSession by NetID", () => {
+  const attendance = { personIds: new Set(["p1"]), emails: new Set(["ada.lovelace@yale.edu"]), netIds: new Set(["al123"]) };
+  it("matches an unlinked applicant whose NetID or NetID-form address is a checked-in member's", () => {
+    expect(attendedInfoSession({ applicantPersonId: null, emailLower: "x@gmail.com", netId: "AL123" }, attendance)).toBe(true);
+    expect(attendedInfoSession({ applicantPersonId: null, emailLower: "al123@yale.edu" }, attendance)).toBe(true);
+  });
+  it("does not match a different NetID or a non-Yale address", () => {
+    expect(attendedInfoSession({ applicantPersonId: null, emailLower: "zz999@yale.edu", netId: "zz999" }, attendance)).toBe(false);
+    expect(attendedInfoSession({ applicantPersonId: null, emailLower: "al123@gmail.com" }, attendance)).toBe(false);
+  });
+});
+
 describe("attendedInfoSession", () => {
   const attendance = { personIds: new Set(["p1"]), emails: new Set(["walk@y.edu"]) };
   it("matches a linked person", () => {

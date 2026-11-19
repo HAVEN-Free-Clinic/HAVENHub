@@ -47,14 +47,29 @@ export function infoSessionPhase(
  *  EventAttendance row can carry: a linked Person, or a walk-up's lowercased
  *  email (plus the linked person's own address, so a row linked after the fact
  *  still matches an applicant who has no Person link of their own). */
-export type InfoSessionAttendance = { personIds: ReadonlySet<string>; emails: ReadonlySet<string> };
+export type InfoSessionAttendance = {
+  personIds: ReadonlySet<string>;
+  emails: ReadonlySet<string>;
+  /** Lowercased NetIDs of checked-in people. A member checked in by name is
+   *  stored under their Person, whose contactEmail is usually the alias form
+   *  (first.last@yale.edu), while their application may carry the NetID form
+   *  and no account link. Without this they read as absent and get flagged. */
+  netIds?: ReadonlySet<string>;
+};
 
 export function attendedInfoSession(
-  applicant: { applicantPersonId: string | null; emailLower: string },
+  applicant: { applicantPersonId: string | null; emailLower: string; netId?: string | null },
   attendance: InfoSessionAttendance,
 ): boolean {
   if (applicant.applicantPersonId && attendance.personIds.has(applicant.applicantPersonId)) return true;
-  return attendance.emails.has(applicant.emailLower.toLowerCase());
+  const email = applicant.emailLower.toLowerCase();
+  if (attendance.emails.has(email)) return true;
+  const netIds = attendance.netIds;
+  if (!netIds || netIds.size === 0) return false;
+  if (applicant.netId && netIds.has(applicant.netId.toLowerCase())) return true;
+  // A NetID-form address on the application ("ab123@yale.edu") is that NetID.
+  const m = /^([a-z0-9]+)@yale\.edu$/.exec(email);
+  return m !== null && netIds.has(m[1]);
 }
 
 /** One application's status, or null on a cycle with no info sessions. */

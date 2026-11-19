@@ -37,24 +37,32 @@ export async function cycleInfoSessions(
     }),
     prisma.eventAttendance.findMany({
       where: { event: { cycleId, kind: "INFO_SESSION" } },
-      select: { personId: true, attendeeEmail: true, person: { select: { contactEmail: true } } },
+      select: { personId: true, attendeeEmail: true, person: { select: { contactEmail: true, netId: true } } },
     }),
   ]);
   const { phase, lastEndsAt } = infoSessionPhase(events, now);
   const personIds = new Set<string>();
   const emails = new Set<string>();
+  const netIds = new Set<string>();
   for (const r of rows) {
     if (r.personId) personIds.add(r.personId);
-    if (r.attendeeEmail) emails.add(r.attendeeEmail.toLowerCase());
+    if (r.attendeeEmail) {
+      const e = r.attendeeEmail.toLowerCase();
+      emails.add(e);
+      // A walk-up recorded under their NetID-form address carries the NetID.
+      const m = /^([a-z0-9]+)@yale\.edu$/.exec(e);
+      if (m) netIds.add(m[1]);
+    }
     if (r.person?.contactEmail) emails.add(r.person.contactEmail.toLowerCase());
+    if (r.person?.netId) netIds.add(r.person.netId.toLowerCase());
   }
-  return { phase, lastEndsAt, attendance: { personIds, emails } };
+  return { phase, lastEndsAt, attendance: { personIds, emails, netIds } };
 }
 
 type FlagInput = {
   id: string;
   applicantType: ApplicantType;
-  applicant: { applicantPersonId: string | null; emailLower: string };
+  applicant: { applicantPersonId: string | null; emailLower: string; netId?: string | null };
 };
 
 /** Every given application's info-session status in two queries, for a roster

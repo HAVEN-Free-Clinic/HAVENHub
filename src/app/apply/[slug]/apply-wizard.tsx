@@ -5,6 +5,8 @@ import { saveDraftAction, uploadDraftFileAction } from "./draft-actions";
 import { deriveSteps, stepIndexForKeys, type WizardSection, type WizardStep } from "./wizard-steps";
 import { missingRequiredKeys } from "./wizard-validation";
 import { mergeDepartmentAnswer, parseFieldCondition, visibleFields, isFieldVisible } from "@/modules/recruitment/engine/field-visibility";
+import { departmentChoicesFromAnswer } from "@/modules/recruitment/engine/department-choice";
+import { DERIVED_ANSWER_HINT, derivedAnswers, type HavenHistory } from "@/modules/recruitment/engine/haven-history";
 import { WizardProgress } from "./wizard-progress";
 import { WizardReview, formatFieldValue, reviewLabel, type ReviewGroup } from "./wizard-review";
 import { applicantTypeLabel, type ApplicantType } from "@/modules/recruitment/engine/visibility";
@@ -18,7 +20,6 @@ import { FormSection, linkifyUrls } from "@/platform/ui/form";
 import { RadioGroup, Radio } from "@/platform/ui/radio";
 import { FieldPreview } from "@/modules/recruitment/components/field-preview";
 import { isDisplayOnlyNotice } from "@/modules/recruitment/engine/notice";
-import { prefillString } from "@/modules/recruitment/components/field-prefill";
 import { SignaturePad } from "@/platform/ui/signature-pad";
 import { cx } from "@/platform/ui/cx";
 import { PortalNotice } from "../portal-notice";
@@ -42,6 +43,10 @@ export type ApplyWizardProps = {
   eligible?: boolean;
   isReturning?: boolean;
   prefill?: Prefill;
+  // The applicant's HAVEN record, when the page knows who they are and the form
+  // has a question answered from it (validation.derive). Null otherwise, which
+  // leaves those questions ordinary and editable.
+  havenHistory?: HavenHistory | null;
   currentDepartments?: string[];
   // The same code -> name options page.tsx already resolves for the
   // DEPARTMENT_CHOICE field's own options. Reused here so the renewal-
@@ -63,6 +68,7 @@ export function ApplyWizard({
   eligible = false,
   isReturning = false,
   prefill,
+  havenHistory = null,
   currentDepartments = [],
   departmentOptions = [],
   initialApplicantType = "NEW",
@@ -86,8 +92,10 @@ export function ApplyWizard({
     () => def.sections.flatMap((s) => s.fields).find((f) => f.type === "DEPARTMENT_CHOICE")?.key,
     [def.sections],
   );
-  const [deptChoice, setDeptChoice] = useState<string>(() =>
-    departmentChoiceKey ? prefillString(prefill?.values[departmentChoiceKey] ?? initialAnswers[departmentChoiceKey]) : "",
+  // The department choice(s) in rank order. A single-choice field holds at most
+  // one; a ranked field (validation.rankCount > 1) holds one per filled slot.
+  const [deptChoices, setDeptChoices] = useState<string[]>(() =>
+    departmentChoiceKey ? departmentChoicesFromAnswer(prefill?.values[departmentChoiceKey] ?? initialAnswers[departmentChoiceKey]) : [],
   );
 
   // Field keys that some other field's visibleWhen condition depends on. Only
@@ -106,7 +114,7 @@ export function ApplyWizard({
 
   // Single source of truth for condition-driven visibility (visibleFields
   // below reads only this map). Seeded from any resumed draft/prefill answer,
-  // and mirrors deptChoice/renewalDept so a section-level department pick also
+  // and mirrors deptChoices/renewalDept so a section-level department pick also
   // satisfies a field-level visibleWhen condition keyed on the same field.
   const [answers, setAnswers] = useState<Record<string, string | string[]>>(() => {
     const seed: Record<string, string | string[]> = {};
@@ -123,19 +131,22 @@ export function ApplyWizard({
       else if (raw && typeof raw === "object" && "storedName" in (raw as object)) seed[key] = "attached";
     }
     if (departmentChoiceKey && controllingKeys.has(departmentChoiceKey) && !(departmentChoiceKey in seed)) {
-      const deptSeed = applicantType === "RENEWAL" ? renewalDept : deptChoice;
-      if (deptSeed) seed[departmentChoiceKey] = deptSeed;
+      if (applicantType === "RENEWAL") {
+        if (renewalDept) seed[departmentChoiceKey] = renewalDept;
+      } else if (deptChoices.length > 0) {
+        seed[departmentChoiceKey] = deptChoices;
+      }
     }
     return seed;
   });
 
-  // Generalizes the old DEPARTMENT_CHOICE-only onDeptChoice callback: deptChoice
+  // Generalizes the old DEPARTMENT_CHOICE-only onDeptChoice callback: deptChoices
   // always tracks the department control (it drives section-level visibility
   // via selectedDepartmentCodes), while answers only tracks keys that a
   // visibleWhen condition actually reads, to avoid re-rendering on every
   // unrelated keystroke.
   function handleValueChange(key: string, value: string | string[]) {
-    if (key === departmentChoiceKey) setDeptChoice(typeof value === "string" ? value : value[0] ?? "");
+    if (key === departmentChoiceKey) setDeptChoices(departmentChoicesFromAnswer(value));
     if (controllingKeys.has(key)) setAnswers((a) => ({ ...a, [key]: value }));
   }
 
@@ -179,7 +190,15 @@ export function ApplyWizard({
     return out;
   });
 
-  const lockedKeys = useMemo(() => new Set(prefill?.lockedKeys ?? []), [prefill]);
+  // Questions answered from the HAVEN record, for the applicant type picked
+  // right now (the board question's answer depends on it). They join the
+  // prefill as locked values; the server recomputes them at submit regardless.
+  const derived = useMemo(
+    () => (havenHistory ? derivedAnswers(def.sections.flatMap((s) => s.fields), havenHistory, applicantType) : {}),
+    [havenHistory, def.sections, applicantType],
+  );
+  const prefillValues = useMemo<Record<string, string>>(() => ({ ...prefill?.values, ...derived }), [prefill, derived]);
+  const lockedKeys = useMemo(() => new Set([...(prefill?.lockedKeys ?? []), ...Object.keys(derived)]), [prefill, derived]);
   const renewalGate = applicantType === "RENEWAL" && !signedIn;
   const roleNoun = def.track === "DIRECTOR" ? "director" : "volunteer";
   // Resolves a department code to its display name through the same
@@ -198,8 +217,8 @@ export function ApplyWizard({
   ].filter((o) => o.show);
 
   const selectedDepartmentCodes = useMemo(
-    () => (applicantType === "RENEWAL" ? (renewalDept ? [renewalDept] : []) : deptChoice ? [deptChoice] : []),
-    [applicantType, renewalDept, deptChoice],
+    () => (applicantType === "RENEWAL" ? (renewalDept ? [renewalDept] : []) : deptChoices),
+    [applicantType, renewalDept, deptChoices],
   );
 
   const steps = useMemo<WizardStep[]>(
@@ -241,7 +260,9 @@ export function ApplyWizard({
   // selectedDepartmentCodes directly.
   const effectiveAnswers = useMemo(() => {
     let current: Record<string, string | string[]> = {};
-    for (const [k, v] of Object.entries(answers)) {
+    // A record-derived answer overrides the stored one, since it is what the
+    // locked control shows and what the server will use.
+    for (const [k, v] of Object.entries({ ...answers, ...derived })) {
       const sid = keyToSectionId.get(k);
       if (sid === undefined || visibleSectionIds.has(sid)) current[k] = v;
     }
@@ -262,7 +283,7 @@ export function ApplyWizard({
       if (!changed) break;
     }
     return mergeDepartmentAnswer(current, departmentChoiceKey, selectedDepartmentCodes);
-  }, [answers, keyToSectionId, keyToVisibleWhen, visibleSectionIds, departmentChoiceKey, selectedDepartmentCodes]);
+  }, [answers, derived, keyToSectionId, keyToVisibleWhen, visibleSectionIds, departmentChoiceKey, selectedDepartmentCodes]);
   const reviewIndex = steps.length - 1;
 
   // Clamp the pointer if the visible-step set shrinks below the current index.
@@ -275,8 +296,11 @@ export function ApplyWizard({
     if (stepIndex > reviewIndex) setStepIndex(reviewIndex);
   }
 
-  const transferIntoCurrent =
-    applicantType === "TRANSFER" && deptChoice !== "" && currentDepartments.includes(deptChoice);
+  // A transfer may not rank a department the applicant already belongs to, in
+  // any slot: that is a renewal, and the server refuses it too.
+  const transferBlockedCodes =
+    applicantType === "TRANSFER" ? deptChoices.filter((d) => currentDepartments.includes(d)) : [];
+  const transferIntoCurrent = transferBlockedCodes.length > 0;
 
   function chooseType(v: ApplicantType) {
     if (v === "RENEWAL" && signedIn && !eligible) { setApplicantType("NEW"); setIneligibleNote(true); return; }
@@ -410,6 +434,16 @@ export function ApplyWizard({
     if (cur.kind === "section") {
       if (transferIntoCurrent) return; // blocked; the alert is shown in-step
       const values = collectValues();
+      // Ranked department slots must name different departments. The server
+      // refuses a repeat too; catching it here keeps the applicant on this step.
+      if (departmentChoiceKey && cur.section.fields.some((f) => f.key === departmentChoiceKey)) {
+        const raw = values[departmentChoiceKey];
+        const picked = (Array.isArray(raw) ? raw : []).filter((v): v is string => typeof v === "string" && v !== "");
+        if (new Set(picked).size !== picked.length) {
+          setFieldErrors((p) => ({ ...p, [departmentChoiceKey]: "Choose a different department for each choice." }));
+          return;
+        }
+      }
       // Validate against the same department-merged answers used to render the
       // fields (effectiveAnswers), not the raw form values. A renewal's department
       // is not in the raw form (the DEPARTMENT_CHOICE control isn't rendered), so
@@ -625,14 +659,16 @@ export function ApplyWizard({
                         {fileStatus[f.key] && <p className="mt-1 text-xs text-muted-foreground" role="status" aria-live="polite">{fileStatus[f.key]}</p>}
                       </div>
                     ) : (
-                      <FieldPreview key={f.key} f={f} departments={def.departments} subcommittees={def.subcommittees}
+                      <FieldPreview key={f.key}
+                        f={f.key in derived ? { ...f, helpText: [f.helpText, DERIVED_ANSWER_HINT].filter(Boolean).join("\n") } : f}
+                        departments={def.departments} subcommittees={def.subcommittees}
                         fieldError={fieldErrors[f.key]}
                         onValueChange={handleValueChange}
                         // Prefill (the Person record) wins only for LOCKED keys (email, net_id).
                         // For editable keys (first_name, last_name, phone) a saved draft answer is
                         // an explicit applicant edit and must win, or resuming the form silently
                         // reverts their correction back to the stale record value (#93).
-                        prefill={lockedKeys.has(f.key) ? prefill?.values[f.key] : (initialAnswers[f.key] ?? prefill?.values[f.key])} locked={lockedKeys.has(f.key)} />
+                        prefill={lockedKeys.has(f.key) ? prefillValues[f.key] : (initialAnswers[f.key] ?? prefillValues[f.key])} locked={lockedKeys.has(f.key)} />
                     ),
                   )}
                 </FormSection>
@@ -643,7 +679,7 @@ export function ApplyWizard({
 
         {current.kind === "section" && transferIntoCurrent && (
           <Alert tone="warning">
-            You are already a {roleNoun} in {departmentLabel(deptChoice)}. Choose &ldquo;Renewing in my current department&rdquo; to come back to it.
+            You are already a {roleNoun} in {transferBlockedCodes.map(departmentLabel).join(", ")}. Choose &ldquo;Renewing in my current department&rdquo; to come back to it.
           </Alert>
         )}
 

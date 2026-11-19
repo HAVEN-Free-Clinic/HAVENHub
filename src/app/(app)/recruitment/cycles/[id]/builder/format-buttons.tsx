@@ -2,13 +2,22 @@
 
 import type { RefObject } from "react";
 import { Bold, Highlighter, Italic } from "lucide-react";
-import { toggleMarker, type InlineMarker } from "@/platform/ui/inline-format";
+import { toggleMarker, type InlineMarker } from "@/platform/ui/inline-markers";
+import { Button } from "@/platform/ui/button";
 
 const BUTTONS: { marker: InlineMarker; label: string; Icon: typeof Bold }[] = [
   { marker: "**", label: "Bold", Icon: Bold },
   { marker: "*", label: "Italic", Icon: Italic },
   { marker: "==", label: "Highlight", Icon: Highlighter },
 ];
+
+/** Write the new text and selection into the box. Kept outside the component:
+ *  the box is an uncontrolled DOM element reached through a ref, not React state. */
+function writeBox(el: HTMLInputElement | HTMLTextAreaElement, value: string, start: number, end: number) {
+  el.value = value;
+  el.focus();
+  el.setSelectionRange(start, end);
+}
 
 /**
  * Bold, italic and highlight buttons for one builder text box. They wrap the
@@ -34,28 +43,27 @@ export function FormatButtons({
     const start = el.selectionStart ?? el.value.length;
     const end = el.selectionEnd ?? start;
     const next = toggleMarker(el.value, start, end, marker);
-    el.value = next.value;
-    el.focus();
-    el.setSelectionRange(next.start, next.end);
+    writeBox(el, next.value, next.start, next.end);
     onChange(next.value.trim());
   }
 
   return (
     <div className="flex items-center gap-0.5" role="toolbar" aria-label="Text formatting">
       {BUTTONS.map(({ marker, label, Icon }) => (
-        <button
+        <Button
           key={marker}
           type="button"
+          variant="ghost"
+          size="sm"
           disabled={disabled}
           title={label}
           aria-label={label}
           // Keep the box focused, so its selection is still there on click.
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => apply(marker)}
-          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 disabled:opacity-40"
         >
           <Icon className="h-3.5 w-3.5" aria-hidden />
-        </button>
+        </Button>
       ))}
     </div>
   );

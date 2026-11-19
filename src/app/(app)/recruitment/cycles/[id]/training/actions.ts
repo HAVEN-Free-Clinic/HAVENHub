@@ -18,6 +18,7 @@ import {
   recordEventCheckIn,
 } from "@/modules/recruitment/services/attendance-events";
 import { RecruitmentAuthError } from "@/modules/recruitment/services/review";
+import { assertMayActOnApplication } from "@/modules/recruitment/services/review-lock";
 import { prisma } from "@/platform/db";
 import type { Track } from "@prisma/client";
 
@@ -234,6 +235,9 @@ export async function recordExpectedAttendanceAction(cycleId: string, applicantI
     if (applicant.cycleId !== cycleId) {
       throw new AttendanceEventError("That applicant is not part of this cycle.");
     }
+    // A walk-up by name and address, so the check-in service cannot see whose
+    // application it is: apply the review lock here.
+    await assertMayActOnApplication({ cycleId, applicantId }, person.personId);
     const event = await ensureTrainingEventForCycle(cycleId, person.personId);
     await recordEventCheckIn(
       event.id,

@@ -119,7 +119,7 @@ describe("recordLanguageAssessmentsInBulk", () => {
       await prisma.applicationLanguageAssessment.findFirstOrThrow({ where: { applicationId: app.id } }),
     ).toMatchObject({ verified: true, score: 3, verifiedById: ACTOR });
     expect(await prisma.auditLog.count({ where: { action: "person.language_assess" } })).toBe(2);
-    expect(await listLanguageReviewQueue()).toEqual([]);
+    expect(await listLanguageReviewQueue("test-viewer")).toEqual([]);
   });
 
   it("carries on past a row that fails, and says why", async () => {

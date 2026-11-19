@@ -69,7 +69,7 @@ it("emails a waitlisted applicant once: still in consideration, and no need to c
   const { lead, cycle } = await seed();
   const app = await mkApp(cycle.id, "ada");
 
-  expect(await waitlistEmailSummary(cycle.id)).toEqual({ waitlisted: 1, unnotified: 1, emailed: 0, released: true });
+  expect(await waitlistEmailSummary(cycle.id, "test-viewer")).toEqual({ waitlisted: 1, unnotified: 1, emailed: 0, released: true });
 
   expect((await sendWaitlistEmails(cycle.id, lead.id)).sent).toBe(1);
   const mail = await sentMail();
@@ -82,7 +82,7 @@ it("emails a waitlisted applicant once: still in consideration, and no need to c
   // A second press tells nobody twice.
   expect((await sendWaitlistEmails(cycle.id, lead.id)).sent).toBe(0);
   expect(await sentMail()).toHaveLength(1);
-  expect(await waitlistEmailSummary(cycle.id)).toEqual({ waitlisted: 1, unnotified: 0, emailed: 1, released: true });
+  expect(await waitlistEmailSummary(cycle.id, "test-viewer")).toEqual({ waitlisted: 1, unnotified: 0, emailed: 1, released: true });
 });
 
 /** The interpreting waitlist is the language-hold cohort, told to come to
@@ -95,7 +95,7 @@ it("never emails anyone INTP waitlisted, with or without a language verdict", as
     data: { applicationId: assessed.id, language: "es", verified: true, verifiedById: lead.id },
   });
 
-  expect((await waitlistEmailSummary(cycle.id)).waitlisted).toBe(0);
+  expect((await waitlistEmailSummary(cycle.id, "test-viewer")).waitlisted).toBe(0);
   expect((await sendWaitlistEmails(cycle.id, lead.id)).sent).toBe(0);
   expect(await sentMail()).toHaveLength(0);
 });
@@ -134,7 +134,7 @@ it("refuses before Release, without review_all, and for an archived cycle", asyn
   await expect(sendWaitlistEmails(cycle.id, other.id)).rejects.toBeInstanceOf(RecruitmentAuthError);
 
   await prisma.recruitmentCycle.update({ where: { id: cycle.id }, data: { decisionsReleasedAt: null } });
-  expect((await waitlistEmailSummary(cycle.id)).released).toBe(false);
+  expect((await waitlistEmailSummary(cycle.id, "test-viewer")).released).toBe(false);
   await expect(sendWaitlistEmails(cycle.id, lead.id)).rejects.toBeInstanceOf(AcceptanceError);
 
   await prisma.recruitmentCycle.update({ where: { id: cycle.id }, data: { decisionsReleasedAt: new Date(), status: "ARCHIVED" } });

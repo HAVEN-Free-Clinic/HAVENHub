@@ -25,6 +25,7 @@ import { formatCalendarDate } from "@/platform/dates/format";
 import { LANGUAGES_FIELD_KEY, languageLabel } from "@/platform/languages/catalog";
 import { formatPhone } from "@/platform/phone";
 import type { Choice } from "./options";
+import { departmentChoicesFromAnswer, formatRankedDepartments } from "./department-choice";
 
 /** The field metadata display needs: enough to resolve a value, nothing more. */
 export type DisplayField = { key: string; type: FieldType; options?: unknown };
@@ -128,6 +129,12 @@ export function formatAnswer(field: DisplayField, value: unknown): string {
   if (field.type === "PHONE" && typeof value === "string") return formatPhone(value) ?? "";
 
   const options = parseOptions(field.options);
+  // A ranked department answer is an ordered list; the order is the point, so
+  // it reads with each rank ("SRHD (1st), SCTP (2nd)"), the same way the
+  // applicant confirmed it. A single choice is a bare code and reads as before.
+  if (field.type === "DEPARTMENT_CHOICE" && Array.isArray(value)) {
+    return formatRankedDepartments(departmentChoicesFromAnswer(value), (code) => resolveChoice(field, options, code));
+  }
   if (Array.isArray(value)) {
     return value
       .map((v) => (typeof v === "string" ? resolveChoice(field, options, v) : String(v)))

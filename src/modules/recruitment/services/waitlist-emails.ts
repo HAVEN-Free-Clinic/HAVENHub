@@ -1,3 +1,4 @@
+import { assertCycleClear } from "./review-lock";
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { queueEmail } from "@/platform/email/send";
@@ -123,7 +124,9 @@ export type WaitlistEmailSummary = {
   released: boolean;
 };
 
-export async function waitlistEmailSummary(cycleId: string): Promise<WaitlistEmailSummary> {
+export async function waitlistEmailSummary(cycleId: string, viewerId: string): Promise<WaitlistEmailSummary> {
+  // Cycle-wide: nobody with an application in the cycle (services/review-lock.ts).
+  await assertCycleClear(cycleId, viewerId);
   const [candidates, cycle] = await Promise.all([
     loadWaitlistCandidates(cycleId),
     prisma.recruitmentCycle.findUnique({ where: { id: cycleId }, select: { decisionsReleasedAt: true } }),
@@ -146,6 +149,7 @@ export async function sendWaitlistEmails(cycleId: string, actorId: string): Prom
   if (!(await can(actorId, "recruitment.review_all"))) {
     throw new RecruitmentAuthError("Only SRR can send these.");
   }
+  await assertCycleClear(cycleId, actorId);
   const cycle = await prisma.recruitmentCycle.findUnique({ where: { id: cycleId } });
   if (!cycle) throw new AcceptanceError("Cycle not found.");
   if (cycle.status === "DRAFT" || cycle.status === "ARCHIVED") {

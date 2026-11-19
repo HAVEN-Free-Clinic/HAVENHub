@@ -5,6 +5,7 @@ import { contentDisposition } from "@/platform/content-disposition";
 import { log } from "@/platform/logging";
 import { getApplication } from "@/modules/recruitment/services/submissions";
 import { reviewScope, canViewApplication, recordApplicationView } from "@/modules/recruitment/services/review";
+import { cycleReviewLock } from "@/modules/recruitment/services/review-lock";
 import { can } from "@/platform/rbac/engine";
 import { INLINE_SAFE_MIME_TYPES } from "@/modules/recruitment/services/file-preview";
 
@@ -54,12 +55,15 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
   const app = await getApplication(applicationId);
   let allowed = false;
   if (app) {
-    const [scope, managesCycles, canScore] = await Promise.all([
+    const [scope, managesCycles, canScore, lock] = await Promise.all([
       reviewScope(activePerson.id),
       can(activePerson.id, "recruitment.manage_cycles"),
       can(activePerson.id, "recruitment.score"),
+      // Someone who applied in this cycle reads none of its files, their own
+      // included, and with an exception still never their own.
+      cycleReviewLock(app.cycleId, activePerson.id),
     ]);
-    allowed = canViewApplication(app, { scope, managesCycles, canScore });
+    allowed = canViewApplication(app, { scope, managesCycles, canScore, lock });
   }
   if (!app || !allowed) {
     return Response.json({ error: "Not found" }, { status: 404 });

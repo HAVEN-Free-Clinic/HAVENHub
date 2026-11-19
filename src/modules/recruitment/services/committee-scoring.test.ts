@@ -86,7 +86,7 @@ describe("committeeScoreSummary", () => {
     const { scorer, scorer2, application } = await seed();
     await submitCommitteeScore(application.id, scorer.id, 4, null);
     await submitCommitteeScore(application.id, scorer2.id, 2, null);
-    const summary = await committeeScoreSummary(application.id);
+    const summary = await committeeScoreSummary(application.id, scorer.id);
     expect(summary.count).toBe(2);
     expect(summary.average).toBe(3);
   });
@@ -97,7 +97,7 @@ describe("committeeScoreSummary", () => {
     const { scorer, scorer2, application } = await seed();
     await submitCommitteeScore(application.id, scorer.id, 4, "Clear about why HAVEN");
     await submitCommitteeScore(application.id, scorer2.id, 2, null);
-    const summary = await committeeScoreSummary(application.id);
+    const summary = await committeeScoreSummary(application.id, scorer.id);
     expect(summary.scores.map((s) => [s.scorer.name, s.score, s.comments])).toEqual([
       ["Scorer", 4, "Clear about why HAVEN"],
       ["Scorer2", 2, null],

@@ -41,21 +41,33 @@ describe("getApplicationTemplate", () => {
     const t = getApplicationTemplate("DIRECTOR", [], dates);
     const keys = t.flatMap((s) => s.fields.map((f) => f.key));
     expect(keys).toEqual(expect.arrayContaining([
-      "returning_board",
+      "prev_volunteered", "returning_board",
       "essay_community_care", "essay_priorities", "essay_accountability",
       "department_choice", "subcommittee_rank",
       "time_commitments",
     ]));
     // Kept short: no resume upload on the director form.
     expect(keys).not.toContain("resume");
-    // Every director applicant has volunteered, so this is never asked.
-    expect(keys).not.toContain("prev_volunteered");
     // The volunteer-specific contract/acknowledgements section must not leak into
     // the director track.
     expect(keys).not.toEqual(expect.arrayContaining(["volunteer_agreement"]));
     // Info-session attendance is reconciled on the backend, not self-attested.
     expect(keys).not.toEqual(expect.arrayContaining(["info_session_confirm"]));
     expect(keys.filter((k) => k === "subcommittee_rank")).toHaveLength(1);
+  });
+
+  it("asks directors for two ranked departments and volunteers for one", () => {
+    const deptField = (track: "VOLUNTEER" | "DIRECTOR") =>
+      getApplicationTemplate(track, [], dates).flatMap((s) => s.fields).find((f) => f.type === "DEPARTMENT_CHOICE")!;
+    expect(deptField("DIRECTOR").validation?.rankCount).toBe(2);
+    expect(deptField("VOLUNTEER").validation?.rankCount).toBeUndefined();
+  });
+
+  it("answers the director HAVEN-history questions from the record", () => {
+    const fields = getApplicationTemplate("DIRECTOR", [], dates).flatMap((s) => s.fields);
+    const byKey = (key: string) => fields.find((f) => f.key === key)!;
+    expect(byKey("prev_volunteered").validation?.derive).toBe("haven_volunteer_history");
+    expect(byKey("returning_board").validation?.derive).toBe("haven_board_history");
   });
 
   it("VOLUNTEER template carries visibleWhen conditions on the gated fields", () => {

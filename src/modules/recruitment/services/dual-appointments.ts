@@ -13,6 +13,7 @@ import { getActiveTerm } from "@/platform/terms/active-term";
 import { adoptIncomingShiftsTx, applicationAvailabilityDates } from "@/platform/recruitment/incoming-roster";
 import { ACTIVE_DUAL_APPOINTMENT_STATUSES, MAX_APPOINTED_DEPARTMENTS, isAcceptanceConflict } from "../engine/dual-appointments";
 import { canViewApplication, reviewScope, RecruitmentAuthError } from "./review";
+import { assertMayActOnApplication, cycleReviewLock } from "./review-lock";
 
 /**
  * Dual appointments: accepting one volunteer into a SECOND department in the
@@ -87,6 +88,7 @@ export async function approvedDualAppointmentPairs(where: {
 const APPLICATION_SELECT = {
   id: true,
   cycleId: true,
+  applicantId: true,
   status: true,
   routedDepartmentCode: true,
   departmentChoices: true,
@@ -227,6 +229,8 @@ export async function requestDualAppointment(
   const app = await prisma.application.findUnique({ where: { id: input.applicationId }, select: APPLICATION_SELECT });
   // A page scoped to one cycle must not act on another cycle's application.
   if (app && input.cycleId && app.cycleId !== input.cycleId) throw new DualAppointmentError("Application not found.");
+  // Applied in this cycle: no say over its applicants (services/review-lock.ts).
+  if (app) await assertMayActOnApplication(app, actorId);
   assertAppointable(app);
 
   const scope = await reviewScope(actorId);
@@ -325,6 +329,7 @@ export async function approveDualAppointment(
   if (!row) throw new DualAppointmentError("That dual appointment no longer exists.");
   if (row.status !== "PENDING") throw new DualAppointmentError("That request has already been decided.");
   const app = row.application;
+  await assertMayActOnApplication(app, actorId);
   assertAppointable(app);
   if (app.applicant.applicantPersonId === actorId) {
     throw new RecruitmentAuthError("You can't approve a dual appointment on your own application.");
@@ -386,6 +391,7 @@ export async function declineDualAppointment(
   });
   if (!row) throw new DualAppointmentError("That dual appointment no longer exists.");
   if (row.status !== "PENDING") throw new DualAppointmentError("That request has already been decided.");
+  await assertMayActOnApplication(row.application, actorId);
   const decisionNote = trimmed(note);
   const claimed = await prisma.dualAppointment.updateMany({
     where: { id: row.id, status: "PENDING" },
@@ -431,6 +437,7 @@ export async function cancelDualAppointment(
   });
   if (!row) throw new DualAppointmentError("That dual appointment no longer exists.");
   const app = row.application;
+  await assertMayActOnApplication(app, actorId);
   const scope = await reviewScope(actorId);
   const acceptance = app.acceptances.find((a) => a.departmentCode === row.departmentCode);
 
@@ -676,15 +683,21 @@ export async function listDualAppointments(
   opts: { cycleId: string; applicationId?: string },
   viewerId: string,
 ): Promise<DualAppointmentRow[]> {
-  const [scope, managesCycles, canScore] = await Promise.all([
+  const [scope, managesCycles, canScore, lock] = await Promise.all([
     reviewScope(viewerId),
     can(viewerId, "recruitment.manage_cycles"),
     can(viewerId, "recruitment.score"),
+    cycleReviewLock(opts.cycleId, viewerId),
   ]);
   if (!scope.all && scope.departmentCodes.length === 0) return [];
+  // Applied in this cycle: none of its applicants, so none of their requests.
+  if (lock.state === "locked") return [];
   const rows = await prisma.dualAppointment.findMany({
     where: {
-      application: { cycleId: opts.cycleId },
+      application: {
+        cycleId: opts.cycleId,
+        ...(lock.ownApplicantIds.length ? { applicantId: { notIn: lock.ownApplicantIds } } : {}),
+      },
       ...(opts.applicationId ? { applicationId: opts.applicationId } : {}),
       ...(scope.all
         ? {}
@@ -708,6 +721,7 @@ export async function listDualAppointments(
       application: {
         select: {
           id: true,
+          applicantId: true,
           status: true,
           routedDepartmentCode: true,
           departmentChoices: true,
@@ -749,7 +763,7 @@ export async function listDualAppointments(
       decidedAt: r.decidedAt,
       decisionNote: r.decisionNote,
       onboarding,
-      canOpenApplication: canViewApplication(app, { scope, managesCycles, canScore }),
+      canOpenApplication: canViewApplication(app, { scope, managesCycles, canScore, lock }),
       canDecide: scope.all && r.status === "PENDING" && app.status === "SUBMITTED",
       canCancel:
         (r.status === "PENDING" && (scope.all || mine)) ||
@@ -784,8 +798,9 @@ export async function listDualAppointmentSuggestions(
   cycleId: string,
   viewerId: string,
 ): Promise<DualAppointmentSuggestion[]> {
-  const scope = await reviewScope(viewerId);
+  const [scope, lock] = await Promise.all([reviewScope(viewerId), cycleReviewLock(cycleId, viewerId)]);
   if (scope.departmentCodes.length === 0) return [];
+  if (lock.state === "locked") return [];
   const cycle = await prisma.recruitmentCycle.findUnique({ where: { id: cycleId }, select: { termId: true, track: true } });
   if (!cycle || cycle.track !== "VOLUNTEER") return [];
   const live = await getActiveTerm();
@@ -808,7 +823,12 @@ export async function listDualAppointmentSuggestions(
   if (servingIn.size === 0) return [];
 
   const apps = await prisma.application.findMany({
-    where: { cycleId, status: "SUBMITTED", applicant: { applicantPersonId: { in: [...servingIn.keys()] } } },
+    where: {
+      cycleId,
+      status: "SUBMITTED",
+      applicant: { applicantPersonId: { in: [...servingIn.keys()] } },
+      ...(lock.ownApplicantIds.length ? { applicantId: { notIn: lock.ownApplicantIds } } : {}),
+    },
     select: {
       id: true,
       routedDepartmentCode: true,
@@ -857,13 +877,17 @@ export async function listDualAppointmentSuggestions(
 export async function findApplicationByEmailOrNetId(
   cycleId: string,
   query: string,
+  viewerId: string,
 ): Promise<{ id: string } | null> {
   const q = query.trim().toLowerCase();
   if (!q) return null;
+  const lock = await cycleReviewLock(cycleId, viewerId);
+  if (lock.state === "locked") return null;
   return prisma.application.findFirst({
     where: {
       cycleId,
       status: "SUBMITTED",
+      ...(lock.ownApplicantIds.length ? { applicantId: { notIn: lock.ownApplicantIds } } : {}),
       applicant: { OR: [{ emailLower: q }, { netId: { equals: q, mode: "insensitive" } }] },
     },
     select: { id: true },
@@ -876,8 +900,15 @@ export async function listDualAppointmentApplicantOptions(
   viewerId: string,
 ): Promise<Array<{ applicationId: string; label: string }>> {
   if (!(await can(viewerId, DUAL_APPOINTMENT_MANAGER_PERMISSION))) return [];
+  const lock = await cycleReviewLock(cycleId, viewerId);
+  if (lock.state === "locked") return [];
   const apps = await prisma.application.findMany({
-    where: { cycleId, status: "SUBMITTED", cycle: { track: "VOLUNTEER" } },
+    where: {
+      cycleId,
+      status: "SUBMITTED",
+      cycle: { track: "VOLUNTEER" },
+      ...(lock.ownApplicantIds.length ? { applicantId: { notIn: lock.ownApplicantIds } } : {}),
+    },
     select: { id: true, routedDepartmentCode: true, applicant: { select: { firstName: true, lastName: true, email: true } } },
   });
   return apps

@@ -8,50 +8,59 @@ import { firstNameOf } from "@/platform/person-name";
 import { renderEmail } from "@/platform/email/templates/renderEmail";
 import { notify } from "@/platform/notifications/notify";
 import { claimReminderDispatch } from "@/platform/email/reminder-dispatch";
+import { visibleApplicationWhere } from "./review-lock";
 
 /**
  * Count applications awaiting a department's review, across both tracks:
  *  - VOLUNTEER: routed to one of `departmentCodes` and still PENDING (the
  *    department decides directly, no interview).
- *  - DIRECTOR: ranked one of `departmentCodes` with no decided interview there
- *    yet (still needs an interview + decision).
+ *  - DIRECTOR: has an interview in one of `departmentCodes` that is still
+ *    PENDING. Counted per application, so one with pending interviews in two of
+ *    the director's departments is one application to review.
+ *
+ * The director-track count used to be every applicant who RANKED the department
+ * with no decided interview there. A department interviews a shortlist and
+ * never decides the rest, so that number only ever grew: the digest never
+ * drained on a director cycle and told directors to review people they had
+ * already passed over. A pending interview is the work actually outstanding.
+ *
+ * `viewerId` is the director being counted for. Applications they must not see
+ * are left out (services/review-lock.ts): every one in a cycle they applied in,
+ * and their own anywhere, so the digest never tells them about either.
+ *
  * Only OPEN/CLOSED cycles count; ARCHIVED are done.
  */
-export async function pendingReviewCount(departmentCodes: string[]): Promise<number> {
+export async function pendingReviewCount(departmentCodes: string[], viewerId: string): Promise<number> {
   if (departmentCodes.length === 0) return 0;
   const activeStatus = { in: ["OPEN", "CLOSED"] as CycleStatus[] };
-  const codes = new Set(departmentCodes);
-  const [volunteer, directorApps] = await Promise.all([
+  const visible = await visibleApplicationWhere(viewerId);
+  const [volunteer, director] = await Promise.all([
     prisma.application.count({
       where: {
-        status: "SUBMITTED",
-        decision: "PENDING",
-        routedDepartmentCode: { in: departmentCodes },
-        cycle: { track: "VOLUNTEER", status: activeStatus, isTest: false },
+        AND: [
+          visible,
+          {
+            status: "SUBMITTED",
+            decision: "PENDING",
+            routedDepartmentCode: { in: departmentCodes },
+            cycle: { track: "VOLUNTEER", status: activeStatus, isTest: false },
+          },
+        ],
       },
     }),
-    // A single `interviews: { none: {...} }` over the whole department set excluded
-    // an application as soon as ANY one of the director's departments had a decided
-    // interview -- so a director of A and B stopped seeing an applicant who was
-    // decided for A but still needs B. Count per-application: it awaits review when
-    // at least one of the director's ranked departments has no decided interview.
-    prisma.application.findMany({
+    prisma.application.count({
       where: {
-        status: "SUBMITTED",
-        departmentChoices: { hasSome: departmentCodes },
-        cycle: { track: "DIRECTOR", status: activeStatus, isTest: false },
-      },
-      select: {
-        departmentChoices: true,
-        // decision is a non-nullable enum (default PENDING); `not: "PENDING"` is safe.
-        interviews: { where: { decision: { not: "PENDING" } }, select: { departmentCode: true } },
+        AND: [
+          visible,
+          {
+            status: "SUBMITTED",
+            cycle: { track: "DIRECTOR", status: activeStatus, isTest: false },
+            interviews: { some: { decision: "PENDING", departmentCode: { in: departmentCodes } } },
+          },
+        ],
       },
     }),
   ]);
-  const director = directorApps.filter((a) => {
-    const decided = new Set(a.interviews.map((i) => i.departmentCode));
-    return a.departmentChoices.some((d) => codes.has(d) && !decided.has(d));
-  }).length;
   return volunteer + director;
 }
 
@@ -87,7 +96,7 @@ export async function runRecruitmentReviewDigest(): Promise<{ notified: number; 
     const deptIds = await manageableDepartmentIds(personId);
     if (deptIds.length === 0) continue;
     const depts = await prisma.department.findMany({ where: { id: { in: deptIds } }, select: { code: true, name: true } });
-    const total = await pendingReviewCount(depts.map((d) => d.code));
+    const total = await pendingReviewCount(depts.map((d) => d.code), personId);
     if (total === 0) continue;
 
     const person = await prisma.person.findUnique({

@@ -1,3 +1,4 @@
+import { lockedCycleView } from "@/modules/recruitment/components/cycle-locked-notice";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PageBody } from "@/platform/ui/page-body";
@@ -105,6 +106,8 @@ export default async function ApplicantsPage({ params, searchParams }: { params:
   const { page: pageParam, q: queryParam, decision: decisionParam, department: departmentParam, language: languageParam, sort: sortParam, dir: dirParam } = await searchParams;
   const [person, cycle] = await Promise.all([requirePersonSession(), getCycle(id)]);
   if (!cycle) notFound();
+  const locked = await lockedCycleView(id);
+  if (locked) return locked;
   const apps = await listApplicantsForReview(id, person.personId);
   // Only meaningful when the scoped list came back empty; see awaitingRoutingCount.
   const unrouted = apps.length === 0 ? await awaitingRoutingCount(id, person.personId) : 0;

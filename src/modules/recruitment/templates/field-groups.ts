@@ -174,12 +174,15 @@ export function volunteerApplicationMaterialsSection(): TemplateSection {
   ]);
 }
 
-/** No "have you previously volunteered at HAVEN?" question: every director
- *  applicant has volunteered, since that is a requirement for the role, so it
- *  could only ever be answered yes. */
+/** Both questions are answered from the Hub record (validation.derive, see
+ *  engine/haven-history.ts) for an applicant we can identify, and stay ordinary
+ *  questions for anyone we cannot. */
 export function directorHavenExperienceSection(): TemplateSection {
   return sec("HAVEN experience", "BOTH", [
+    { key: "prev_volunteered", label: "Have you previously volunteered at HAVEN?", type: "SINGLE_SELECT", required: true, options: YES_NO,
+      validation: { derive: "haven_volunteer_history" } },
     { key: "returning_board", label: "Have you previously been on the Board at the HFC?", type: "SINGLE_SELECT", required: true,
+      validation: { derive: "haven_board_history" },
       options: [
         { value: "yes_term_extension", label: "Yes - Term Extension" },
         { value: "yes_new_position", label: "Yes - New Position" },
@@ -213,7 +216,10 @@ export function directorDepartmentSection(): TemplateSection {
   // linkification path of its own (see field-preview.tsx / contract-field.tsx,
   // shared with onboarding, which this must not touch).
   return sec("Department preferences", "NEW", [
-    { key: "department_choice", label: "Department preference (1st and 2nd choice)", type: "DEPARTMENT_CHOICE", required: true },
+    // Two ranked slots: the 1st choice required, the 2nd optional. Both ranked
+    // departments see the applicant and may interview them.
+    { key: "department_choice", label: "Department preference (1st and 2nd choice)", type: "DEPARTMENT_CHOICE", required: true,
+      validation: { rankCount: 2 } },
   ], { description: "See department descriptions at havenfreeclinic.com/apply before ranking your choices." });
 }
 

@@ -1,3 +1,4 @@
+import { assertCycleClear } from "./review-lock";
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { queueEmail } from "@/platform/email/send";
@@ -81,7 +82,9 @@ export type AssessmentHoldSummary = {
   emailed: number;
 };
 
-export async function assessmentHoldSummary(cycleId: string): Promise<AssessmentHoldSummary> {
+export async function assessmentHoldSummary(cycleId: string, viewerId: string): Promise<AssessmentHoldSummary> {
+  // Cycle-wide: nobody with an application in the cycle (services/review-lock.ts).
+  await assertCycleClear(cycleId, viewerId);
   const candidates = await loadHoldCandidates(cycleId);
   const emailed = candidates.filter((c) => c.emailedAt !== null).length;
   return { onHold: candidates.length, unnotified: candidates.length - emailed, emailed };
@@ -96,6 +99,7 @@ export async function sendAssessmentHolds(cycleId: string, actorId: string): Pro
   if (!(await can(actorId, "recruitment.review_all"))) {
     throw new RecruitmentAuthError("Only SRR can send these.");
   }
+  await assertCycleClear(cycleId, actorId);
   const cycle = await prisma.recruitmentCycle.findUnique({ where: { id: cycleId } });
   if (!cycle) throw new AcceptanceError("Cycle not found.");
   // The same status gate Release and the rejections send enforce: a DRAFT cycle

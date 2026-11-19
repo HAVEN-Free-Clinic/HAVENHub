@@ -99,7 +99,7 @@ export async function previewAutoAssign(
       where: { termId: term.id, departmentId: dept.id, status: "ACTIVE" },
       include: { person: { select: { id: true, name: true } } },
     }),
-    listIncomingMembers({ termId: term.id, departmentCode: dept.code, clinicDates: openDates }),
+    listIncomingMembers({ termId: term.id, departmentCode: dept.code, clinicDates: openDates, viewerId: actorPersonId }),
     listIncomingShiftDrafts({ termId: term.id, departmentId: dept.id }),
     prisma.shiftAssignment.findMany({
       where: { termId: term.id, departmentId: dept.id },

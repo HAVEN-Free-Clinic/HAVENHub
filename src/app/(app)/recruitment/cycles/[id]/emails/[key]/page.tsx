@@ -1,3 +1,4 @@
+import { lockedCycleView } from "@/modules/recruitment/components/cycle-locked-notice";
 import { revalidatePath } from "next/cache";
 import { redirect, notFound } from "next/navigation";
 import { PageBody } from "@/platform/ui/page-body";
@@ -30,6 +31,8 @@ export default async function EditCycleEmailPage({ params }: Props) {
   await requirePermission("recruitment.access");
   await requirePermission("recruitment.manage_cycles");
   const { id, key } = await params;
+  const locked = await lockedCycleView(id);
+  if (locked) return locked;
   const decodedKey = decodeURIComponent(key);
   if (!isCycleKey(decodedKey)) notFound();
   const cycle = await getCycle(id);

@@ -115,10 +115,14 @@ describe("loadSpeedRouteBoard", () => {
     await expect(loadSpeedRouteBoard(dir.id, lead.id)).rejects.toBeInstanceOf(RoutingError);
   });
 
-  it("leaves a lead's own application off their board, after tiering everyone", async () => {
+  it("refuses a lead who applied; with an exception, leaves their own row off after tiering everyone", async () => {
     const { lead, cycle, apps } = await seed();
     // The lead applied too, signed out, as the top-scored applicant (a0, average 5).
     await prisma.person.update({ where: { id: lead.id }, data: { contactEmail: "a0@y.edu" } });
+    // The review lock (services/review-lock.ts): no board at all.
+    await expect(loadSpeedRouteBoard(cycle.id, lead.id)).rejects.toThrow("You have applied in this cycle");
+    const granter = await prisma.person.create({ data: { name: "Granter", status: "ACTIVE" } });
+    await prisma.cycleReviewException.create({ data: { cycleId: cycle.id, personId: lead.id, reason: "Logistics", grantedById: granter.id } });
     const board = await loadSpeedRouteBoard(cycle.id, lead.id);
     const ids = [...board.top, ...board.middle, ...board.bottom, ...board.unscored, ...board.returned].map((r) => r.applicationId);
     expect(ids).not.toContain(apps[0]);

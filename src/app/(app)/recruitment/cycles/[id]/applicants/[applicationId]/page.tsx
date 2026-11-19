@@ -46,6 +46,8 @@ import { TextLink } from "@/platform/ui/text-link";
 import { FormRow, RowField } from "@/platform/ui/form";
 import { DECISION_LABELS, DecisionBadge } from "@/modules/recruitment/components/status-badge";
 import { isDecidedWithoutInterview, isInterviewUnderWay, rankedDirectorDepartments } from "@/modules/recruitment/engine/interview-mode";
+import { infoSessionStatuses } from "@/modules/recruitment/services/info-session-flags";
+import { INFO_SESSION_BADGE } from "@/modules/recruitment/engine/info-session";
 
 
 const DUAL_STATUS: Record<DualAppointmentRow["status"], { label: string; tone: "default" | "success" | "warning" }> = {
@@ -278,6 +280,10 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
     ? await prisma.committeeScore.count({ where: { applicationId } })
     : null;
   const readsShort = committeeReads != null && committeeReads < app.cycle.scoresPerApplication;
+  // Info-session attendance (engine/info-session.ts). A flag for the reviewer,
+  // never a decision: nothing on this page acts on it.
+  const infoSession = (await infoSessionStatuses(id, [app])).byApplicationId.get(applicationId) ?? null;
+  const infoSessionBadge = infoSession ? INFO_SESSION_BADGE[infoSession] : null;
   return (
     <PageBody width="full">
       <SetBreadcrumb
@@ -515,6 +521,14 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
           aria-label="Review"
           className="space-y-6 lg:sticky lg:top-24 lg:-m-1 lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto lg:p-1"
         >
+          {infoSessionBadge && (
+            <Alert tone={infoSession === "FLAGGED" ? "warning" : "info"}>
+              {infoSessionBadge.label}.
+              {infoSession === "FLAGGED"
+                ? " No check-in at any of this cycle's info sessions, by account or by email. A flag, not a decision."
+                : " Their check-in will show here once they attend."}
+            </Alert>
+          )}
           {ownApplication && (canScore || canDecideRouted) && (
             <Card>
               <SectionHeader>Committee score</SectionHeader>

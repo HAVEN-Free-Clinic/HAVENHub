@@ -121,6 +121,22 @@ describe("decideWithoutInterview", () => {
     expect(await prisma.interview.count()).toBe(0);
   });
 
+  it("refuses a decider whose own application carries no account link but matches their NetID or email (#889)", async () => {
+    const { director, cycle } = await seed();
+    await prisma.person.update({ where: { id: director.id }, data: { netId: "dir42", contactEmail: "dir@personal.com" } });
+
+    const byNetId = await mkApp(cycle.id, "signedout1");
+    await prisma.applicant.update({ where: { id: byNetId.applicantId }, data: { applicantPersonId: null, netId: "DIR42" } });
+    await expect(decideWithoutInterview(byNetId.id, "EDUC", "ACCEPT", director.id, null)).rejects.toBeInstanceOf(RecruitmentAuthError);
+
+    const byEmail = await mkApp(cycle.id, "signedout2");
+    await prisma.applicant.update({ where: { id: byEmail.applicantId }, data: { applicantPersonId: null, email: "dir@personal.com", emailLower: "dir@personal.com" } });
+    await expect(decideWithoutInterview(byEmail.id, "EDUC", "ACCEPT", director.id, null)).rejects.toBeInstanceOf(RecruitmentAuthError);
+
+    expect(await prisma.interview.count()).toBe(0);
+    expect(await prisma.acceptance.count()).toBe(0);
+  });
+
   it("never lets the row acquire a time or an invite afterwards", async () => {
     const { director, cycle } = await seed();
     const app = await mkApp(cycle.id, "ada");

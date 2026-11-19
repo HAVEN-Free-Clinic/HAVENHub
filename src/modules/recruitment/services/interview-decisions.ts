@@ -4,6 +4,8 @@ import { recordAudit } from "@/platform/audit";
 import { reviewScope, RecruitmentAuthError, AcceptanceError } from "./review";
 import { InterviewError } from "./interviews";
 import { isInterviewUnderWay, rankedDirectorDepartments } from "../engine/interview-mode";
+import { isOwnApplication } from "../engine/own-application";
+import { reviewerIdentity } from "./own-application";
 
 export type InterviewOutcome = "ACCEPT" | "REJECT" | "WAITLIST";
 
@@ -133,7 +135,7 @@ export async function decideWithoutInterview(
       departmentChoices: true,
       renewalDepartment: true,
       cycle: { select: { track: true, departments: true } },
-      applicant: { select: { applicantPersonId: true } },
+      applicant: { select: { applicantPersonId: true, netId: true, emailLower: true } },
     },
   });
   if (!app) throw new InterviewError("Application not found.");
@@ -142,7 +144,10 @@ export async function decideWithoutInterview(
   if (!rankedDirectorDepartments(app, app.cycle.departments).includes(departmentCode)) {
     throw new InterviewError("This applicant did not rank that department.");
   }
-  if (app.applicant.applicantPersonId && app.applicant.applicantPersonId === deciderId) {
+  // Separation of duties, matched the way committee scoring matches it: the
+  // account link, or the NetID / an address the decider is known by, so an
+  // incumbent who applied signed out (no link) is still caught.
+  if (isOwnApplication(app.applicant, await reviewerIdentity(deciderId))) {
     throw new RecruitmentAuthError("You can't decide your own application.");
   }
   const scope = await reviewScope(deciderId);

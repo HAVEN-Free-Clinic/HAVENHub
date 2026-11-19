@@ -4,6 +4,8 @@ import { requirePersonSession } from "@/platform/auth/session";
 import { releaseDecisions, sendRejections } from "@/modules/recruitment/services/decisions";
 import { sendAssessmentHolds } from "@/modules/recruitment/services/assessment-holds";
 import { sendWaitlistEmails } from "@/modules/recruitment/services/waitlist-emails";
+import { rejectFlaggedNoInfoSession } from "@/modules/recruitment/services/info-session-flags";
+import { InterviewError } from "@/modules/recruitment/services/interviews";
 import { RecruitmentAuthError, AcceptanceError } from "@/modules/recruitment/services/review";
 import { DualAppointmentError, requestDualAppointment } from "@/modules/recruitment/services/dual-appointments";
 import { captureEvent } from "@/platform/posthog/capture";
@@ -50,6 +52,34 @@ export async function sendRejectionsAction(cycleId: string) {
     groups: await termGroupForCycle(cycleId),
   });
   redirect(`/recruitment/cycles/${cycleId}/decisions?rejected=${sent}`);
+}
+
+/**
+ * Reject every applicant flagged for attending no info session, without an
+ * interview, for each department they ranked (director cycles; review_all;
+ * only after the last session). Outcomes stay confidential until Release, and
+ * the rejection emails remain the separate send below it.
+ */
+export async function rejectFlaggedNoInfoSessionAction(cycleId: string) {
+  const person = await requirePersonSession();
+  let rejected = 0, skipped = 0;
+  try {
+    const res = await rejectFlaggedNoInfoSession(cycleId, person.personId);
+    rejected = res.rejected;
+    skipped = res.skipped.length;
+  } catch (err) {
+    if (err instanceof RecruitmentAuthError || err instanceof AcceptanceError || err instanceof InterviewError) {
+      redirect(`/recruitment/cycles/${cycleId}/decisions?error=${encodeURIComponent(err.message)}`);
+    }
+    throw err;
+  }
+  await captureEvent({
+    distinctId: person.personId,
+    event: "recruitment_flagged_no_info_session_rejected",
+    properties: { cycle_id: cycleId, rejected, skipped },
+    groups: await termGroupForCycle(cycleId),
+  });
+  redirect(`/recruitment/cycles/${cycleId}/decisions?flaggedRejected=${rejected}&flaggedSkipped=${skipped}`);
 }
 
 /**

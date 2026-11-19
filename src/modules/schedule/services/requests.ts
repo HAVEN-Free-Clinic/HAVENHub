@@ -845,7 +845,12 @@ export async function approveRequest(
     // ShiftTags rather than a fresh spelling of the same four-or-five booleans:
     // a swap that quietly dropped a tag this map forgot to list would be close to
     // undetectable, since the shift still moves and only the flag goes missing.
+    //
+    // Except `remote` (telehealth vs in-person): that is a property of the SLOT,
+    // not the volunteer. Whoever takes over a TH shift is doing a TH shift, so the
+    // flag stays with the date and the incoming person inherits it. Keyed by date.
     const tagsByPerson = new Map<string, ShiftTags>();
+    const remoteByDate = new Map<string, boolean>();
     for (const mutation of mutations) {
       if (mutation.op !== "remove") continue;
       const canonicalDate = clinicDateMap.get(mutation.dateKey);
@@ -861,7 +866,10 @@ export async function approveRequest(
         },
         select: { triage: true, walkin: true, cc: true, remote: true, specialty: true },
       });
-      if (existing) tagsByPerson.set(mutation.personId, existing);
+      if (existing) {
+        tagsByPerson.set(mutation.personId, existing);
+        remoteByDate.set(mutation.dateKey, existing.remote);
+      }
     }
 
     for (const mutation of mutations) {
@@ -890,7 +898,12 @@ export async function approveRequest(
           );
         }
       } else {
-        const carriedTags = tagsByPerson.get(mutation.personId) ?? {};
+        const personTags = tagsByPerson.get(mutation.personId);
+        const slotRemote = remoteByDate.get(mutation.dateKey);
+        const carriedTags = {
+          ...(personTags ?? {}),
+          ...(slotRemote !== undefined ? { remote: slotRemote } : {}),
+        };
         await tx.shiftAssignment.upsert({
           where: {
             termId_departmentId_clinicDate_personId: {

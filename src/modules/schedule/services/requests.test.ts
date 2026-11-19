@@ -970,16 +970,19 @@ describe("approveRequest", () => {
       where: { termId: term.id, departmentId: dept.id, personId: vol2.id },
     });
 
-    // Each person keeps their OWN tags on the date they moved to; the tags do
-    // not swap with the dates.
+    // Each person keeps their OWN med-team tags on the date they moved to...
     expect(isoDateKey(moved1.clinicDate)).toBe(isoDateKey(dates[1]));
     expect(moved1.specialty).toBe(true);
     expect(moved1.triage).toBe(true);
-    expect(moved1.remote).toBe(false);
 
     expect(isoDateKey(moved2.clinicDate)).toBe(isoDateKey(dates[0]));
-    expect(moved2.remote).toBe(true);
     expect(moved2.specialty).toBe(false);
+    expect(moved2.triage).toBe(false);
+
+    // ...but TH/IP (`remote`) belongs to the slot: vol1 took vol2's TH shift, so
+    // vol1 is now TH on dates[1], and vol2 took vol1's IP shift on dates[0].
+    expect(moved1.remote).toBe(true);
+    expect(moved2.remote).toBe(false);
   });
 
   it("rejects a swap onto a person no longer an active member of the department (audit #8/#25)", async () => {

@@ -1,3 +1,5 @@
+import { stripInlineFormatting } from "@/platform/ui/inline-markers";
+
 /**
  * NOTICE fields: display-only content blocks inside an application section.
  *
@@ -70,5 +72,6 @@ export function isDisplayOnlyNotice(field: { type: string; validation?: unknown 
  * only then to the type name.
  */
 export function noticeDisplayLabel(field: { label: string; validation?: unknown }): string {
-  return field.label.trim() || noticeAcknowledgeLabel(field.validation) || NOTICE_TYPE_LABEL;
+  // Plain text: this lands in <option>s and review rows, so formatting markers come off.
+  return stripInlineFormatting(field.label.trim()) || noticeAcknowledgeLabel(field.validation) || NOTICE_TYPE_LABEL;
 }

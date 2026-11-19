@@ -47,6 +47,7 @@ import { EmptyState } from "@/platform/ui/empty-state";
 import { TextLink } from "@/platform/ui/text-link";
 import { FormRow, RowField } from "@/platform/ui/form";
 import { DECISION_LABELS, DecisionBadge } from "@/modules/recruitment/components/status-badge";
+import { stripInlineFormatting } from "@/platform/ui/inline-markers";
 import { isDecidedWithoutInterview, isInterviewUnderWay, rankedDirectorDepartments } from "@/modules/recruitment/engine/interview-mode";
 import { infoSessionStatuses } from "@/modules/recruitment/services/info-session-flags";
 import { INFO_SESSION_BADGE } from "@/modules/recruitment/engine/info-session";
@@ -400,7 +401,7 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
               <DescriptionList className="mt-3">
                 {fields.map((f) => {
                   const val = answers[f.key];
-                  const label = f.type === "NOTICE" ? noticeDisplayLabel(f) : f.label;
+                  const label = f.type === "NOTICE" ? noticeDisplayLabel(f) : stripInlineFormatting(f.label);
                   const fileVal = f.type === "FILE" || f.type === "SIGNATURE" ? storedFileRef(val) : null;
                   // Option labels, Yes/No, language names and readable dates all
                   // resolve in formatAnswer -- the same resolution the applicant saw

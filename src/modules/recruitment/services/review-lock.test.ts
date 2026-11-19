@@ -111,7 +111,8 @@ afterEach(async () => { await resetDb(); });
 describe("cycleReviewLock: who is matched", () => {
   it("locks on NetID alone, case-insensitively, when the application carries no account link", async () => {
     const { ed, dCycle, vCycle, own } = await seed();
-    expect(await cycleReviewLock(dCycle.id, ed.id)).toEqual({ state: "locked", ownApplicantIds: [own.applicant.id] });
+    // Matched on the typed NetID alone, so the notice can say why (netIdOnly).
+    expect(await cycleReviewLock(dCycle.id, ed.id)).toEqual({ state: "locked", ownApplicantIds: [own.applicant.id], netIdOnly: true });
     // Other cycles are unaffected.
     expect((await cycleReviewLock(vCycle.id, ed.id)).state).toBe("clear");
     expect(await lockedCycleIds(ed.id)).toEqual([dCycle.id]);
@@ -122,6 +123,8 @@ describe("cycleReviewLock: who is matched", () => {
     const linked = await prisma.person.create({ data: { name: "Linked", status: "ACTIVE" } });
     await mkApp(vCycle.id, { email: "whatever@x.org", applicantPersonId: linked.id });
     expect((await cycleReviewLock(vCycle.id, linked.id)).state).toBe("locked");
+    // A verified identifier matched, so this is not a NetID-only lock.
+    expect((await cycleReviewLock(vCycle.id, linked.id)).netIdOnly).toBeUndefined();
 
     const byContact = await prisma.person.create({ data: { name: "Contact", status: "ACTIVE", contactEmail: "Casey@Gmail.com" } });
     await mkApp(vCycle.id, { email: "casey@gmail.com" });
@@ -169,7 +172,7 @@ describe("review exceptions", () => {
     await expect(grantReviewException(dCycle.id, lead.id, "Me", lead.id)).rejects.toThrow(ReviewExceptionError);
 
     await grantReviewException(dCycle.id, ed.id, "Schedules EXEC interviews; ED approved", lead.id);
-    expect(await cycleReviewLock(dCycle.id, ed.id)).toEqual({ state: "excepted", ownApplicantIds: [own.applicant.id] });
+    expect(await cycleReviewLock(dCycle.id, ed.id)).toEqual({ state: "excepted", ownApplicantIds: [own.applicant.id], netIdOnly: true });
     const [row] = await listReviewExceptions(dCycle.id);
     expect(row).toMatchObject({ personId: ed.id, reason: "Schedules EXEC interviews; ED approved", grantedByName: "Lena Lead" });
     await expect(grantReviewException(dCycle.id, ed.id, "Again", lead.id)).rejects.toThrow(ReviewExceptionError);
@@ -185,6 +188,17 @@ describe("review exceptions", () => {
     const { ed, dCycle } = await seed();
     const someone = await prisma.person.create({ data: { name: "Someone", status: "ACTIVE" } });
     await expect(grantReviewException(dCycle.id, someone.id, "Logistics", ed.id)).rejects.toThrow(CycleLockedError);
+  });
+
+  it("an applicant-lead holding an exception still cannot grant or revoke exceptions in that cycle", async () => {
+    const { ed, lead, dCycle, mkApp } = await seed();
+    await grantReviewException(dCycle.id, ed.id, "Logistics", lead.id);
+    // A fellow applicant the excepted ED might want to let back in.
+    const fellow = await prisma.person.create({ data: { name: "Fellow", status: "ACTIVE", netId: "fw9" } });
+    await mkApp(dCycle.id, { email: "fw9@yale.edu" });
+    await expect(grantReviewException(dCycle.id, fellow.id, "Logistics", ed.id)).rejects.toThrow(RecruitmentAuthError);
+    await expect(revokeReviewException(dCycle.id, ed.id, ed.id)).rejects.toThrow(RecruitmentAuthError);
+    expect((await cycleReviewLock(dCycle.id, fellow.id)).state).toBe("locked");
   });
 
   it("does not reach cycle-wide steps such as Decisions and Release", async () => {

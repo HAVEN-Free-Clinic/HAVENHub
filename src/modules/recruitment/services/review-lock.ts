@@ -148,9 +148,10 @@ async function assertMayManageExceptions(cycleId: string, actorId: string): Prom
   if (!(await can(actorId, "recruitment.review_all"))) {
     throw new RecruitmentAuthError("Only a recruitment lead can grant or revoke review exceptions.");
   }
-  // A lead who applied in this cycle cannot manage its lock: that would be
-  // granting themselves a way back in. Other review_all holders run it.
-  await assertCycleUnlocked(cycleId, actorId);
+  // A lead who applied in this cycle cannot manage its lock, exception or not:
+  // that would let an applicant grant themselves, or a fellow applicant, a way
+  // back in. Only a review_all holder with no application here runs it.
+  await assertCycleClear(cycleId, actorId);
 }
 
 /** Let a named person review a cycle they applied in (never their own

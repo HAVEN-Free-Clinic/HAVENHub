@@ -64,7 +64,7 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
   if (app.cycleId !== id) notFound();
   // Applied in this cycle: a calm notice, not a 404, and nothing else is read.
   const lock = await cycleReviewLock(id, person.personId);
-  if (lock.state === "locked") return <CycleLockedNotice />;
+  if (lock.state === "locked") return <CycleLockedNotice netIdOnly={lock.netIdOnly} />;
   const [scope, managesCycles, canScorePerm, canOpenOverview, acceptances, history] = await Promise.all([
     reviewScope(person.personId),
     can(person.personId, "recruitment.manage_cycles"),

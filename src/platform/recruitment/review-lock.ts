@@ -36,6 +36,14 @@ export type ReviewLockState = "clear" | "locked" | "excepted";
 
 export type CycleReviewLock = {
   state: ReviewLockState;
+  /** Set (true) only when every one of the viewer's applications here matched
+   *  on the NetID typed into the application alone, never their account link
+   *  or an email they are known by. That NetID is self-asserted for applicants
+   *  who signed in with a non-Yale address, so the lock still holds (a missed
+   *  match would leak applicants) but the notice says why, so a mistyped or
+   *  spoofed NetID gets noticed and corrected rather than silently locking a
+   *  lead out. */
+  netIdOnly?: boolean;
   /** The viewer's own Applicant ids in this cycle (usually one). Empty when
    *  clear. Nothing that belongs to one of these may reach them. */
   ownApplicantIds: string[];
@@ -44,6 +52,8 @@ export type CycleReviewLock = {
 type ViewerApplications = {
   /** cycleId -> the viewer's Applicant ids in it. */
   byCycle: Map<string, string[]>;
+  /** Cycles where at least one own application matched on link or email. */
+  stronglyMatchedCycleIds: Set<string>;
   exceptedCycleIds: Set<string>;
 };
 
@@ -72,19 +82,26 @@ const viewerApplications = cache(async (viewerId: string): Promise<ViewerApplica
   const byCycle = new Map<string, string[]>();
   // The query narrows; the matcher decides, so the lock can never disagree with
   // the own-application guard about who someone is.
+  const stronglyMatchedCycleIds = new Set<string>();
   for (const a of candidates) {
     if (!isOwnApplication(a, me)) continue;
     byCycle.set(a.cycleId, [...(byCycle.get(a.cycleId) ?? []), a.id]);
+    // isOwnApplication with the NetID taken away: a verified identifier matched.
+    if (isOwnApplication({ ...a, netId: null }, me)) stronglyMatchedCycleIds.add(a.cycleId);
   }
-  return { byCycle, exceptedCycleIds: new Set(exceptions.map((e) => e.cycleId)) };
+  return { byCycle, stronglyMatchedCycleIds, exceptedCycleIds: new Set(exceptions.map((e) => e.cycleId)) };
 });
 
 /** Where this viewer stands in one cycle. Cached per request. */
 export async function cycleReviewLock(cycleId: string, viewerId: string): Promise<CycleReviewLock> {
-  const { byCycle, exceptedCycleIds } = await viewerApplications(viewerId);
+  const { byCycle, stronglyMatchedCycleIds, exceptedCycleIds } = await viewerApplications(viewerId);
   const own = byCycle.get(cycleId) ?? [];
   if (own.length === 0) return { state: "clear", ownApplicantIds: [] };
-  return { state: exceptedCycleIds.has(cycleId) ? "excepted" : "locked", ownApplicantIds: own };
+  return {
+    state: exceptedCycleIds.has(cycleId) ? "excepted" : "locked",
+    ownApplicantIds: own,
+    ...(stronglyMatchedCycleIds.has(cycleId) ? {} : { netIdOnly: true }),
+  };
 }
 
 /** Cycles whose applicants this viewer must not see at all. */

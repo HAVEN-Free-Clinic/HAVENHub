@@ -20,7 +20,7 @@ export async function lockedCycleView(
 ): Promise<ReactElement | null> {
   const session = await requirePersonSession();
   const lock = await cycleReviewLock(cycleId, session.personId);
-  if (lock.state === "locked") return <CycleLockedNotice />;
+  if (lock.state === "locked") return <CycleLockedNotice netIdOnly={lock.netIdOnly} />;
   // Cycle-wide pages (Decisions, Onboarding, Subcommittees) touch every
   // applicant at once, the holder's own included, so an exception does not
   // reach them (assertCycleClear).
@@ -43,13 +43,17 @@ export async function lockedCycleView(
  * an error: being locked out is expected, not a fault. Every cycle page renders
  * this itself, because a layout cannot stop the page beneath it from rendering.
  */
-export function CycleLockedNotice() {
+export function CycleLockedNotice({ netIdOnly = false }: { netIdOnly?: boolean } = {}) {
   return (
     <EmptyState
       bordered
       icon={Lock}
       title={CYCLE_LOCKED_MESSAGE}
-      description="Recruitment leads who did not apply run this cycle. If you need access to it for a logistical reason within your department, your ED can ask a recruitment lead for a review exception. Even then, your own application stays hidden from you."
+      description={
+        netIdOnly
+          ? "An application in this cycle lists your NetID. If you did not apply, ask a recruitment lead to check that application's NetID, because a mistyped one locks the wrong person out. Until then, recruitment leads who did not apply run this cycle."
+          : "Recruitment leads who did not apply run this cycle. If you need access to it for a logistical reason within your department, your ED can ask a recruitment lead for a review exception. Even then, your own application stays hidden from you."
+      }
       action={<TextLink href="/recruitment">Back to Recruitment</TextLink>}
     />
   );

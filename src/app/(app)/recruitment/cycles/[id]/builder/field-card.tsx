@@ -1,8 +1,10 @@
 "use client";
-import { useState, useTransition, type HTMLAttributes } from "react";
+import { useRef, useState, useTransition, type HTMLAttributes } from "react";
 import { Copy, GripVertical, Pencil, Check, AlertCircle } from "lucide-react";
 import type { FieldType } from "@prisma/client";
 import { FieldPreview, type PreviewFieldDef } from "@/modules/recruitment/components/field-preview";
+import { stripInlineFormatting } from "@/platform/ui/inline-format";
+import { FormatButtons, FORMAT_HINT } from "./format-buttons";
 import { FIELD_TYPE_META, fieldTypesByGroup } from "@/modules/recruitment/engine/field-types";
 import { parseFieldCondition, type FieldCondition, type FieldConditionOp } from "@/modules/recruitment/engine/field-visibility";
 import { updateFieldAction, deleteFieldAction, duplicateFieldAction } from "./actions";
@@ -99,7 +101,7 @@ function VisibleWhenEditor({
         <Select className="min-w-0" disabled={disabled} value={controllingKey} onChange={(e) => handleFieldChange(e.target.value)}>
           <option value="">(always show)</option>
           {controllingKey && !controllingField && <option value={controllingKey} disabled>{controllingKey} (deleted field)</option>}
-          {siblingFields.map((f) => <option key={f.key} value={f.key}>{f.type === "NOTICE" ? noticeDisplayLabel(f) : f.label}</option>)}
+          {siblingFields.map((f) => <option key={f.key} value={f.key}>{f.type === "NOTICE" ? noticeDisplayLabel(f) : stripInlineFormatting(f.label)}</option>)}
         </Select>
         {controllingKey && (
           <>
@@ -186,6 +188,10 @@ export function FieldCard({
   // never become true and the field it gates would simply never appear.
   const otherFields = siblingFields.filter((f) => f.key !== field.key && !isDisplayOnlyNotice(f));
 
+  const labelRef = useRef<HTMLInputElement | null>(null);
+  const helpInputRef = useRef<HTMLInputElement | null>(null);
+  const helpAreaRef = useRef<HTMLTextAreaElement | null>(null);
+
   function save(patch: Parameters<typeof updateFieldAction>[2]) {
     setError(null);
     startTransition(async () => {
@@ -257,16 +263,28 @@ export function FieldCard({
           {/* A blank label is rejected for a question (an unlabelled input is
               unanswerable) but is the NORMAL case for a notice, whose heading is
               optional -- the notices this was built for are a bare paragraph. */}
-          <Field label={isNotice ? "Heading" : "Label"} hint={isNotice ? "Optional. Leave blank for a notice with no heading." : undefined}>
-            <Input defaultValue={field.label} onBlur={(e) => { const v = e.target.value.trim(); if ((v || isNotice) && v !== field.label) save({ label: v }); }} />
-          </Field>
-          <Field label={isNotice ? "Notice text" : "Help text"} hint={isNotice ? "The body of the callout. Blank lines between paragraphs are kept, and links are made clickable." : "Shown under the field."}>
-            {isNotice ? (
-              <Textarea rows={4} defaultValue={field.helpText ?? ""} onBlur={(e) => { const v = e.target.value.trim(); if (v !== (field.helpText ?? "")) save({ helpText: v }); }} />
-            ) : (
-              <Input defaultValue={field.helpText ?? ""} onBlur={(e) => { const v = e.target.value.trim(); if (v !== (field.helpText ?? "")) save({ helpText: v }); }} />
-            )}
-          </Field>
+          {/* The B / I / highlight buttons sit beside each Field, not inside it:
+              Field wraps its control in a <label>, which would take their clicks. */}
+          <div className="relative">
+            <div className="absolute right-0 top-0">
+              <FormatButtons target={labelRef} disabled={!editable} onChange={(v) => { if (v || isNotice) save({ label: v }); }} />
+            </div>
+            <Field label={isNotice ? "Heading" : "Label"} hint={isNotice ? `Optional. Leave blank for a notice with no heading. ${FORMAT_HINT}` : FORMAT_HINT}>
+              <Input ref={labelRef} defaultValue={field.label} onBlur={(e) => { const v = e.target.value.trim(); if ((v || isNotice) && v !== field.label) save({ label: v }); }} />
+            </Field>
+          </div>
+          <div className="relative">
+            <div className="absolute right-0 top-0">
+              <FormatButtons target={isNotice ? helpAreaRef : helpInputRef} disabled={!editable} onChange={(v) => save({ helpText: v })} />
+            </div>
+            <Field label={isNotice ? "Notice text" : "Help text"} hint={isNotice ? "The body of the callout. Blank lines between paragraphs are kept, and links are made clickable." : "Shown under the field."}>
+              {isNotice ? (
+                <Textarea ref={helpAreaRef} rows={4} defaultValue={field.helpText ?? ""} onBlur={(e) => { const v = e.target.value.trim(); if (v !== (field.helpText ?? "")) save({ helpText: v }); }} />
+              ) : (
+                <Input ref={helpInputRef} defaultValue={field.helpText ?? ""} onBlur={(e) => { const v = e.target.value.trim(); if (v !== (field.helpText ?? "")) save({ helpText: v }); }} />
+              )}
+            </Field>
+          </div>
           <div className="flex flex-wrap items-end gap-4">
             <Field label="Type">
               <Select defaultValue={field.type} disabled={!editable} onChange={(e) => save({ type: e.target.value as FieldType })}>

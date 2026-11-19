@@ -176,9 +176,20 @@ export async function sendWaitlistEmails(cycleId: string, actorId: string): Prom
       const accepted = await tx.acceptance.count({ where: { applicationId: candidate.id } });
       if (accepted > 0) return false;
       // Atomic claim. Gating on the decision we read means a concurrent reject,
-      // reopen, or withdrawal moves the row and this matches nothing.
+      // reopen, or withdrawal moves the row and this matches nothing. On a
+      // director cycle the decision lives on the interviews (Application.decision
+      // stays PENDING), so the claim re-asserts that reading too: still some
+      // WAITLIST, nothing PENDING.
       const claimed = await tx.application.updateMany({
-        where: { id: candidate.id, waitlistEmailedAt: null, status: "SUBMITTED", decision: candidate.decision },
+        where: {
+          id: candidate.id,
+          waitlistEmailedAt: null,
+          status: "SUBMITTED",
+          decision: candidate.decision,
+          ...(cycle.track === "DIRECTOR"
+            ? { interviews: { some: { decision: "WAITLIST" }, none: { decision: "PENDING" } } }
+            : {}),
+        },
         data: { waitlistEmailedAt: new Date() },
       });
       if (claimed.count !== 1) return false;

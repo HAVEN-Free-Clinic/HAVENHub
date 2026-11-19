@@ -10,6 +10,7 @@ import { cycleTrail } from "@/modules/recruitment/breadcrumbs";
 import { PageHeader } from "@/platform/ui/page-header";
 import { Table, THead, TR, TH, TD } from "@/platform/ui/table";
 import { EvalProgress, InterviewStatusBadge } from "@/modules/recruitment/components/interview-cells";
+import { isDecidedWithoutInterview } from "@/modules/recruitment/engine/interview-mode";
 
 export default async function InterviewsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -62,7 +63,11 @@ export default async function InterviewsPage({ params }: { params: Promise<{ id:
                 <TD>
                   <InterviewStatusBadge interview={iv} />
                 </TD>
-                <TD className="text-foreground-soft"><DateTime value={iv.scheduledAt} fallback="Not scheduled yet" /></TD>
+                <TD className="text-foreground-soft">
+                  {isDecidedWithoutInterview({ ...iv, evaluationCount: evaluationCount })
+                    ? "Decided without interview"
+                    : <DateTime value={iv.scheduledAt} fallback="Not scheduled yet" />}
+                </TD>
                 <TD className="text-foreground-soft">{panelistCount}</TD>
                 <TD>
                   <EvalProgress done={evaluationCount} panelists={panelistCount} />

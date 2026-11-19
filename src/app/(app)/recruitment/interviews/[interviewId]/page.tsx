@@ -8,6 +8,7 @@ import { can } from "@/platform/rbac/engine";
 import { getInterview, listPanelistCandidates } from "@/modules/recruitment/services/interviews";
 import { reviewScope } from "@/modules/recruitment/services/review";
 import { evaluationSummary } from "@/modules/recruitment/engine/interview-eval";
+import { isDecidedWithoutInterview } from "@/modules/recruitment/engine/interview-mode";
 import { scheduleAction, addPanelistAction, removePanelistAction, sendInviteAction, decideAction, rescindAcceptanceAction, submitEvaluationAction } from "../actions";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
 import { interviewDetailTrail } from "@/modules/recruitment/breadcrumbs";
@@ -77,7 +78,9 @@ export default async function InterviewDetail({ params }: { params: Promise<{ in
       />
       <PageHeader
         title={`${iv.application.applicant.firstName} ${iv.application.applicant.lastName}`}
-        description={`${iv.departmentCode} director interview`}
+        description={isDecidedWithoutInterview({ ...iv, evaluationCount: iv.evaluations.length })
+          ? `${iv.departmentCode}: decided without interview`
+          : `${iv.departmentCode} director interview`}
         status={<Badge tone={decisionTone[iv.decision as keyof typeof decisionTone] ?? "default"}>{DECISION_LABELS[iv.decision as keyof typeof DECISION_LABELS] ?? iv.decision}</Badge>}
       />
       {canManage && (

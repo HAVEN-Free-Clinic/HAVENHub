@@ -227,7 +227,8 @@ export function subcommitteeSection(): TemplateSection {
 export function directorLogisticsSection(): TemplateSection {
   return sec("Logistics", "BOTH", [
     { key: "time_commitments", label: "What other significant time commitments do you have or anticipate having next year?", type: "LONG_TEXT", required: true },
-    { key: "resume", label: "Please upload your most recent CV/Resume", type: "FILE", required: true },
+    // No resume upload: the director application is kept short, and directors
+    // are reviewed on their answers and their time at HAVEN.
     { key: "additional_info", label: "Additional information", type: "LONG_TEXT", required: false },
     // Info-session attendance is no longer self-attested on the application; it is
     // reconciled on the backend against the info-session attendance list.

@@ -20,9 +20,12 @@ describe("fieldDerivation", () => {
 });
 
 describe("volunteer history", () => {
-  it("is yes with any volunteer membership and no without", () => {
+  it("is yes with any volunteer or director membership and no with neither", () => {
     expect(derivedAnswer(volunteerQ, { volunteered: true, directed: false }, "NEW")).toBe("yes");
-    expect(derivedAnswer(volunteerQ, { volunteered: false, directed: true }, "NEW")).toBe("no");
+    // Serving on the Board is serving at HAVEN: a sitting director who never held
+    // a volunteer membership must not read "never volunteered" to reviewers.
+    expect(derivedAnswer(volunteerQ, { volunteered: false, directed: true }, "NEW")).toBe("yes");
+    expect(derivedAnswer(volunteerQ, { volunteered: false, directed: false }, "NEW")).toBe("no");
   });
 });
 

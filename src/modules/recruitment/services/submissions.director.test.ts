@@ -165,12 +165,12 @@ it("answers a renewing director's board question as a term extension", async () 
   const person = await personWith([{ kind: "DIRECTOR", termCode: "FA26", dept: "SRHD" }]);
   const app = await submitApplication("apply-d", {
     applicantType: "RENEWAL", renewalDepartment: "SRHD",
-    answers: { ...BASE, prev_volunteered: "yes", returning_board: "no" },
+    answers: { ...BASE, prev_volunteered: "no", returning_board: "no" },
     files: {}, sessionPersonId: person.id, sessionEmail: "pat@yale.edu",
   });
   const answers = app.answers as Record<string, unknown>;
   expect(answers.returning_board).toBe("yes_term_extension");
-  expect(answers.prev_volunteered).toBe("no");
+  expect(answers.prev_volunteered).toBe("yes");
 });
 
 it("keeps the applicant's own answers when no Person is known", async () => {

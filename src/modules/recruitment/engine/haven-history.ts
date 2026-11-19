@@ -67,7 +67,9 @@ export function derivedAnswer(
   if (!kind) return null;
   let value: string;
   if (kind === "haven_volunteer_history") {
-    value = history.volunteered ? "yes" : "no";
+    // Any membership counts: a director has served at HAVEN even with no
+    // volunteer-kind row, and "no" would tell reviewers the opposite.
+    value = history.volunteered || history.directed ? "yes" : "no";
   } else {
     value = !history.directed ? "no" : applicantType === "RENEWAL" ? "yes_term_extension" : "yes_new_position";
   }

@@ -75,10 +75,9 @@ test("director interview: schedule, decide accept, release", async ({
 
   // Director branch: select department and click "Schedule interview"
   await page.locator('select[name="departmentCode"]').selectOption("EDUC");
+  // A single click: director cycles are not committee-scored, so there is no
+  // "before the committee finishes" confirm to arm.
   await page.getByRole("button", { name: "Schedule interview" }).click();
-  // Nobody has committee-scored this applicant, so scheduling is a two-click
-  // ConfirmButton: the first click arms it with the warning, the second submits.
-  await page.getByRole("button", { name: "Schedule before the committee finishes?" }).click();
   // scheduleInterviewAction redirects to the interview detail page
   await page.waitForURL((url) => url.pathname.includes("/interviews/"));
 

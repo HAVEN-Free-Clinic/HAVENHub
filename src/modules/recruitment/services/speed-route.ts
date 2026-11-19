@@ -107,6 +107,7 @@ export async function loadSpeedRouteBoard(cycleId: string, viewerId: string): Pr
       returnedReason: a.returnedReason,
       decision: a.decision,
       stage: applicationStage({
+        track: cycle.track,
         scoreCount: a.committeeScores.length,
         routedDepartmentCode: a.routedDepartmentCode,
         returnedToRoutingAt: a.returnedToRoutingAt,

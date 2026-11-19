@@ -301,7 +301,7 @@ export async function loadReviewApplicationAction(
   applicationId: string,
 ): Promise<{ view: ReviewApplicationView } | { error: string }> {
   const person = await requirePersonSession();
-  const result = await loadReviewApplication(applicationId, person.personId);
+  const result = await loadReviewApplication(applicationId, person.personId, { forCommitteeScoring: true });
   // Speed scoring shows this applicant's answers, so it is a view of the record
   // like opening the detail page. Logged only when the load succeeded, i.e. the
   // access check inside loadReviewApplication passed; a refusal returns an error.

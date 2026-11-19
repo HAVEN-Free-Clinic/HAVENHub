@@ -9,6 +9,7 @@ import {
   setCycleScoring,
 } from "./score-assignment";
 import { returnToRouting } from "./routing";
+import { NO_COMMITTEE_SCORING_MESSAGE } from "../engine/scoring";
 
 let seq = 0;
 
@@ -78,6 +79,33 @@ const assignmentsFor = (cycleId: string) =>
 
 beforeEach(async () => { await resetDb(); });
 afterEach(async () => { await resetDb(); });
+
+describe("a director cycle", () => {
+  // Director applicants are interviewed or decided by directors and never
+  // committee-scored, so there is no scorer pool to load or save.
+  async function directorCycle() {
+    const { lead, scorers, term } = await seed();
+    const cycle = await prisma.recruitmentCycle.create({
+      data: { track: "DIRECTOR", termId: term.id, title: "D", publicSlug: `d-assign-${seq++}`, departments: ["SRHD"], createdById: lead.id, status: "OPEN" },
+    });
+    await application(cycle.id, "d");
+    return { lead, scorers, cycle };
+  }
+
+  it("refuses to load the scoring panel", async () => {
+    const { lead, cycle } = await directorCycle();
+    await expect(loadScoringPanel(cycle.id, lead.id)).rejects.toThrow(new ScoreAssignmentError(NO_COMMITTEE_SCORING_MESSAGE));
+  });
+
+  it("refuses to save a pool, and writes nothing", async () => {
+    const { lead, scorers, cycle } = await directorCycle();
+    await expect(
+      setCycleScoring(cycle.id, { scorerIds: scorers.map((s) => s.id), target: 2 }, lead.id),
+    ).rejects.toThrow(new ScoreAssignmentError(NO_COMMITTEE_SCORING_MESSAGE));
+    expect(await prisma.cycleScorer.count({ where: { cycleId: cycle.id } })).toBe(0);
+    expect(await assignmentsFor(cycle.id)).toHaveLength(0);
+  });
+});
 
 describe("setCycleScoring", () => {
   it("refuses a viewer without recruitment.review_all", async () => {

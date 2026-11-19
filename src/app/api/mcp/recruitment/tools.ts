@@ -18,7 +18,7 @@ import { cycleReviewLock, lockedCycleIds, CYCLE_LOCKED_MESSAGE } from "@/modules
 import { reviewerIdentity } from "@/modules/recruitment/services/own-application";
 import { isOwnApplication } from "@/modules/recruitment/engine/own-application";
 import { applicantTypeLabel } from "@/modules/recruitment/engine/visibility";
-import { scoreAverage } from "@/modules/recruitment/engine/scoring";
+import { scoreAverage, usesCommitteeScoring } from "@/modules/recruitment/engine/scoring";
 import { applicationStage, applicationStageLabel } from "@/modules/recruitment/engine/application-stage";
 import { rosterDecision, type RosterDecisionStatus } from "@/modules/recruitment/engine/decision-summary";
 import { filterApplicantsByDepartment } from "@/modules/recruitment/engine/applicant-department";
@@ -190,7 +190,7 @@ async function visibleCycles(personId: string, caller: Caller): Promise<CycleRow
 async function rosterFor(
   personId: string,
   cycleId: string,
-): Promise<{ caller: Caller; cycle: { id: string; title: string; track: string; status: string }; apps: ReviewApplication[] } | "locked" | null> {
+): Promise<{ caller: Caller; cycle: { id: string; title: string; track: "VOLUNTEER" | "DIRECTOR"; status: string }; apps: ReviewApplication[] } | "locked" | null> {
   const caller = await resolveCaller(personId);
   if (!caller.isStaff) return null;
   const cycle = await prisma.recruitmentCycle.findUnique({
@@ -207,9 +207,14 @@ async function rosterFor(
   return { caller, cycle, apps };
 }
 
+/** What the committee-score fields say on a director cycle, which is never
+ *  committee-scored (usesCommitteeScoring). */
+const DIRECTOR_NOT_SCORED = "Director cycles are not committee-scored; directors interview or decide each applicant.";
+
 /** The same derivation the applicants page's Stage column uses. */
-function stageOf(a: ReviewApplication) {
+function stageOf(a: ReviewApplication, track: "VOLUNTEER" | "DIRECTOR") {
   return applicationStage({
+    track,
     scoreCount: a.committeeScores.length,
     routedDepartmentCode: a.routedDepartmentCode,
     returnedToRoutingAt: a.returnedToRoutingAt,
@@ -282,7 +287,7 @@ export const cycleSummaryTool: RecruitmentTool = {
   name: "cycle_summary",
   title: "Recruitment cycle summary",
   description:
-    "Counts over the submitted applications you can see in one cycle: by stage, by decision, by applicant type, by routed department and by first-choice department, plus committee-scoring coverage. Scoped exactly like your Applicants page in the Hub. byDecision is each applicant's OVERALL outcome, the Applicants page's Decision column: an acceptance anywhere outranks a waitlist, so an applicant waitlisted by one department but accepted by another counts as accepted here, not waitlisted. list_waitlist counts every open waitlist entry instead, so its total can be higher.",
+    "Counts over the submitted applications you can see in one cycle: by stage, by decision, by applicant type, by routed department and by first-choice department, plus committee-scoring coverage (volunteer cycles only; director cycles are not committee-scored, and their `scoring` says so). Scoped exactly like your Applicants page in the Hub. byDecision is each applicant's OVERALL outcome, the Applicants page's Decision column: an acceptance anywhere outranks a waitlist, so an applicant waitlisted by one department but accepted by another counts as accepted here, not waitlisted. list_waitlist counts every open waitlist entry instead, so its total can be higher.",
   inputSchema: cycleSummarySchema,
   run: async (ctx, args) => {
     const input = parseArgs(cycleSummarySchema, args);
@@ -305,20 +310,25 @@ export const cycleSummaryTool: RecruitmentTool = {
     return JSON.stringify({
       cycle,
       totalSubmitted: apps.length,
-      byStage: countBy(apps, (a) => applicationStageLabel[stageOf(a)]),
+      byStage: countBy(apps, (a) => applicationStageLabel[stageOf(a, cycle.track)]),
       byDecision: countBy(apps, (a) => decisionOf(a).status),
       byApplicantType: countBy(apps, (a) => applicantTypeLabel(a.applicantType)),
       byRoutedDepartment: countBy(apps, (a) => a.routedDepartmentCode ?? "(not routed)"),
       byFirstChoiceDepartment: countBy(apps, (a) => a.departmentChoices[0] ?? "(none)"),
       invited: apps.filter((a) => a.invited).length,
-      scoring: {
-        withAtLeastOneScore: scored.length,
-        withNoScore: scorable.length - scored.length,
-        totalScores,
-        meanScoresPerApplication: scorable.length ? round1(totalScores / scorable.length) : null,
-        meanOfApplicationAverages: averages.length ? round1(averages.reduce((s, x) => s + x, 0) / averages.length) : null,
-        ownApplicationExcluded: apps.length - scorable.length,
-      },
+      // Director cycles are never committee-scored, so there is no coverage to
+      // report: said outright rather than as a row of zeros that reads as
+      // "nobody has scored yet".
+      scoring: usesCommitteeScoring(cycle.track)
+        ? {
+            withAtLeastOneScore: scored.length,
+            withNoScore: scorable.length - scored.length,
+            totalScores,
+            meanScoresPerApplication: scorable.length ? round1(totalScores / scorable.length) : null,
+            meanOfApplicationAverages: averages.length ? round1(averages.reduce((s, x) => s + x, 0) / averages.length) : null,
+            ownApplicationExcluded: apps.length - scorable.length,
+          }
+        : { notApplicable: DIRECTOR_NOT_SCORED },
       ...(awaitingRouting > 0 ? { awaitingRoutingOutsideScope: awaitingRouting } : {}),
     });
   },
@@ -355,7 +365,7 @@ export const listApplicantsTool: RecruitmentTool = {
   name: "list_applicants",
   title: "List applicants in a cycle",
   description:
-    "The applicant roster for one cycle, as your Applicants page in the Hub shows it: name, email, type, committee average and score count, stage, ranked departments, routed department, decision, and invited/dual badges. Paged; `total` is the full filtered count. Use get_application for one applicant's answers.",
+    "The applicant roster for one cycle, as your Applicants page in the Hub shows it: name, email, type, committee average and score count (volunteer cycles only; director cycles are not committee-scored), stage, ranked departments, routed department, decision, and invited/dual badges. Paged; `total` is the full filtered count. Use get_application for one applicant's answers.",
   inputSchema: listApplicantsSchema,
   run: async (ctx, args) => {
     const input = parseArgs(listApplicantsSchema, args);
@@ -380,11 +390,14 @@ export const listApplicantsTool: RecruitmentTool = {
         email: a.applicant.email,
         applicantType: applicantTypeLabel(a.applicantType),
         invited: a.invited,
-        // The page prints "Hidden: your application" in place of a score.
-        committee: a.isOwnApplication
-          ? { hidden: "your own application" }
-          : { average: round1(summary.average), count: summary.count },
-        stage: applicationStageLabel[stageOf(a)],
+        // The page prints "Hidden: your application" in place of a score, and
+        // has no Committee avg column at all on a director cycle.
+        committee: !usesCommitteeScoring(cycle.track)
+          ? { notApplicable: DIRECTOR_NOT_SCORED }
+          : a.isOwnApplication
+            ? { hidden: "your own application" }
+            : { average: round1(summary.average), count: summary.count },
+        stage: applicationStageLabel[stageOf(a, cycle.track)],
         dualFallback: Boolean(a.dualFallbackAt && a.routedDepartmentCode),
         departmentChoices: a.departmentChoices,
         routedDepartmentCode: a.routedDepartmentCode,
@@ -471,8 +484,11 @@ export const getApplicationTool: RecruitmentTool = {
     // Committee score card. The page renders it only for (canScore ||
     // canDecideRouted); names every score and comment only for (scope.all ||
     // canDecideRouted); otherwise shows the average and the caller's own score.
+    // Never on a director cycle, which the page gives no Committee score card.
     let committeeScores: unknown = null;
-    if (canScore || canDecideRouted) {
+    if (!usesCommitteeScoring(app.cycle.track)) {
+      committeeScores = { notApplicable: DIRECTOR_NOT_SCORED };
+    } else if (canScore || canDecideRouted) {
       if (own) {
         committeeScores = { hidden: "your own application" };
       } else {

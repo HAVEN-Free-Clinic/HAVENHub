@@ -1,3 +1,21 @@
+/**
+ * Does a cycle on this track run committee scoring?
+ *
+ * Only volunteer cycles do. Director applicants are interviewed (or decided
+ * without an interview) by current directors and are never committee-scored, so
+ * on a director cycle every committee surface stays off: the 1-5 committee read,
+ * the speed-score queue, the scorer pool and its assignments, the roster's
+ * Committee avg column, and the MCP tools' committee figures. This is the one
+ * rule all of those surfaces and their services check.
+ */
+export function usesCommitteeScoring(track: "VOLUNTEER" | "DIRECTOR"): boolean {
+  return track === "VOLUNTEER";
+}
+
+/** The refusal every committee-scoring service gives on a director cycle. */
+export const NO_COMMITTEE_SCORING_MESSAGE =
+  "Director applications are not committee-scored. Directors interview or decide them instead.";
+
 /** Mean of a set of 1-5 scores. `average` is null when there are no scores. */
 export function scoreAverage(scores: number[]): { average: number | null; count: number } {
   if (scores.length === 0) return { average: null, count: 0 };

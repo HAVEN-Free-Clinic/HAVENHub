@@ -88,10 +88,11 @@ function textFor(a: SortableApplicant, key: "name" | "email" | "type" | "ranked"
 
 /** Position of a row in its column's meaningful order, rather than its label's
  *  alphabetical order. */
-function rankFor(a: SortableApplicant, key: "stage" | "decision"): number {
+function rankFor(a: SortableApplicant, key: "stage" | "decision", track: "VOLUNTEER" | "DIRECTOR"): number {
   if (key === "stage") {
     return APPLICATION_STAGE_ORDER.indexOf(
       applicationStage({
+        track,
         scoreCount: a.committeeScores.length,
         routedDepartmentCode: a.routedDepartmentCode,
         returnedToRoutingAt: a.returnedToRoutingAt,
@@ -120,8 +121,14 @@ function numberFor(a: SortableApplicant, key: "score" | "language"): number | nu
 }
 
 /** Sorts a copy of the roster. Array.prototype.sort is stable, so ties keep the
- *  order they arrived in, which is submittedAt desc from listApplicantsForReview. */
-export function sortApplicants<T extends SortableApplicant>(apps: T[], sort: ApplicantSort): T[] {
+ *  order they arrived in, which is submittedAt desc from listApplicantsForReview.
+ *  `track` is the cycle's, which the Stage column derives from (a director
+ *  application is never in a committee stage). */
+export function sortApplicants<T extends SortableApplicant>(
+  apps: T[],
+  sort: ApplicantSort,
+  track: "VOLUNTEER" | "DIRECTOR",
+): T[] {
   const sign = sort.dir === "asc" ? 1 : -1;
   return [...apps].sort((a, b) => {
     if (sort.key === "score" || sort.key === "language") {
@@ -135,7 +142,7 @@ export function sortApplicants<T extends SortableApplicant>(apps: T[], sort: App
       return (av - bv) * sign;
     }
     if (sort.key === "stage" || sort.key === "decision") {
-      return (rankFor(a, sort.key) - rankFor(b, sort.key)) * sign;
+      return (rankFor(a, sort.key, track) - rankFor(b, sort.key, track)) * sign;
     }
     return textFor(a, sort.key).localeCompare(textFor(b, sort.key)) * sign;
   });

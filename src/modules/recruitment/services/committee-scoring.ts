@@ -3,7 +3,7 @@ import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { recordAudit } from "@/platform/audit";
 import { RecruitmentAuthError } from "./review";
-import { scoreAverage } from "../engine/scoring";
+import { NO_COMMITTEE_SCORING_MESSAGE, scoreAverage, usesCommitteeScoring } from "../engine/scoring";
 import { isOwnApplication } from "../engine/own-application";
 import { reviewerIdentity } from "./own-application";
 import { assertMayActOnApplication, cycleReviewLock, isHiddenByLock } from "./review-lock";
@@ -24,15 +24,17 @@ export async function submitCommitteeScore(
   }
   const app = await prisma.application.findUnique({
     where: { id: applicationId },
-    select: { status: true, cycleId: true, applicantId: true, applicant: { select: { applicantPersonId: true, emailLower: true, netId: true } } },
+    select: { status: true, cycleId: true, applicantId: true, cycle: { select: { track: true } }, applicant: { select: { applicantPersonId: true, emailLower: true, netId: true } } },
   });
   if (!app) throw new CommitteeScoreError("Application not found.");
+  // Volunteer cycles only: director applicants are interviewed or decided by
+  // directors, never committee-scored. The UI offers no score form on a director
+  // cycle; this is the backstop for a stale tab or a hand-made request.
+  if (!usesCommitteeScoring(app.cycle.track)) throw new CommitteeScoreError(NO_COMMITTEE_SCORING_MESSAGE);
   if (app.status !== "SUBMITTED") throw new CommitteeScoreError("This application hasn't been submitted yet.");
   // Applied in this cycle: no scoring in it at all; with an exception, never
   // their own (services/review-lock.ts).
   await assertMayActOnApplication(app, scorerId, "You can't score your own application.");
-  // Committee scoring applies to BOTH tracks (score everyone); only routing is
-  // volunteer-only, since director applicants pick their own department.
   // Separation of duties: a committee member who also applied (e.g. a returning
   // member re-applying) must not score their own application. Recognised by
   // account link, NetID or address, not the link alone, which is only set for

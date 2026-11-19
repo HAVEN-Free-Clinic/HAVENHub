@@ -6,6 +6,7 @@ import { recordAudit } from "@/platform/audit";
 import { RecruitmentAuthError } from "./review";
 import { allocateAssignments, type AssignmentPair } from "../engine/score-assignment";
 import { applicationStage, isHandledStage } from "../engine/application-stage";
+import { NO_COMMITTEE_SCORING_MESSAGE, usesCommitteeScoring } from "../engine/scoring";
 import { applicationOwnerAmong } from "../engine/own-application";
 import { reviewerIdentities } from "./own-application";
 
@@ -25,7 +26,7 @@ const MAX_TARGET = 20;
  * and first-choice submissions are routed at submit and documented as skipping
  * committee scoring, so they are already handled and never get divided out.
  */
-async function eligibleApplications(cycleId: string) {
+async function eligibleApplications(cycleId: string, track: "VOLUNTEER" | "DIRECTOR") {
   const rows = await prisma.application.findMany({
     where: { cycleId, status: "SUBMITTED" },
     select: {
@@ -44,6 +45,7 @@ async function eligibleApplications(cycleId: string) {
       (a) =>
         !isHandledStage(
           applicationStage({
+            track,
             scoreCount: a.committeeScores.length,
             routedDepartmentCode: a.routedDepartmentCode,
             returnedToRoutingAt: a.returnedToRoutingAt,
@@ -82,14 +84,16 @@ export async function loadScoringPanel(cycleId: string, viewerId: string): Promi
   await assertCycleClear(cycleId, viewerId);
   const cycle = await prisma.recruitmentCycle.findUnique({
     where: { id: cycleId },
-    select: { scoresPerApplication: true },
+    select: { scoresPerApplication: true, track: true },
   });
   if (!cycle) throw new ScoreAssignmentError("Cycle not found.");
+  // Volunteer cycles only: director applicants are never committee-scored.
+  if (!usesCommitteeScoring(cycle.track)) throw new ScoreAssignmentError(NO_COMMITTEE_SCORING_MESSAGE);
 
   const [holders, pool, applications] = await Promise.all([
     peopleWithPermission("recruitment.score"),
     prisma.cycleScorer.findMany({ where: { cycleId }, select: { personId: true } }),
-    eligibleApplications(cycleId),
+    eligibleApplications(cycleId, cycle.track),
   ]);
   const eligibleIds = applications.map((a) => a.id);
   const assignments = await prisma.scoreAssignment.findMany({
@@ -150,8 +154,10 @@ export async function setCycleScoring(
   if (!Number.isInteger(input.target) || input.target < 1 || input.target > MAX_TARGET) {
     throw new ScoreAssignmentError(`Scores per application must be a whole number from 1 to ${MAX_TARGET}.`);
   }
-  const cycle = await prisma.recruitmentCycle.findUnique({ where: { id: cycleId }, select: { id: true } });
+  const cycle = await prisma.recruitmentCycle.findUnique({ where: { id: cycleId }, select: { id: true, track: true } });
   if (!cycle) throw new ScoreAssignmentError("Cycle not found.");
+  // Volunteer cycles only: director applicants are never committee-scored.
+  if (!usesCommitteeScoring(cycle.track)) throw new ScoreAssignmentError(NO_COMMITTEE_SCORING_MESSAGE);
 
   // Pool membership is a filter over people who can already score, never a
   // grant. Anyone not holding recruitment.score would sit in the pool with an
@@ -166,7 +172,7 @@ export async function setCycleScoring(
   }
 
   const [applications, poolIdentities] = await Promise.all([
-    eligibleApplications(cycleId),
+    eligibleApplications(cycleId, cycle.track),
     reviewerIdentities(scorerIds),
   ]);
   const eligibleIds = applications.map((a) => a.id);
@@ -249,13 +255,13 @@ export async function setCycleScoring(
  */
 export async function assignReturnedApplication(cycleId: string, applicationId: string): Promise<number> {
   const [cycle, pool] = await Promise.all([
-    prisma.recruitmentCycle.findUnique({ where: { id: cycleId }, select: { scoresPerApplication: true } }),
+    prisma.recruitmentCycle.findUnique({ where: { id: cycleId }, select: { scoresPerApplication: true, track: true } }),
     prisma.cycleScorer.findMany({ where: { cycleId }, select: { personId: true } }),
   ]);
-  if (!cycle || pool.length === 0) return 0;
+  if (!cycle || pool.length === 0 || !usesCommitteeScoring(cycle.track)) return 0;
 
   const [applications, poolIdentities] = await Promise.all([
-    eligibleApplications(cycleId),
+    eligibleApplications(cycleId, cycle.track),
     reviewerIdentities(pool.map((p) => p.personId)),
   ]);
   const returned = applications.find((a) => a.id === applicationId);

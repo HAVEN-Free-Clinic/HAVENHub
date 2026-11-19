@@ -41,11 +41,13 @@ describe("getApplicationTemplate", () => {
     const t = getApplicationTemplate("DIRECTOR", [], dates);
     const keys = t.flatMap((s) => s.fields.map((f) => f.key));
     expect(keys).toEqual(expect.arrayContaining([
-      "prev_volunteered", "returning_board",
+      "returning_board",
       "essay_community_care", "essay_priorities", "essay_accountability",
       "department_choice", "subcommittee_rank",
       "time_commitments", "resume",
     ]));
+    // Every director applicant has volunteered, so this is never asked.
+    expect(keys).not.toContain("prev_volunteered");
     // The volunteer-specific contract/acknowledgements section must not leak into
     // the director track.
     expect(keys).not.toEqual(expect.arrayContaining(["volunteer_agreement"]));

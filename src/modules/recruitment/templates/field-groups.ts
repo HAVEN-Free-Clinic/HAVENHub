@@ -174,9 +174,11 @@ export function volunteerApplicationMaterialsSection(): TemplateSection {
   ]);
 }
 
+/** No "have you previously volunteered at HAVEN?" question: every director
+ *  applicant has volunteered, since that is a requirement for the role, so it
+ *  could only ever be answered yes. */
 export function directorHavenExperienceSection(): TemplateSection {
   return sec("HAVEN experience", "BOTH", [
-    { key: "prev_volunteered", label: "Have you previously volunteered at HAVEN?", type: "SINGLE_SELECT", required: true, options: YES_NO },
     { key: "returning_board", label: "Have you previously been on the Board at the HFC?", type: "SINGLE_SELECT", required: true,
       options: [
         { value: "yes_term_extension", label: "Yes - Term Extension" },

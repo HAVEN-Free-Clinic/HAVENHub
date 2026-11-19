@@ -1,3 +1,4 @@
+import { lockedCycleView } from "@/modules/recruitment/components/cycle-locked-notice";
 import { notFound } from "next/navigation";
 import { PageBody } from "@/platform/ui/page-body";
 import { getCycle } from "@/modules/recruitment/services/cycles";
@@ -14,6 +15,8 @@ export default async function BuilderPage({ params }: { params: Promise<{ id: st
   await requirePermission("recruitment.access");
   await requirePermission("recruitment.manage_cycles");
   const { id } = await params;
+  const locked = await lockedCycleView(id);
+  if (locked) return locked;
   const cycle = await getCycle(id);
   if (!cycle) notFound();
 

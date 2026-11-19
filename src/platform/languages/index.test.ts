@@ -89,7 +89,7 @@ describe("review queue", () => {
     await claimLanguage(yes.id, "es");
     await claimLanguage(no.id, "ht");
 
-    expect((await listLanguageReviewQueue()).map((r) => r.personId).sort()).toEqual(
+    expect((await listLanguageReviewQueue("test-viewer")).map((r) => r.personId).sort()).toEqual(
       [yes.id, no.id].sort(),
     );
 
@@ -98,13 +98,13 @@ describe("review queue", () => {
 
     // A "no" is still an assessment: it settles the question rather than
     // leaving the person queued to be re-reviewed forever.
-    expect(await listLanguageReviewQueue()).toEqual([]);
+    expect(await listLanguageReviewQueue("test-viewer")).toEqual([]);
   });
 
   it("excludes offboarded people", async () => {
     const gone = await person("Departed", "OFFBOARDED");
     await claimLanguage(gone.id, "es");
-    expect(await listLanguageReviewQueue()).toEqual([]);
+    expect(await listLanguageReviewQueue("test-viewer")).toEqual([]);
   });
 
   it("queues each claimed language separately", async () => {
@@ -112,7 +112,7 @@ describe("review queue", () => {
     await claimLanguage(p.id, "es");
     await claimLanguage(p.id, "pt");
 
-    const queue = await listLanguageReviewQueue();
+    const queue = await listLanguageReviewQueue("test-viewer");
     expect(queue).toHaveLength(2);
     expect(queue.map((r) => r.language).sort()).toEqual(["es", "pt"]);
   });
@@ -139,7 +139,7 @@ describe("the language review queue", () => {
       data: { verifiedAt: null },
     });
 
-    const [row] = await listLanguageReviewQueue();
+    const [row] = await listLanguageReviewQueue("test-viewer");
     expect(row.score).toBe(3);
   });
 
@@ -151,7 +151,7 @@ describe("the language review queue", () => {
     const outsider = await person("Outside Interpreting");
     await claimLanguage(outsider.id, "es");
 
-    const rows = await listLanguageReviewQueue();
+    const rows = await listLanguageReviewQueue("test-viewer");
 
     expect(rows).toHaveLength(1);
     expect(rows[0]).not.toHaveProperty("isIntp");
@@ -525,7 +525,7 @@ describe("listLanguageReviewQueue with both sources", () => {
     const member = await prisma.person.create({ data: { name: "Ada Member", status: "ACTIVE" } });
     await claimLanguage(member.id, "es");
 
-    const rows = await listLanguageReviewQueue();
+    const rows = await listLanguageReviewQueue("test-viewer");
 
     expect(rows.map((r) => r.source)).toEqual(["applicant", "member"]);
     expect(rows[0]).toMatchObject({
@@ -572,7 +572,7 @@ describe("listLanguageReviewQueue with both sources", () => {
       },
     });
 
-    const rows = await listLanguageReviewQueue();
+    const rows = await listLanguageReviewQueue("test-viewer");
 
     expect(rows[0].departments).toEqual(["EDUC", "INTP (dual)"]);
   });
@@ -619,7 +619,7 @@ describe("listLanguageReviewQueue with both sources", () => {
       },
     });
 
-    const rows = await listLanguageReviewQueue();
+    const rows = await listLanguageReviewQueue("test-viewer");
 
     const esRows = rows.filter((r) => r.language === "es");
     expect(esRows).toHaveLength(1);
@@ -659,7 +659,7 @@ describe("listLanguageReviewQueue member department context", () => {
       },
     });
 
-    const [row] = await listLanguageReviewQueue();
+    const [row] = await listLanguageReviewQueue("test-viewer");
 
     expect(row.departments).toEqual(["EDUC", "PATS"]);
     expect(row.contextLabel).toBe("Fall 2026");
@@ -672,7 +672,7 @@ describe("listLanguageReviewQueue member department context", () => {
     const member = await person("No Active Term");
     await claimLanguage(member.id, "es");
 
-    const [row] = await listLanguageReviewQueue();
+    const [row] = await listLanguageReviewQueue("test-viewer");
 
     expect(row.departments).toEqual([]);
     expect(row.contextLabel).toBe("");

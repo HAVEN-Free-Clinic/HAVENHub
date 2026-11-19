@@ -9,6 +9,8 @@ import { serviceGapForCycle } from "@/modules/recruitment/services/service-gap";
 import { visibleSections, applicantTypeLabel } from "@/modules/recruitment/engine/visibility";
 import { requirePersonSession } from "@/platform/auth/session";
 import { reviewScope, listAcceptances, canViewApplication, recordApplicationView } from "@/modules/recruitment/services/review";
+import { cycleReviewLock } from "@/modules/recruitment/services/review-lock";
+import { CycleLockedNotice } from "@/modules/recruitment/components/cycle-locked-notice";
 import { can } from "@/platform/rbac/engine";
 import { scheduleInterviewAction, committeeScoreAction, routeAction, decideRoutedAction, reopenDecisionAction, rescindAcceptanceAction, reopenWithdrawnAction, excuseApplicantAbsenceAction, clearApplicantExcuseAction, assessApplicantLanguageAction, requestDualAppointmentFromApplicantAction, decideDualAppointmentFromApplicantAction } from "../actions";
 import { listDualAppointments, type DualAppointmentRow } from "@/modules/recruitment/services/dual-appointments";
@@ -60,6 +62,9 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
   if (!app) notFound();
   const person = await requirePersonSession();
   if (app.cycleId !== id) notFound();
+  // Applied in this cycle: a calm notice, not a 404, and nothing else is read.
+  const lock = await cycleReviewLock(id, person.personId);
+  if (lock.state === "locked") return <CycleLockedNotice netIdOnly={lock.netIdOnly} />;
   const [scope, managesCycles, canScorePerm, canOpenOverview, acceptances, history] = await Promise.all([
     reviewScope(person.personId),
     can(person.personId, "recruitment.manage_cycles"),
@@ -73,6 +78,7 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
       netId: app.applicant.netId,
       emails: [app.applicant.email],
       excludeApplicationId: applicationId,
+      viewerId: person.personId,
     }),
   ]);
   const seeAll = scope.all || managesCycles;
@@ -81,7 +87,8 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
   // Shared with the file-download route: mirror listApplicantsForReview exactly so
   // access to the detail page and its files can never drift (routing drives a
   // director's queue on volunteer cycles; ranking on director-track cycles).
-  const canView = canViewApplication(app, { scope, managesCycles, canScore: canScorePerm });
+  // An excepted viewer opening their own application lands here: hidden, so 404.
+  const canView = canViewApplication(app, { scope, managesCycles, canScore: canScorePerm, lock });
   if (!canView) notFound();
   // Past the access check, so this logs a permitted view. Repeats by the same
   // person inside ten minutes (every action on this page re-renders it) count once.
@@ -230,7 +237,7 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
   // never its scores or who gave them, and is offered no score form
   // (submitCommitteeScore refuses a self-score regardless).
   const ownApplication = isOwnApplication(app.applicant, await reviewerIdentity(person.personId));
-  const scoreSummary = !ownApplication && (canScore || canDecideRouted) ? await committeeScoreSummary(applicationId) : null;
+  const scoreSummary = !ownApplication && (canScore || canDecideRouted) ? await committeeScoreSummary(applicationId, person.personId) : null;
   const myScore = scoreSummary?.scores.find((s) => s.scorerId === person.personId) ?? null;
   // Every reviewer's score and comment, by name, for the people who act on them:
   // a lead (review_all) and the director deciding a routed application. A scorer

@@ -1,3 +1,4 @@
+import { lockedCycleView } from "@/modules/recruitment/components/cycle-locked-notice";
 import { notFound } from "next/navigation";
 import type { DualAppointmentStatus } from "@prisma/client";
 import { prisma } from "@/platform/db";
@@ -62,6 +63,8 @@ const ONBOARDING_LABEL: Record<DualAppointmentRow["onboarding"], string> = {
 export default async function DualAppointmentsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const session = await requirePersonSession();
+  const locked = await lockedCycleView(id);
+  if (locked) return locked;
   const [cycle, scope] = await Promise.all([
     prisma.recruitmentCycle.findUnique({ where: { id }, select: { id: true, title: true, track: true, status: true } }),
     reviewScope(session.personId),

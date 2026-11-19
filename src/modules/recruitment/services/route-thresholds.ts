@@ -1,3 +1,4 @@
+import { assertCycleUnlocked } from "./review-lock";
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { recordAudit } from "@/platform/audit";
@@ -16,6 +17,8 @@ export async function setRouteThresholds(
   bottomPercent: number,
   actorId: string,
 ): Promise<void> {
+  // A lead who applied in this cycle sets nothing on its speed route.
+  await assertCycleUnlocked(cycleId, actorId);
   if (!(await can(actorId, "recruitment.review_all"))) {
     throw new RecruitmentAuthError("You can't change routing thresholds.");
   }

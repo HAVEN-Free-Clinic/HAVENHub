@@ -1,3 +1,4 @@
+import { lockedCycleView } from "@/modules/recruitment/components/cycle-locked-notice";
 import { notFound } from "next/navigation";
 import { PageBody } from "@/platform/ui/page-body";
 import { DateTime } from "@/platform/dates/display";
@@ -10,6 +11,15 @@ import { requirePermission, requirePersonSession } from "@/platform/auth/session
 import { revalidatePath } from "next/cache";
 import { createInvite, listInvites, revokeInvite } from "@/modules/recruitment/services/invites";
 import { InvitePanel, type InviteRow } from "./invite-panel";
+import { ReviewExceptionForm, type ReviewExceptionState } from "./review-exception-form";
+import {
+  grantReviewException,
+  revokeReviewException,
+  listReviewExceptions,
+  listExceptionCandidates,
+  ReviewExceptionError,
+} from "@/modules/recruitment/services/review-lock";
+import { RecruitmentAuthError } from "@/modules/recruitment/services/review";
 import { can } from "@/platform/rbac/engine";
 import { portalUrl } from "@/modules/recruitment/services/portal-url";
 import { SetBreadcrumb } from "@/platform/ui/breadcrumb-context";
@@ -37,6 +47,8 @@ type PageProps = {
 export default async function CycleOverviewPage({ params }: PageProps) {
   const { id } = await params;
   await requirePermission("recruitment.access");
+  const locked = await lockedCycleView(id);
+  if (locked) return locked;
   const cycle = await getCycle(id);
   if (!cycle) notFound();
 
@@ -155,6 +167,41 @@ export default async function CycleOverviewPage({ params }: PageProps) {
     "use server";
     const actor = await requirePermission("recruitment.manage_cycles");
     await revokeInvite(actor.personId, String(formData.get("inviteId") ?? ""));
+    revalidatePath(`/recruitment/cycles/${id}`);
+  }
+
+  // Review exceptions (services/review-lock.ts): who may review this cycle
+  // despite having applied in it. Listed for anyone who already sees the whole
+  // roster (review_all, manage_cycles); granted and revoked by review_all only,
+  // which the service re-checks, since a server action is a public endpoint.
+  const canReviewAll = await can(session.personId, "recruitment.review_all");
+  const canSeeExceptions = canReviewAll || canManage;
+  const [exceptions, exceptionCandidates] = canSeeExceptions
+    ? await Promise.all([listReviewExceptions(id), canReviewAll ? listExceptionCandidates(id) : Promise.resolve([])])
+    : [[], []];
+
+  async function grantReviewExceptionAction(_prev: ReviewExceptionState, formData: FormData): Promise<ReviewExceptionState> {
+    "use server";
+    const actor = await requirePersonSession();
+    try {
+      await grantReviewException(id, String(formData.get("personId") ?? ""), String(formData.get("reason") ?? ""), actor.personId);
+    } catch (err) {
+      if (err instanceof ReviewExceptionError || err instanceof RecruitmentAuthError) return { error: err.message };
+      throw err;
+    }
+    revalidatePath(`/recruitment/cycles/${id}`);
+    return { ok: "Exception granted." };
+  }
+
+  async function revokeReviewExceptionAction(formData: FormData) {
+    "use server";
+    const actor = await requirePersonSession();
+    try {
+      await revokeReviewException(id, String(formData.get("personId") ?? ""), actor.personId);
+    } catch (err) {
+      // Already revoked by someone else: the list re-renders without it.
+      if (!(err instanceof ReviewExceptionError)) throw err;
+    }
     revalidatePath(`/recruitment/cycles/${id}`);
   }
 
@@ -285,6 +332,43 @@ export default async function CycleOverviewPage({ params }: PageProps) {
             createAction={createInviteAction}
             revokeAction={revokeInviteAction}
           />
+        </Card>
+      )}
+
+      {canSeeExceptions && (
+        <Card className="space-y-3">
+          <SectionHeader>Review exceptions</SectionHeader>
+          <p className="text-sm text-muted-foreground">
+            Anyone with an application in this cycle, as a draft, a submission or a withdrawal, sees none of its
+            applicants, whatever their role. A recruitment lead can let a named person back in for a logistical
+            reason within their department, approved by their ED. They still never see, score, evaluate, decide or
+            interview for their own application, and cycle-wide steps (decisions, release, onboarding) stay with
+            leads who did not apply.
+          </p>
+          {exceptions.length === 0 ? (
+            <EmptyState inline>No exceptions granted.</EmptyState>
+          ) : (
+            <ul className="divide-y divide-border-subtle">
+              {exceptions.map((x) => (
+                <li key={x.personId} className="flex flex-wrap items-start justify-between gap-3 py-2">
+                  <div className="min-w-0 space-y-0.5">
+                    <p className="text-sm font-medium text-foreground">{x.personName}</p>
+                    <p className="text-sm text-foreground-soft">{x.reason}</p>
+                    <p className="text-xs text-subtle-foreground">
+                      Granted by {x.grantedByName} on <DateTime value={x.createdAt} />
+                    </p>
+                  </div>
+                  {canReviewAll && (
+                    <form action={revokeReviewExceptionAction}>
+                      <input type="hidden" name="personId" value={x.personId} />
+                      <ConfirmButton label="Revoke" confirmLabel={`Revoke ${x.personName}'s exception?`} size="sm" />
+                    </form>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+          {canReviewAll && <ReviewExceptionForm action={grantReviewExceptionAction} candidates={exceptionCandidates} />}
         </Card>
       )}
 

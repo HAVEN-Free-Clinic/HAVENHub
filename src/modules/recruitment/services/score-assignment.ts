@@ -1,3 +1,4 @@
+import { assertCycleClear } from "./review-lock";
 import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { peopleWithPermission } from "@/platform/rbac/permission-holders";
@@ -77,6 +78,8 @@ export async function loadScoringPanel(cycleId: string, viewerId: string): Promi
   if (!(await can(viewerId, "recruitment.review_all"))) {
     throw new RecruitmentAuthError("You can't manage scoring assignments.");
   }
+  // Cycle-wide: nobody with an application in the cycle (services/review-lock.ts).
+  await assertCycleClear(cycleId, viewerId);
   const cycle = await prisma.recruitmentCycle.findUnique({
     where: { id: cycleId },
     select: { scoresPerApplication: true },
@@ -143,6 +146,7 @@ export async function setCycleScoring(
   if (!(await can(actorId, "recruitment.review_all"))) {
     throw new RecruitmentAuthError("You can't manage scoring assignments.");
   }
+  await assertCycleClear(cycleId, actorId);
   if (!Number.isInteger(input.target) || input.target < 1 || input.target > MAX_TARGET) {
     throw new ScoreAssignmentError(`Scores per application must be a whole number from 1 to ${MAX_TARGET}.`);
   }

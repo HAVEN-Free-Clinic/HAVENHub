@@ -4,6 +4,7 @@ import { prisma } from "@/platform/db";
 import { can } from "@/platform/rbac/engine";
 import { isCycleOpen } from "@/modules/recruitment/services/cycle-window";
 import { getApplicantStatus } from "@/modules/recruitment/services/portal-status";
+import { lockedCycleIds } from "@/modules/recruitment/services/review-lock";
 import { formatDateTime } from "@/platform/dates";
 import { getDisplayTimeZone } from "@/platform/dates/resolve";
 import type { McpTool } from "./index";
@@ -129,14 +130,22 @@ export const recruitmentCycleStatusTool: McpTool = {
 
     const zone = await getDisplayTimeZone();
     const now = new Date();
+    // A count of a cycle's applicants is still its applicants: a caller who
+    // applied in a cycle gets its window but not its count (services/review-lock.ts).
+    const locked = new Set(await lockedCycleIds(ctx.personId));
     const lines = await Promise.all(
       cycles.map(async (cycle) => {
-        // Only SUBMITTED counts as "applied" -- an in-progress draft is not an
-        // application yet, and a withdrawn one is no longer live, so neither
-        // belongs in an answer to "how many people have applied".
-        const submitted = await prisma.application.count({ where: { cycleId: cycle.id, status: "SUBMITTED" } });
         const label = `${cycle.title} (${trackLabel(cycle.track)})`;
-        const countPhrase = `${submitted} application${submitted === 1 ? "" : "s"} so far`;
+        let countPhrase: string;
+        if (locked.has(cycle.id)) {
+          countPhrase = "Its application count is hidden from you because you applied in it";
+        } else {
+          // Only SUBMITTED counts as "applied" -- an in-progress draft is not an
+          // application yet, and a withdrawn one is no longer live, so neither
+          // belongs in an answer to "how many people have applied".
+          const submitted = await prisma.application.count({ where: { cycleId: cycle.id, status: "SUBMITTED" } });
+          countPhrase = `${submitted} application${submitted === 1 ? "" : "s"} so far`;
+        }
 
         // opensAt/closesAt are true instants (an admin picks a specific time of
         // day, see setApplicationWindowAction), not an all-day calendar marker

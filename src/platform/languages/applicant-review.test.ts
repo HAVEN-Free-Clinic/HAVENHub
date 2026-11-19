@@ -295,7 +295,7 @@ describe("listApplicantLanguageQueue", () => {
     const ctx = await lane();
     await apply(ctx, "ada@yale.edu");
 
-    const rows = await listApplicantLanguageQueue();
+    const rows = await listApplicantLanguageQueue("test-viewer");
 
     expect(rows.map((r) => r.language)).toEqual(["es"]);
     expect(rows[0].cycleTitle).toBe("Fall 2026 Volunteers");
@@ -306,7 +306,7 @@ describe("listApplicantLanguageQueue", () => {
     const ctx = await lane();
     await apply(ctx, "ada@yale.edu", { languagesClaimed: ["fr", "ht"] });
 
-    const rows = await listApplicantLanguageQueue();
+    const rows = await listApplicantLanguageQueue("test-viewer");
 
     expect(rows.map((r) => r.language).sort()).toEqual(["es", "fr", "ht"]);
   });
@@ -315,7 +315,7 @@ describe("listApplicantLanguageQueue", () => {
     const ctx = await lane();
     await apply(ctx, "ada@yale.edu", { departmentChoices: ["EDUC"] });
 
-    expect(await listApplicantLanguageQueue()).toEqual([]);
+    expect(await listApplicantLanguageQueue("test-viewer")).toEqual([]);
   });
 
   it("queues a dual-role offer to a flagged department from an unflagged primary", async () => {
@@ -327,7 +327,7 @@ describe("listApplicantLanguageQueue", () => {
       departmentChoices: ["EDUC"], dualRoleDepartments: ["INTP"], languagesClaimed: ["ht"],
     });
 
-    const rows = await listApplicantLanguageQueue();
+    const rows = await listApplicantLanguageQueue("test-viewer");
 
     expect(rows.map((r) => r.language)).toEqual(["ht"]);
     expect(rows[0].dualRoleDepartments).toEqual(["INTP"]);
@@ -345,7 +345,7 @@ describe("listApplicantLanguageQueue", () => {
         data: { code: "INTP", name: "Interpreting", assessLanguageBeforeAcceptance: true },
       });
       await apply(ctx, "ada@yale.edu", overrides);
-      return (await listApplicantLanguageQueue()).map((r) => r.language).sort();
+      return (await listApplicantLanguageQueue("test-viewer")).map((r) => r.language).sort();
     }
 
     it("is queued for a PATS applicant who claimed nothing", async () => {
@@ -391,7 +391,7 @@ describe("listApplicantLanguageQueue", () => {
     const ctx = await lane();
     await apply(ctx, "ada@yale.edu", { status: "WITHDRAWN", withdrawnAt: new Date() });
 
-    expect(await listApplicantLanguageQueue()).toEqual([]);
+    expect(await listApplicantLanguageQueue("test-viewer")).toEqual([]);
   });
 
   it("ignores an application in an ARCHIVED cycle", async () => {
@@ -401,7 +401,7 @@ describe("listApplicantLanguageQueue", () => {
       where: { id: ctx.cycle.id }, data: { status: "ARCHIVED" },
     });
 
-    expect(await listApplicantLanguageQueue()).toEqual([]);
+    expect(await listApplicantLanguageQueue("test-viewer")).toEqual([]);
   });
 
   it("ignores a volunteer application the department has already decided", async () => {
@@ -411,7 +411,7 @@ describe("listApplicantLanguageQueue", () => {
       where: { id: application.id }, data: { decision: "REJECT", decidedAt: new Date() },
     });
 
-    expect(await listApplicantLanguageQueue()).toEqual([]);
+    expect(await listApplicantLanguageQueue("test-viewer")).toEqual([]);
   });
 
   // The regression the second decided-clause exists for. A DIRECTOR-track
@@ -430,7 +430,7 @@ describe("listApplicantLanguageQueue", () => {
       },
     });
 
-    expect(await listApplicantLanguageQueue()).toEqual([]);
+    expect(await listApplicantLanguageQueue("test-viewer")).toEqual([]);
   });
 
   // Interview rows are per (applicationId, departmentCode): a director
@@ -449,7 +449,7 @@ describe("listApplicantLanguageQueue", () => {
       },
     });
 
-    const rows = await listApplicantLanguageQueue();
+    const rows = await listApplicantLanguageQueue("test-viewer");
 
     expect(rows.map((r) => r.language)).toEqual(["es"]);
   });
@@ -474,7 +474,7 @@ describe("listApplicantLanguageQueue", () => {
       },
     });
 
-    const rows = await listApplicantLanguageQueue();
+    const rows = await listApplicantLanguageQueue("test-viewer");
 
     expect(rows.map((r) => r.language)).toEqual(["es"]);
   });
@@ -503,7 +503,7 @@ describe("listApplicantLanguageQueue", () => {
       },
     });
 
-    expect(await listApplicantLanguageQueue()).toEqual([]);
+    expect(await listApplicantLanguageQueue("test-viewer")).toEqual([]);
   });
 
   // Lane membership through dualRoleDepartments only, mirroring the earlier
@@ -525,7 +525,7 @@ describe("listApplicantLanguageQueue", () => {
       },
     });
 
-    const rows = await listApplicantLanguageQueue();
+    const rows = await listApplicantLanguageQueue("test-viewer");
 
     expect(rows.map((r) => r.language)).toEqual(["es"]);
   });
@@ -537,7 +537,7 @@ describe("listApplicantLanguageQueue", () => {
       data: { applicationId: application.id, departmentCode: "PATS", approvedById: ctx.lead.id },
     });
 
-    expect(await listApplicantLanguageQueue()).toEqual([]);
+    expect(await listApplicantLanguageQueue("test-viewer")).toEqual([]);
   });
 
   it("drops a language already assessed on this application", async () => {
@@ -550,7 +550,7 @@ describe("listApplicantLanguageQueue", () => {
       },
     });
 
-    const rows = await listApplicantLanguageQueue();
+    const rows = await listApplicantLanguageQueue("test-viewer");
 
     expect(rows.map((r) => r.language)).toEqual(["fr"]);
   });
@@ -578,7 +578,7 @@ describe("listApplicantLanguageQueue", () => {
       },
     });
 
-    expect(await listApplicantLanguageQueue()).toEqual([]);
+    expect(await listApplicantLanguageQueue("test-viewer")).toEqual([]);
   });
 });
 

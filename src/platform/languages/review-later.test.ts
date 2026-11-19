@@ -59,7 +59,7 @@ describe("review later", () => {
 
     expect(await setReviewLater(rita.id, [target], true)).toBe(1);
 
-    const [row] = await listLanguageReviewQueue();
+    const [row] = await listLanguageReviewQueue("test-viewer");
     expect(row.reviewLater).toMatchObject({ byName: "Rita Reviewer" });
     expect(row.reviewLater?.since).toBeInstanceOf(Date);
     // Still owed an assessment: parking it is not a verdict.
@@ -69,7 +69,7 @@ describe("review later", () => {
     expect(claim.verifiedAt).toBeNull();
 
     expect(await setReviewLater(rita.id, [target], false)).toBe(1);
-    expect((await listLanguageReviewQueue())[0].reviewLater).toBeNull();
+    expect((await listLanguageReviewQueue("test-viewer"))[0].reviewLater).toBeNull();
   });
 
   it("sets an applicant row aside, and recording its verdict clears it", async () => {
@@ -78,7 +78,7 @@ describe("review later", () => {
     const target = { source: "applicant" as const, applicationId: application.id, language: "es" };
 
     expect(await setReviewLater(rita.id, [target], true)).toBe(1);
-    const [row] = await listLanguageReviewQueue();
+    const [row] = await listLanguageReviewQueue("test-viewer");
     expect(row).toMatchObject({ source: "applicant", reviewLater: { byName: "Rita Reviewer" } });
 
     await recordApplicationLanguageAssessment(rita.id, {
@@ -88,7 +88,7 @@ describe("review later", () => {
       score: 4,
     });
 
-    expect(await listLanguageReviewQueue()).toEqual([]);
+    expect(await listLanguageReviewQueue("test-viewer")).toEqual([]);
     expect(await prisma.languageReviewDeferral.count()).toBe(0);
   });
 

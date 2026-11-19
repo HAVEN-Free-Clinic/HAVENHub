@@ -8,12 +8,10 @@ import { can } from "@/platform/rbac/engine";
 import { manageableDepartmentIds } from "@/platform/departments";
 import { recordAudit } from "@/platform/audit";
 
-export class RecruitmentAuthError extends Error {
-  constructor(message: string) { super(message); this.name = "RecruitmentAuthError"; }
-}
-export class AcceptanceError extends Error {
-  constructor(message: string) { super(message); this.name = "AcceptanceError"; }
-}
+import { RecruitmentAuthError, AcceptanceError } from "./errors";
+import { cycleReviewLock, lockedCycleIds, isHiddenByLock, assertMayActOnApplicationId, type CycleReviewLock } from "./review-lock";
+
+export { RecruitmentAuthError, AcceptanceError };
 
 export type ReviewScope = { all: boolean; departmentCodes: string[] };
 
@@ -42,6 +40,9 @@ export const reviewScope = cache(async (personId: string): Promise<ReviewScope> 
 
 /** The minimal application shape needed to decide viewer access. */
 export type ViewableApplication = {
+  /** Which Applicant this is, so the review lock can keep a viewer away from
+   *  their own application even when they hold an exception for the cycle. */
+  applicantId: string;
   departmentChoices: string[];
   routedDepartmentCode: string | null;
   cycle: { track: string };
@@ -59,11 +60,17 @@ export type ViewableApplication = {
  *  a VOLUNTEER application only when it was ROUTED to their department, and a
  *  DIRECTOR-track application when it RANKED their department (director-track
  *  cycles have no routing stage). Pass the viewer's already-resolved scope and
- *  permission flags so callers that need them for rendering don't re-query. */
+ *  permission flags so callers that need them for rendering don't re-query.
+ *
+ *  The review lock comes first and outranks every role: someone who applied in
+ *  the application's cycle sees nothing in it, and with an exception still never
+ *  sees their own (services/review-lock.ts). `lock` is required, and must be the
+ *  lock for THIS application's cycle, so no caller can forget it. */
 export function canViewApplication(
   app: ViewableApplication,
-  ctx: { scope: ReviewScope; managesCycles: boolean; canScore: boolean },
+  ctx: { scope: ReviewScope; managesCycles: boolean; canScore: boolean; lock: CycleReviewLock },
 ): boolean {
+  if (isHiddenByLock(app, ctx.lock)) return false;
   if (ctx.scope.all || ctx.managesCycles || ctx.canScore) return true;
   const mine = new Set(ctx.scope.departmentCodes);
   if (app.cycle.track === "VOLUNTEER") {
@@ -83,15 +90,16 @@ export function canViewApplication(
  *  an action and lose the page they ran it from. Resolves the identical triple
  *  the detail page resolves, so the two can never disagree about who may look. */
 export async function canViewerOpenApplication(
-  app: ViewableApplication,
+  app: ViewableApplication & { cycleId: string },
   viewerId: string,
 ): Promise<boolean> {
-  const [scope, managesCycles, canScore] = await Promise.all([
+  const [scope, managesCycles, canScore, lock] = await Promise.all([
     reviewScope(viewerId),
     can(viewerId, "recruitment.manage_cycles"),
     can(viewerId, "recruitment.score"),
+    cycleReviewLock(app.cycleId, viewerId),
   ]);
-  return canViewApplication(app, { scope, managesCycles, canScore });
+  return canViewApplication(app, { scope, managesCycles, canScore, lock });
 }
 
 /** Repeat opens of one record by one person inside this window are one view. */
@@ -205,19 +213,24 @@ export type ReviewApplication = Application & {
  *  managers, and committee scorers) see all; a director sees only applications
  *  intersecting their department codes. */
 export async function listApplicantsForReview(cycleId: string, viewerId: string): Promise<ReviewApplication[]> {
-  const [scope, managesCycles, canScore, me] = await Promise.all([
+  const [scope, managesCycles, canScore, me, lock] = await Promise.all([
     reviewScope(viewerId),
     can(viewerId, "recruitment.manage_cycles"),
     can(viewerId, "recruitment.score"),
     reviewerIdentity(viewerId),
+    cycleReviewLock(cycleId, viewerId),
   ]);
+  // Applied in this cycle: nobody in it, whatever their roles (review-lock.ts).
+  if (lock.state === "locked") return [];
   const seeAll = scope.all || managesCycles || canScore;
   // One lookup for the whole cycle, not one per row: the marker is derived from
   // the invite claims rather than stored on Application, so it cannot drift when
   // an invite is withdrawn.
   const [rawApps, invitedEmails] = await Promise.all([
     prisma.application.findMany({
-      where: { cycleId, status: "SUBMITTED" },
+      // An excepted viewer's own application is left out entirely, not just
+      // stripped of scores: the exception is for everyone else's.
+      where: { cycleId, status: "SUBMITTED", ...(lock.ownApplicantIds.length ? { applicantId: { notIn: lock.ownApplicantIds } } : {}) },
       include: {
         applicant: { select: { firstName: true, lastName: true, email: true, emailLower: true, netId: true, applicantPersonId: true } },
         acceptances: true,
@@ -248,7 +261,7 @@ export async function listApplicantsForReview(cycleId: string, viewerId: string)
   if (cycle?.track === "VOLUNTEER") {
     // The same rule canViewApplication applies, so the list and the detail page
     // agree: routed to one of theirs, or approved as one of theirs.
-    return apps.filter((a) => canViewApplication({ ...a, cycle: { track: "VOLUNTEER" } }, { scope, managesCycles: false, canScore: false }));
+    return apps.filter((a) => canViewApplication({ ...a, cycle: { track: "VOLUNTEER" } }, { scope, managesCycles: false, canScore: false, lock }));
   }
   return apps.filter((a) => a.departmentChoices.some((d) => mine.has(d)));
 }
@@ -268,16 +281,24 @@ export async function listApplicantsForReview(cycleId: string, viewerId: string)
  * list genuinely means no submissions.
  */
 export async function awaitingRoutingCount(cycleId: string, viewerId: string): Promise<number> {
-  const [scope, managesCycles, canScore, cycle] = await Promise.all([
+  const [scope, managesCycles, canScore, cycle, lock] = await Promise.all([
     reviewScope(viewerId),
     can(viewerId, "recruitment.manage_cycles"),
     can(viewerId, "recruitment.score"),
     prisma.recruitmentCycle.findUnique({ where: { id: cycleId }, select: { track: true } }),
+    cycleReviewLock(cycleId, viewerId),
   ]);
+  // A count of a cycle's applicants is still its applicants.
+  if (lock.state === "locked") return 0;
   if (scope.all || managesCycles || canScore) return 0;
   if (cycle?.track !== "VOLUNTEER") return 0;
   return prisma.application.count({
-    where: { cycleId, status: "SUBMITTED", routedDepartmentCode: null },
+    where: {
+      cycleId,
+      status: "SUBMITTED",
+      routedDepartmentCode: null,
+      ...(lock.ownApplicantIds.length ? { applicantId: { notIn: lock.ownApplicantIds } } : {}),
+    },
   });
 }
 
@@ -301,16 +322,19 @@ export type WaitlistEntry = {
  *  interview, carrying its department + id). SRR/review_all, cycle managers and
  *  committee scorers see all; a director sees only their departments' entries. */
 export async function listWaitlisted(cycleId: string, viewerId: string): Promise<WaitlistEntry[]> {
-  const [scope, managesCycles, canScore] = await Promise.all([
+  const [scope, managesCycles, canScore, lock] = await Promise.all([
     reviewScope(viewerId),
     can(viewerId, "recruitment.manage_cycles"),
     can(viewerId, "recruitment.score"),
+    cycleReviewLock(cycleId, viewerId),
   ]);
+  if (lock.state === "locked") return [];
   const seeAll = scope.all || managesCycles || canScore;
   const apps = await prisma.application.findMany({
     where: {
       cycleId,
       status: "SUBMITTED",
+      ...(lock.ownApplicantIds.length ? { applicantId: { notIn: lock.ownApplicantIds } } : {}),
       OR: [{ decision: "WAITLIST" }, { interviews: { some: { decision: "WAITLIST" } } }],
     },
     include: {
@@ -355,15 +379,20 @@ export async function listReviewableCycles(
   // isTest so the cycle list can label a test run for a reviewer too: a
   // director reviewing in a rehearsal should see that it is one.
 ): Promise<{ id: string; title: string; track: string; status: CycleStatus; isTest: boolean }[]> {
-  const [scope, managesCycles, canScore] = await Promise.all([
+  const [scope, managesCycles, canScore, locked] = await Promise.all([
     reviewScope(personId),
     can(personId, "recruitment.manage_cycles"),
     can(personId, "recruitment.score"),
+    lockedCycleIds(personId),
   ]);
+  // A cycle the person applied in is never "something to review" for them, so
+  // it is left out here. (The full cycle list staff see keeps it, labelled as
+  // locked, and opening it shows the locked notice.)
   const activeStatus = { in: ["OPEN", "CLOSED"] as CycleStatus[] };
+  const notLocked: Prisma.RecruitmentCycleWhereInput = locked.length ? { id: { notIn: locked } } : {};
   if (scope.all || managesCycles) {
     return prisma.recruitmentCycle.findMany({
-      where: { status: activeStatus, applications: { some: { status: "SUBMITTED" } } },
+      where: { ...notLocked, status: activeStatus, applications: { some: { status: "SUBMITTED" } } },
       orderBy: [{ status: "asc" }, { title: "asc" }],
       select: { id: true, title: true, track: true, status: true, isTest: true },
     });
@@ -385,7 +414,7 @@ export async function listReviewableCycles(
   }
   if (or.length === 0) return [];
   return prisma.recruitmentCycle.findMany({
-    where: { status: activeStatus, OR: or },
+    where: { ...notLocked, status: activeStatus, OR: or },
     orderBy: [{ status: "asc" }, { title: "asc" }],
     select: { id: true, title: true, track: true, status: true, isTest: true },
   });
@@ -409,6 +438,7 @@ export async function revokeAcceptance(acceptanceId: string, actorId: string): P
   if (acc.contract) {
     throw new AcceptanceError("This applicant has an onboarding contract. Withdraw it on the Onboarding page first, then revoke the acceptance.");
   }
+  await assertMayActOnApplicationId(acc.applicationId, actorId);
   const scope = await reviewScope(actorId);
   const inScope = scope.all || scope.departmentCodes.includes(acc.departmentCode);
   if (!inScope) throw new RecruitmentAuthError("You can't revoke that acceptance.");

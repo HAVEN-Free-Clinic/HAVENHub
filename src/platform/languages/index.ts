@@ -102,9 +102,9 @@ export type LanguageReviewRow = {
  * up a decision, and because a member's claim can wait for the next assessment
  * session while an application window cannot.
  */
-export async function listLanguageReviewQueue(): Promise<LanguageReviewRow[]> {
+export async function listLanguageReviewQueue(viewerId: string): Promise<LanguageReviewRow[]> {
   const [applicantRows, memberRowsUnfiltered, activeTerm] = await Promise.all([
-    listApplicantLanguageQueue(),
+    listApplicantLanguageQueue(viewerId),
     prisma.personLanguage.findMany({
       where: languageReviewWhere(),
       orderBy: [...personNameOrderVia("person"), { language: "asc" }],

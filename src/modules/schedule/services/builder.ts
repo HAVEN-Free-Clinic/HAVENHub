@@ -1876,6 +1876,7 @@ export async function builderView(
       termId: term.id,
       departmentCode: selectedDept.code,
       clinicDates,
+      viewerId: viewerPersonId,
     }),
     // First-time applicants' drafts, which have no Person for a ShiftAssignment
     // to point at. Merged into the board below under their rows' synthetic ids.

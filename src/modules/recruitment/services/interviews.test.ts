@@ -162,7 +162,7 @@ it("lists interviews in scope and the panelist's assignments", async () => {
   expect((await listInterviewsForReview(cycle.id, director.id)).map((i) => i.id)).toEqual([iv.id]);
   expect((await listInterviewsForReview(cycle.id, srr.id))).toHaveLength(1);
   expect((await myAssignedInterviews(panelist.id)).map((i) => i.id)).toEqual([iv.id]);
-  expect(await getInterview(iv.id)).not.toBeNull();
+  expect(await getInterview(iv.id, srr.id)).not.toBeNull();
 });
 
 it("reports whether a person sits on any interview panel", async () => {

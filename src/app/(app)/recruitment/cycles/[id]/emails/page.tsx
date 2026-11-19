@@ -1,3 +1,4 @@
+import { lockedCycleView } from "@/modules/recruitment/components/cycle-locked-notice";
 import { notFound } from "next/navigation";
 import { PageBody } from "@/platform/ui/page-body";
 import { requirePermission } from "@/platform/auth/session";
@@ -14,6 +15,8 @@ export default async function CycleEmailsPage({ params }: { params: Promise<{ id
   await requirePermission("recruitment.access");
   await requirePermission("recruitment.manage_cycles");
   const { id } = await params;
+  const locked = await lockedCycleView(id);
+  if (locked) return locked;
   const cycle = await prisma.recruitmentCycle.findUnique({ where: { id }, select: { id: true, title: true } });
   if (!cycle) notFound();
   const emails = await listCycleEmails(cycle.id);

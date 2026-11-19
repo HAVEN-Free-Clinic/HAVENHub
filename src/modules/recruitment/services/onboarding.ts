@@ -1,3 +1,4 @@
+import { assertCycleClear, assertCycleClearFor } from "./review-lock";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { EpicRequirement, OnboardingContract, Track } from "@prisma/client";
@@ -199,6 +200,7 @@ export async function createOrResendContract(
   if (!(await can(actorId, "recruitment.review_all"))) {
     throw new RecruitmentAuthError("Only SRR can send onboarding links.");
   }
+  await assertCycleClearFor({ acceptanceIds: [acceptanceId] }, actorId);
   const acceptance = await prisma.acceptance.findUnique({
     where: { id: acceptanceId },
     include: {
@@ -1011,6 +1013,7 @@ export async function withdrawContract(contractId: string, actorId: string): Pro
   if (!(await can(actorId, "recruitment.review_all"))) {
     throw new RecruitmentAuthError("Only SRR can withdraw onboarding contracts.");
   }
+  await assertCycleClearFor({ contractIds: [contractId] }, actorId);
   const contract = await prisma.onboardingContract.findUnique({
     where: { id: contractId },
     select: { id: true, status: true, hipaaStoredName: true, photoStoredName: true, signatures: true },
@@ -1123,8 +1126,11 @@ export async function listOnboarding(cycleId: string) {
  */
 export async function listOnboardingRows(
   cycleId: string,
+  viewerId: string,
   now: Date = new Date(),
 ): Promise<OnboardingRow[]> {
+  // Cycle-wide: nobody with an application in the cycle (services/review-lock.ts).
+  await assertCycleClear(cycleId, viewerId);
   const rows = await listOnboarding(cycleId);
   return rows.map((r) => ({
     acceptanceId: r.id,
@@ -1213,6 +1219,7 @@ export async function withdrawContracts(
   if (!(await can(actorId, "recruitment.review_all"))) {
     throw new RecruitmentAuthError("Only SRR can withdraw onboarding contracts.");
   }
+  await assertCycleClearFor({ contractIds }, actorId);
   let withdrawn = 0, skipped = 0, failed = 0;
   for (const id of contractIds) {
     try {

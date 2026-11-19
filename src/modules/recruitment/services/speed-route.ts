@@ -7,6 +7,7 @@ import { bucketByPercentile } from "../engine/route-buckets";
 import { applicationStage, type ApplicationStage } from "../engine/application-stage";
 import { isOwnApplication } from "../engine/own-application";
 import { reviewerIdentity } from "./own-application";
+import { assertCycleUnlocked } from "./review-lock";
 
 export type SpeedRouteRow = {
   applicationId: string;
@@ -62,6 +63,9 @@ export async function loadSpeedRouteBoard(cycleId: string, viewerId: string): Pr
   if (!(await can(viewerId, "recruitment.review_all"))) {
     throw new RecruitmentAuthError("You can't route applications.");
   }
+  // A lead who applied in this cycle routes nobody in it; other leads run it
+  // (services/review-lock.ts). Throws CycleLockedError.
+  const lock = await assertCycleUnlocked(cycleId, viewerId);
   const cycle = await prisma.recruitmentCycle.findUnique({
     where: { id: cycleId },
     select: { id: true, title: true, track: true, departments: true, routeTopPercent: true, routeBottomPercent: true, scoresPerApplication: true, _count: { select: { scorers: true } } },
@@ -124,7 +128,9 @@ export async function loadSpeedRouteBoard(cycleId: string, viewerId: string): Pr
   // the tiers are cut over the whole cohort: re-cutting without it would move
   // someone else into its slot and tell the lead where they stood.
   const me = await reviewerIdentity(viewerId);
-  const own = new Set(apps.filter((a) => isOwnApplication(a.applicant, me)).map((a) => a.id));
+  const own = new Set(
+    apps.filter((a) => isOwnApplication(a.applicant, me) || lock.ownApplicantIds.includes(a.applicantId)).map((a) => a.id),
+  );
   const rows = (ids: string[]) => ids.filter((id) => !own.has(id)).map((id) => byId.get(id)!);
   // Highest average first: when a department hands several applicants back at
   // once, the lead works the strongest candidates first.

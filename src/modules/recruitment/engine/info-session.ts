@@ -58,7 +58,7 @@ export type InfoSessionAttendance = {
 };
 
 export function attendedInfoSession(
-  applicant: { applicantPersonId: string | null; emailLower: string; netId?: string | null },
+  applicant: { applicantPersonId: string | null; emailLower: string },
   attendance: InfoSessionAttendance,
 ): boolean {
   if (applicant.applicantPersonId && attendance.personIds.has(applicant.applicantPersonId)) return true;
@@ -66,8 +66,11 @@ export function attendedInfoSession(
   if (attendance.emails.has(email)) return true;
   const netIds = attendance.netIds;
   if (!netIds || netIds.size === 0) return false;
-  if (applicant.netId && netIds.has(applicant.netId.toLowerCase())) return true;
-  // A NetID-form address on the application ("ab123@yale.edu") is that NetID.
+  // Only VERIFIED identifiers match: the account link and the application email
+  // (proven by SSO or a magic link). Applicant.netId is not used, because an
+  // applicant signed in with a non-Yale address can type any NetID there and
+  // clear their own flag. A NetID-form address ("ab123@yale.edu") IS verified,
+  // so it may stand in for that NetID.
   const m = /^([a-z0-9]+)@yale\.edu$/.exec(email);
   return m !== null && netIds.has(m[1]);
 }

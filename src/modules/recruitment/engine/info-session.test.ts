@@ -28,12 +28,13 @@ describe("infoSessionPhase", () => {
 
 describe("attendedInfoSession by NetID", () => {
   const attendance = { personIds: new Set(["p1"]), emails: new Set(["ada.lovelace@yale.edu"]), netIds: new Set(["al123"]) };
-  it("matches an unlinked applicant whose NetID or NetID-form address is a checked-in member's", () => {
-    expect(attendedInfoSession({ applicantPersonId: null, emailLower: "x@gmail.com", netId: "AL123" }, attendance)).toBe(true);
+  it("matches an unlinked applicant whose verified NetID-form address is a checked-in member's", () => {
     expect(attendedInfoSession({ applicantPersonId: null, emailLower: "al123@yale.edu" }, attendance)).toBe(true);
   });
-  it("does not match a different NetID or a non-Yale address", () => {
-    expect(attendedInfoSession({ applicantPersonId: null, emailLower: "zz999@yale.edu", netId: "zz999" }, attendance)).toBe(false);
+  it("ignores a typed NetID, and does not match a different NetID or a non-Yale address", () => {
+    // Applicant.netId is self-asserted for magic-link applicants: passing it must not clear the flag.
+    expect(attendedInfoSession({ applicantPersonId: null, emailLower: "x@gmail.com", netId: "al123" } as never, attendance)).toBe(false);
+    expect(attendedInfoSession({ applicantPersonId: null, emailLower: "zz999@yale.edu" }, attendance)).toBe(false);
     expect(attendedInfoSession({ applicantPersonId: null, emailLower: "al123@gmail.com" }, attendance)).toBe(false);
   });
 });

@@ -62,7 +62,7 @@ export async function cycleInfoSessions(
 type FlagInput = {
   id: string;
   applicantType: ApplicantType;
-  applicant: { applicantPersonId: string | null; emailLower: string; netId?: string | null };
+  applicant: { applicantPersonId: string | null; emailLower: string };
 };
 
 /** Every given application's info-session status in two queries, for a roster

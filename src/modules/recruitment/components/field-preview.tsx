@@ -5,6 +5,7 @@ import { Alert } from "@/platform/ui/alert";
 import { formatInline } from "@/platform/ui/inline-format";
 import { stripInlineFormatting } from "@/platform/ui/inline-markers";
 import { noticeAcknowledgeLabel } from "../engine/notice";
+import { noticeEmbed } from "../engine/notice-embed";
 import { departmentRankCount, rankOrdinal } from "../engine/department-choice";
 import { asPrefillList, isPrefillChecked, prefillString } from "./field-prefill";
 import { WordCountTextarea } from "./word-count-textarea";
@@ -90,6 +91,9 @@ export function FieldPreview({
     const ackLabel = noticeAcknowledgeLabel(f.validation);
     const heading = f.label.trim();
     const body = f.helpText?.trim() ?? "";
+    // Resolved here, at render, rather than trusted from the builder: only an
+    // allowlisted provider or a direct PDF is ever framed (see notice-embed.ts).
+    const embed = noticeEmbed(f.validation);
     return (
       <Alert tone="info" role="note">
         {heading && (
@@ -104,6 +108,28 @@ export function FieldPreview({
         {body && (
           <span className={cx("block break-words whitespace-pre-line text-sm text-foreground-soft [overflow-wrap:anywhere]", heading && "mt-1")}>
             {formatInline(body)}
+          </span>
+        )}
+        {embed && (
+          <span className={cx("block", (heading || body) && "mt-2")}>
+            {/* No sandbox: Chrome refuses to render a PDF inside a sandboxed
+                frame, and the src is already limited to the allowlist. The
+                new-tab link is the fallback for phones, where an inline PDF
+                often shows only its first page. */}
+            <iframe
+              src={embed.src}
+              title={heading || "Embedded document"}
+              loading="lazy"
+              allow="fullscreen"
+              allowFullScreen
+              className={cx(
+                "block w-full rounded-lg border border-border-subtle bg-surface",
+                embed.kind === "slides" ? "aspect-video" : "h-[70vh] max-h-[720px] min-h-[360px]",
+              )}
+            />
+            <a href={embed.openUrl} target="_blank" rel="noopener noreferrer" className="mt-1 inline-block text-xs font-medium text-foreground underline underline-offset-2">
+              Open in a new tab
+            </a>
           </span>
         )}
         {ackLabel && (

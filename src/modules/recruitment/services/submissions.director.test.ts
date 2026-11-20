@@ -52,7 +52,10 @@ async function personWith(memberships: { kind: "VOLUNTEER" | "DIRECTOR"; status?
       update: {},
       create: {
         code: m.termCode, name: m.termCode, startDate: new Date("2025-01-01"), endDate: new Date("2025-05-01"),
-        status: m.archived ? "ARCHIVED" : "ACTIVE",
+        // PLANNING, not ACTIVE: a member of the ACTIVE term must be fully cleared
+        // to apply again (returner-clearance.ts), and these fixtures exercise the
+        // renewal and transfer rules, not that gate.
+        status: m.archived ? "ARCHIVED" : "PLANNING",
       },
     });
     const dept = await prisma.department.upsert({ where: { code: m.dept }, update: {}, create: { code: m.dept, name: m.dept } });

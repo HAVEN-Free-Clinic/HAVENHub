@@ -3,6 +3,8 @@ import { prisma } from "@/platform/db";
 import { auth } from "@/platform/auth/auth";
 import { getRenewalContext, resolveRenewalPrefill, resolveReturningPersonId } from "@/modules/recruitment/services/renewal";
 import { getApplicantIdentity } from "@/modules/recruitment/services/portal-auth";
+import { returnerClearanceBlock } from "@/modules/recruitment/services/returner-clearance";
+import { config } from "@/platform/config";
 import { canSubmitToCycle } from "@/modules/recruitment/services/cycle-window";
 import { isInvitedTo } from "@/modules/recruitment/services/invites";
 import { getDraft } from "@/modules/recruitment/services/drafts";
@@ -149,6 +151,31 @@ export default async function ApplyPage({ params, searchParams }: { params: Prom
     session?.personId,
     session?.applicantEmail ? { upn: session.applicantUpn, email: session.applicantEmail } : null,
   );
+  // A current member must be fully cleared in this term before applying again,
+  // whichever applicant type they would pick. submitApplication enforces the
+  // same rule; this only explains it up front instead of at the final click.
+  const clearanceBlock = await returnerClearanceBlock(memberPersonId);
+  if (clearanceBlock) {
+    const support = await getSupportContact();
+    return (
+      <PortalShell>
+        <PortalNotice
+          tone="neutral"
+          title="Finish your clearance to apply"
+          action={<a className="text-sm font-medium text-brand-fg underline underline-offset-4" href={`${config.APP_BASE_URL}/get-started`}>Go to your checklist in HAVEN Hub</a>}
+        >
+          <p>You are a current member for {clearanceBlock.termName}, and returning members must be fully cleared before they can apply again. Still to do:</p>
+          <ul className="mx-auto mt-2 max-w-sm list-disc space-y-1 pl-5 text-left">
+            {clearanceBlock.items.map((item) => <li key={item}>{item}</li>)}
+          </ul>
+          <p className="mt-2">Once these are done, come back to this page to apply.</p>
+          {support.email && (
+            <p><SupportLink email={support.email}>{support.label}</SupportLink></p>
+          )}
+        </PortalNotice>
+      </PortalShell>
+    );
+  }
   let signedInName: string | null = null;
   let eligible = false;
   let currentDepartments: string[] = [];

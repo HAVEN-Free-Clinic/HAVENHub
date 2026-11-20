@@ -19,6 +19,7 @@ import { departmentChoicesFromAnswer, departmentRankCount } from "../engine/depa
 import { derivedAnswers, fieldDerivation } from "../engine/haven-history";
 import { loadHavenHistory } from "./haven-history";
 import { getRenewalContext, resolveReturningPersonId, type SsoClaim } from "./renewal";
+import { returnerClearanceBlock } from "./returner-clearance";
 import { renderCycleEmail } from "../email/render";
 import { decodeSignaturePng, SignatureError } from "./signature";
 import { resolveAvailabilityOptions } from "../templates/clinic-dates";
@@ -149,13 +150,22 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
   // form: the identity section (first_name/last_name/net_id) is NEW-only, so it is
   // never rendered for them and their answers carry none of it. Capture it here.
   let returningIdentity: { name: string | null; legalFirstName: string | null; lastName: string | null; preferredFirstName: string | null; netId: string | null; phone: string | null } | null = null;
+  // Resolved for every applicant type, not just the returning branches: a current
+  // member who is not fully cleared this term may not apply again, and picking
+  // "New applicant" must not get around that. Same resolver the page uses.
+  const memberPersonId = await resolveReturningPersonId(input.sessionPersonId, input.sso ?? null);
+  const clearanceBlock = await returnerClearanceBlock(memberPersonId);
+  if (clearanceBlock) {
+    throw new SubmissionValidationError(
+      `Returning members must be fully cleared before applying again. Still to do for ${clearanceBlock.termName}: ${clearanceBlock.items.join("; ")}.`,
+    );
+  }
   const isReturning = input.applicantType === "RENEWAL" || input.applicantType === "TRANSFER";
   if (isReturning) {
     const roleNoun = cycle.track === "DIRECTOR" ? "director" : "volunteer";
     // Asks the same question the page asked, through the same resolver, so this
     // can never reject a returning branch the wizard offered: an alum offboarded
     // at the term flip carries no session Person, and is found by SSO claim.
-    const memberPersonId = await resolveReturningPersonId(input.sessionPersonId, input.sso ?? null);
     if (!memberPersonId || !input.sessionEmail) {
       throw new SubmissionValidationError(`Please sign in with Yale to apply as a returning ${roleNoun}.`);
     }

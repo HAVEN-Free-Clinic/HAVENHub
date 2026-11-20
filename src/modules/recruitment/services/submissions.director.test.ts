@@ -197,3 +197,23 @@ it("keeps the applicant's own answers when no Person is known", async () => {
   expect(answers.prev_volunteered).toBe("yes");
   expect(answers.returning_board).toBe("yes_new_position");
 });
+
+it("refuses a director renewal before their one-year term is up", async () => {
+  await openDirectorCycle(); // Spring 2027, starts 2027-01-10
+  const fa26 = await prisma.term.create({ data: { code: "FA26", name: "Fall 2026", startDate: new Date("2026-08-25"), endDate: new Date("2026-12-15") } });
+  const sp26 = await prisma.term.create({ data: { code: "SP26", name: "Spring 2026", startDate: new Date("2026-01-12"), endDate: new Date("2026-05-10") } });
+  const srhd = await prisma.department.upsert({ where: { code: "SRHD" }, update: {}, create: { code: "SRHD", name: "SRHD" } });
+  const mdic = await prisma.department.upsert({ where: { code: "MDIC" }, update: {}, create: { code: "MDIC", name: "MDIC" } });
+  const other = await prisma.person.create({ data: { name: "Other", status: "ACTIVE" } });
+  await prisma.termMembership.create({ data: { personId: other.id, termId: sp26.id, departmentId: mdic.id, kind: "DIRECTOR", status: "ACTIVE" } });
+  const person = await prisma.person.create({ data: { name: "Pat Person", contactEmail: "pat@yale.edu", status: "ACTIVE" } });
+  await prisma.termMembership.create({ data: { personId: person.id, termId: fa26.id, departmentId: srhd.id, kind: "DIRECTOR", status: "ACTIVE" } });
+
+  const err = await submitApplication("apply-d", {
+    applicantType: "RENEWAL", renewalDepartment: "SRHD",
+    answers: { ...BASE, prev_volunteered: "no", returning_board: "no" },
+    files: {}, sessionPersonId: person.id, sessionEmail: "pat@yale.edu",
+  }).catch((e) => e);
+  expect(err).toBeInstanceOf(SubmissionValidationError);
+  expect((err as SubmissionValidationError).fieldErrors?.renewalDepartment).toMatch(/runs until August 2027, so it is not up for renewal/);
+});

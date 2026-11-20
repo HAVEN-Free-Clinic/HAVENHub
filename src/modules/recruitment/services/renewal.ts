@@ -75,8 +75,89 @@ export type RenewalContext = {
   netId: string | null;
   phone: string | null;
   currentDepartments: string[];
+  /**
+   * The subset of currentDepartments the person may RENEW in for the cycle asked
+   * about. Equal to currentDepartments except on a DIRECTOR cycle, where a
+   * department drops out while the director's one-year term in it still has time
+   * to run (see directorTermIsUp). TRANSFER still reads currentDepartments.
+   */
+  renewableDepartments: string[];
+  /**
+   * Departments left out of renewableDepartments, with the date the director's
+   * year there is up, so the portal can say why Renew is not offered.
+   */
+  termNotUp: { department: string; termUpOn: Date }[];
   eligible: boolean;
 };
+
+/** A director appointment runs one year from the start of the term they began in. */
+const DIRECTOR_TERM_YEARS = 1;
+/**
+ * Term start dates drift by a few weeks from one year to the next (Spring 2026
+ * might start Jan 12 and Spring 2027 Jan 11), so "a year later" is measured
+ * with this much give. Well under any gap between consecutive terms, so it can
+ * never pull a term forward by a whole term.
+ */
+const TERM_DATE_SLACK_DAYS = 45;
+
+function addYears(d: Date, years: number): Date {
+  const out = new Date(d);
+  out.setUTCFullYear(out.getUTCFullYear() + years);
+  return out;
+}
+
+/**
+ * When a director's CURRENT, unbroken run in one department began, or null when
+ * the Hub's records cannot say.
+ *
+ * Walks back from `fromTermId` through every term on file, newest first. A term
+ * in which the person directed the department extends the run. A term in which
+ * the Hub holds no director records at all says nothing either way (the Hub was
+ * adopted recently, and not every past term was imported with its board), so it
+ * is stepped over rather than read as a break. Only a term that HAS director
+ * records without this person in this department ends the run.
+ *
+ * Reaching the oldest term on file without a break returns null: the run may
+ * well have started before the Hub's records do, so its start is unknown. That
+ * null is deliberate, and directorTermIsUp treats it as "up": missing history
+ * must never take Renew away from someone it should be offered to.
+ */
+export function directorRunStart(input: {
+  /** Every term on file, any order. */
+  terms: { id: string; startDate: Date }[];
+  /** Terms holding at least one DIRECTOR membership, anyone's, any department. */
+  termsWithDirectorRecords: Set<string>;
+  /** Terms where THIS person directed THIS department. */
+  directedTermIds: Set<string>;
+  /** The term the run is current in (the person's latest director term). */
+  fromTermId: string;
+}): Date | null {
+  const ordered = [...input.terms].sort((a, b) => b.startDate.getTime() - a.startDate.getTime());
+  const fromIndex = ordered.findIndex((t) => t.id === input.fromTermId);
+  if (fromIndex === -1) return null;
+  let start = ordered[fromIndex].startDate;
+  for (const t of ordered.slice(fromIndex + 1)) {
+    if (input.directedTermIds.has(t.id)) { start = t.startDate; continue; }
+    if (!input.termsWithDirectorRecords.has(t.id)) continue;
+    return start;
+  }
+  return null;
+}
+
+/**
+ * Whether a director whose run began at `runStart` is due to renew for a cycle
+ * whose term starts at `cycleTermStart`: true once a year has passed. Unknown
+ * starts (null) count as due, for the reason given on directorRunStart.
+ */
+export function directorTermIsUp(runStart: Date | null, cycleTermStart: Date): boolean {
+  if (!runStart) return true;
+  return directorTermUpOn(runStart).getTime() <= cycleTermStart.getTime();
+}
+
+/** The earliest cycle-term start date at which the director's year counts as up. */
+export function directorTermUpOn(runStart: Date): Date {
+  return new Date(addYears(runStart, DIRECTOR_TERM_YEARS).getTime() - TERM_DATE_SLACK_DAYS * 86_400_000);
+}
 
 /**
  * Eligibility + identity for a returning applicant. `kind` is the cycle's track
@@ -85,8 +166,17 @@ export type RenewalContext = {
  * is the verified session (Entra) address, returned verbatim, never read from
  * Person.contactEmail. Departments are the codes from the person's active
  * memberships of that kind in their most-recent term (by term.startDate).
+ *
+ * `cycleTermStart` is the start date of the term the cycle recruits for. On a
+ * DIRECTOR cycle it narrows renewableDepartments to the departments where the
+ * director's one-year term is up by then. Omitted, nothing is narrowed.
  */
-export async function getRenewalContext(personId: string, sessionEmail: string | null, kind: Track): Promise<RenewalContext> {
+export async function getRenewalContext(
+  personId: string,
+  sessionEmail: string | null,
+  kind: Track,
+  cycleTermStart?: Date,
+): Promise<RenewalContext> {
   const person = await prisma.person.findUnique({
     where: { id: personId },
     include: {
@@ -97,13 +187,35 @@ export async function getRenewalContext(personId: string, sessionEmail: string |
     },
   });
   if (!person) {
-    return { personId, name: null, legalFirstName: null, lastName: null, preferredFirstName: null, email: sessionEmail, netId: null, phone: null, currentDepartments: [], eligible: false };
+    return { personId, name: null, legalFirstName: null, lastName: null, preferredFirstName: null, email: sessionEmail, netId: null, phone: null, currentDepartments: [], renewableDepartments: [], termNotUp: [], eligible: false };
   }
   let latest = 0;
   for (const m of person.memberships) latest = Math.max(latest, m.term.startDate.getTime());
-  const currentDepartments = latest
-    ? Array.from(new Set(person.memberships.filter((m) => m.term.startDate.getTime() === latest).map((m) => m.department.code)))
-    : [];
+  const latestMemberships = latest ? person.memberships.filter((m) => m.term.startDate.getTime() === latest) : [];
+  const currentDepartments = Array.from(new Set(latestMemberships.map((m) => m.department.code)));
+
+  let renewableDepartments = currentDepartments;
+  const termNotUp: RenewalContext["termNotUp"] = [];
+  if (kind === "DIRECTOR" && cycleTermStart && currentDepartments.length > 0) {
+    const [terms, directorTerms] = await Promise.all([
+      prisma.term.findMany({ select: { id: true, startDate: true } }),
+      prisma.termMembership.groupBy({ by: ["termId"], where: { kind: "DIRECTOR" } }),
+    ]);
+    const termsWithDirectorRecords = new Set(directorTerms.map((r) => r.termId));
+    renewableDepartments = [];
+    for (const code of currentDepartments) {
+      const inDept = person.memberships.filter((m) => m.department.code === code);
+      const fromTermId = latestMemberships.find((m) => m.department.code === code)!.termId;
+      const runStart = directorRunStart({
+        terms,
+        termsWithDirectorRecords,
+        directedTermIds: new Set(inDept.map((m) => m.termId)),
+        fromTermId,
+      });
+      if (directorTermIsUp(runStart, cycleTermStart)) renewableDepartments.push(code);
+      else termNotUp.push({ department: code, termUpOn: addYears(runStart!, DIRECTOR_TERM_YEARS) });
+    }
+  }
   return {
     personId,
     name: person.name,
@@ -114,6 +226,8 @@ export async function getRenewalContext(personId: string, sessionEmail: string |
     netId: person.netId,
     phone: person.phone,
     currentDepartments,
+    renewableDepartments,
+    termNotUp,
     eligible: currentDepartments.length > 0,
   };
 }
@@ -126,7 +240,7 @@ export async function getRenewalContext(personId: string, sessionEmail: string |
  */
 export function resolveRenewalPrefill(
   fields: { key: string; type: string }[],
-  ctx: RenewalContext,
+  ctx: Omit<RenewalContext, "renewableDepartments" | "termNotUp">,
 ): { values: Record<string, string>; lockedKeys: string[] } {
   const values: Record<string, string> = {};
   const lockedKeys: string[] = [];

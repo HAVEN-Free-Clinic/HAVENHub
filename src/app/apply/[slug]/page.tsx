@@ -24,7 +24,7 @@ export default async function ApplyPage({ params, searchParams }: { params: Prom
   const cycle = await prisma.recruitmentCycle.findUnique({
     where: { publicSlug: slug },
     include: {
-      term: { select: { clinicDates: true } },
+      term: { select: { clinicDates: true, startDate: true } },
       sections: { where: { purpose: "APPLICATION" }, include: { fields: { orderBy: { order: "asc" } } }, orderBy: { order: "asc" } },
     },
   });
@@ -154,19 +154,24 @@ export default async function ApplyPage({ params, searchParams }: { params: Prom
   let currentDepartments: string[] = [];
   let prefill: { values: Record<string, string>; lockedKeys: string[] } | undefined;
   let isReturning = false;
+  let termNotUp: { department: string; termUpOn: string }[] = [];
   if (memberPersonId) {
     // Resolve the renewal email from the portal identity (Person.contactEmail for a
     // magic-link member, whose session.user.email is always undefined), so the email
     // field prefills/locks correctly and the eligibility the wizard shows matches what
     // submitApplication will accept (#55).
-    const ctx = await getRenewalContext(memberPersonId, session?.user?.email ?? identity.email, cycle.track);
+    const ctx = await getRenewalContext(memberPersonId, session?.user?.email ?? identity.email, cycle.track, cycle.term.startDate);
     // Falls back to the matched record's name: an alum recognized through the claim
     // rather than the session may arrive without a display name on the Entra profile,
     // and "Signed in as" renders nothing at all without one.
     signedInName = session?.user?.name ?? ctx.name;
-    currentDepartments = ctx.currentDepartments.filter((d) => cycle.departments.includes(d));
-    // Renewal needs a current department offered by this cycle. Transfer only
+    // Renewal needs a current department offered by this cycle and, on a director
+    // cycle, one whose one-year term is up (renewableDepartments). Transfer only
     // needs an active membership in the track (their department may be elsewhere).
+    currentDepartments = ctx.renewableDepartments.filter((d) => cycle.departments.includes(d));
+    termNotUp = ctx.termNotUp
+      .filter((t) => cycle.departments.includes(t.department))
+      .map((t) => ({ department: t.department, termUpOn: t.termUpOn.toISOString() }));
     eligible = ctx.eligible && currentDepartments.length > 0;
     isReturning = ctx.eligible;
     const fields = sections.flatMap((s) => s.fields).map((f) => ({ key: f.key, type: f.type }));
@@ -182,7 +187,7 @@ export default async function ApplyPage({ params, searchParams }: { params: Prom
 
   return (
     <PortalShell width="wide">
-      <ApplyWizard def={def} signedIn={signedIn} signedInName={signedInName} eligible={eligible} isReturning={isReturning} prefill={prefill} havenHistory={havenHistory} currentDepartments={currentDepartments} departmentOptions={departmentOptions} initialApplicantType={initialApplicantType} initialAnswers={draft?.answers ?? {}} initialApplicantTypeFromDraft={draft?.applicantType} initialRenewalDepartment={draft?.renewalDepartment ?? null} />
+      <ApplyWizard def={def} signedIn={signedIn} signedInName={signedInName} eligible={eligible} isReturning={isReturning} prefill={prefill} havenHistory={havenHistory} currentDepartments={currentDepartments} termNotUp={termNotUp} departmentOptions={departmentOptions} initialApplicantType={initialApplicantType} initialAnswers={draft?.answers ?? {}} initialApplicantTypeFromDraft={draft?.applicantType} initialRenewalDepartment={draft?.renewalDepartment ?? null} />
     </PortalShell>
   );
 }

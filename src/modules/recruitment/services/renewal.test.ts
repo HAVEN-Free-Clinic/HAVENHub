@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { resetDb } from "@/platform/test/db";
 import { prisma } from "@/platform/db";
-import { getRenewalContext, resolveRenewalPrefill, resolveReturningPersonId } from "./renewal";
+import { directorRunStart, directorTermIsUp, getRenewalContext, resolveRenewalPrefill, resolveReturningPersonId } from "./renewal";
 
 beforeEach(async () => { await resetDb(); });
 afterEach(async () => { await resetDb(); });
@@ -207,4 +207,108 @@ it("resolveRenewalPrefill reads the stored name parts rather than splitting the 
   expect(values.first_name).toBe("Guadalupe");
   expect(values.last_name).toBe("Hernandez Zavala");
   expect(values.preferred_first_name).toBe("Lupe");
+});
+
+// ---------------------------------------------------------------------------
+// Director one-year term: Renew is offered once a director's year is up.
+// ---------------------------------------------------------------------------
+
+const SP27_START = new Date("2027-01-11");
+
+async function makeTerm(code: string, start: string) {
+  return prisma.term.create({ data: { code, name: code, startDate: new Date(start), endDate: new Date(start) } });
+}
+async function director(personId: string, termId: string, departmentId: string) {
+  await prisma.termMembership.create({ data: { personId, termId, departmentId, kind: "DIRECTOR", status: "ACTIVE" } });
+}
+
+it("offers a director renewal once a year has passed since they started", async () => {
+  const sp26 = await makeTerm("SP26", "2026-01-12");
+  const su26 = await makeTerm("SU26", "2026-05-15");
+  const fa26 = await makeTerm("FA26", "2026-08-25");
+  const fa25 = await makeTerm("FA25", "2025-08-25");
+  const dept = await prisma.department.create({ data: { code: "SRHD", name: "SRHD" } });
+  const other = await prisma.department.create({ data: { code: "MDIC", name: "MDIC" } });
+  const dir = await prisma.person.create({ data: { name: "Dana Director", status: "ACTIVE" } });
+  const someoneElse = await prisma.person.create({ data: { name: "Other Director", status: "ACTIVE" } });
+  // FA25 has director records, but not Dana in SRHD: that is where her run begins after.
+  await director(someoneElse.id, fa25.id, other.id);
+  for (const t of [sp26, su26, fa26]) await director(dir.id, t.id, dept.id);
+
+  const ctx = await getRenewalContext(dir.id, "d@yale.edu", "DIRECTOR", SP27_START);
+  expect(ctx.currentDepartments).toEqual(["SRHD"]);
+  expect(ctx.renewableDepartments).toEqual(["SRHD"]);
+  expect(ctx.termNotUp).toEqual([]);
+});
+
+it("does not offer renewal to a director whose year is not up, but still allows transfer", async () => {
+  const sp26 = await makeTerm("SP26", "2026-01-12");
+  const fa26 = await makeTerm("FA26", "2026-08-25");
+  const dept = await prisma.department.create({ data: { code: "SRHD", name: "SRHD" } });
+  const other = await prisma.department.create({ data: { code: "MDIC", name: "MDIC" } });
+  const dir = await prisma.person.create({ data: { name: "New Director", status: "ACTIVE" } });
+  const someoneElse = await prisma.person.create({ data: { name: "Other Director", status: "ACTIVE" } });
+  await director(someoneElse.id, sp26.id, other.id); // SP26 has a board on file without them
+  await director(dir.id, fa26.id, dept.id);
+
+  const ctx = await getRenewalContext(dir.id, "n@yale.edu", "DIRECTOR", SP27_START);
+  expect(ctx.eligible).toBe(true); // still a current director: TRANSFER stays open
+  expect(ctx.currentDepartments).toEqual(["SRHD"]);
+  expect(ctx.renewableDepartments).toEqual([]);
+  expect(ctx.termNotUp).toEqual([{ department: "SRHD", termUpOn: new Date("2027-08-25") }]);
+});
+
+it("treats a director whose run reaches the start of the Hub's records as up for renewal", async () => {
+  // Only FA26 is on file: the Hub cannot tell when they started, so missing
+  // history must not take Renew away.
+  const fa26 = await makeTerm("FA26", "2026-08-25");
+  const dept = await prisma.department.create({ data: { code: "SRHD", name: "SRHD" } });
+  const dir = await prisma.person.create({ data: { name: "Legacy Director", status: "ACTIVE" } });
+  await director(dir.id, fa26.id, dept.id);
+  const ctx = await getRenewalContext(dir.id, "l@yale.edu", "DIRECTOR", SP27_START);
+  expect(ctx.renewableDepartments).toEqual(["SRHD"]);
+});
+
+it("steps over past terms that hold no director records at all", async () => {
+  // SP26 was imported without its board. That gap is not a break in the run, so
+  // the start is unknown and Renew stays offered.
+  await makeTerm("SP26", "2026-01-12");
+  const fa26 = await makeTerm("FA26", "2026-08-25");
+  const dept = await prisma.department.create({ data: { code: "SRHD", name: "SRHD" } });
+  const dir = await prisma.person.create({ data: { name: "Gap Director", status: "ACTIVE" } });
+  await director(dir.id, fa26.id, dept.id);
+  const ctx = await getRenewalContext(dir.id, "g@yale.edu", "DIRECTOR", SP27_START);
+  expect(ctx.renewableDepartments).toEqual(["SRHD"]);
+});
+
+it("leaves volunteer renewals and calls without a cycle term unchanged", async () => {
+  const fa26 = await makeTerm("FA26", "2026-08-25");
+  const sp26 = await makeTerm("SP26", "2026-01-12");
+  const dept = await prisma.department.create({ data: { code: "SRHD", name: "SRHD" } });
+  const other = await prisma.department.create({ data: { code: "MDIC", name: "MDIC" } });
+  const p = await prisma.person.create({ data: { name: "Both", status: "ACTIVE" } });
+  const someoneElse = await prisma.person.create({ data: { name: "Other", status: "ACTIVE" } });
+  await director(someoneElse.id, sp26.id, other.id);
+  await director(p.id, fa26.id, dept.id);
+  await prisma.termMembership.create({ data: { personId: p.id, termId: fa26.id, departmentId: dept.id, kind: "VOLUNTEER", status: "ACTIVE" } });
+  expect((await getRenewalContext(p.id, "b@yale.edu", "VOLUNTEER", SP27_START)).renewableDepartments).toEqual(["SRHD"]);
+  expect((await getRenewalContext(p.id, "b@yale.edu", "DIRECTOR")).renewableDepartments).toEqual(["SRHD"]);
+});
+
+it("directorRunStart and directorTermIsUp", () => {
+  const terms = [
+    { id: "fa25", startDate: new Date("2025-08-25") },
+    { id: "sp26", startDate: new Date("2026-01-12") },
+    { id: "fa26", startDate: new Date("2026-08-25") },
+  ];
+  const all = new Set(["fa25", "sp26", "fa26"]);
+  expect(directorRunStart({ terms, termsWithDirectorRecords: all, directedTermIds: new Set(["sp26", "fa26"]), fromTermId: "fa26" }))
+    .toEqual(new Date("2026-01-12"));
+  expect(directorRunStart({ terms, termsWithDirectorRecords: all, directedTermIds: new Set(["fa25", "sp26", "fa26"]), fromTermId: "fa26" }))
+    .toBeNull();
+  // Term start dates drift: Spring 2026 Jan 12 -> Spring 2027 Jan 11 still counts.
+  expect(directorTermIsUp(new Date("2026-01-12"), new Date("2027-01-11"))).toBe(true);
+  // A summer start is not up by the following spring.
+  expect(directorTermIsUp(new Date("2026-05-15"), new Date("2027-01-11"))).toBe(false);
+  expect(directorTermIsUp(null, new Date("2027-01-11"))).toBe(true);
 });

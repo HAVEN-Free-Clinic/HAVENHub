@@ -120,7 +120,7 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
   const cycle = await prisma.recruitmentCycle.findUnique({
     where: { publicSlug: slug },
     include: {
-      term: { select: { clinicDates: true } },
+      term: { select: { clinicDates: true, startDate: true } },
       sections: { where: { purpose: "APPLICATION" }, include: { fields: { orderBy: { order: "asc" } } }, orderBy: { order: "asc" } },
     },
   });
@@ -141,6 +141,8 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
   // The departments the renewing person currently belongs to, within this cycle.
   // A renewal can only be in one of these, so the department cannot be changed.
   let renewalAllowedDepartments: string[] = [];
+  // A director's departments whose one-year term is not up yet, for the error.
+  let renewalTermNotUp: { department: string; termUpOn: Date }[] = [];
   // For a TRANSFER: where the person is coming from (their active departments).
   let transferFromDepartments: string[] = [];
   // A returning applicant's identity comes from their matched record, not the
@@ -157,14 +159,15 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
     if (!memberPersonId || !input.sessionEmail) {
       throw new SubmissionValidationError(`Please sign in with Yale to apply as a returning ${roleNoun}.`);
     }
-    const renewalCtx = await getRenewalContext(memberPersonId, input.sessionEmail, cycle.track);
+    const renewalCtx = await getRenewalContext(memberPersonId, input.sessionEmail, cycle.track, cycle.term.startDate);
     if (!renewalCtx.eligible) {
       throw new SubmissionValidationError(`We do not see a current ${roleNoun} membership for your account.`);
     }
     applicantPersonId = renewalCtx.personId;
     returningIdentity = { name: renewalCtx.name, legalFirstName: renewalCtx.legalFirstName, lastName: renewalCtx.lastName, preferredFirstName: renewalCtx.preferredFirstName, netId: renewalCtx.netId, phone: renewalCtx.phone };
     if (input.applicantType === "RENEWAL") {
-      renewalAllowedDepartments = renewalCtx.currentDepartments.filter((d) => cycle.departments.includes(d));
+      renewalAllowedDepartments = renewalCtx.renewableDepartments.filter((d) => cycle.departments.includes(d));
+      renewalTermNotUp = renewalCtx.termNotUp;
     } else {
       // TRANSFER: the target department comes from the department-choice field,
       // like a new applicant; we only snapshot the origin for reviewer context.
@@ -237,6 +240,13 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
     // belongs to in this cycle, not just any cycle department. The client locks
     // this control, but the server is the source of truth.
     if (!input.renewalDepartment || !renewalAllowedDepartments.includes(input.renewalDepartment)) {
+      const notUp = renewalTermNotUp.find((t) => t.department === input.renewalDepartment);
+      if (notUp) {
+        throw fieldProblem(
+          "renewalDepartment",
+          `Your director term in ${notUp.department} runs until ${notUp.termUpOn.toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" })}, so it is not up for renewal in this cycle.`,
+        );
+      }
       throw fieldProblem("renewalDepartment", "You can only renew in a department you currently belong to.");
     }
     selectedDepartmentCodes = [input.renewalDepartment];

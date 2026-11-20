@@ -49,6 +49,9 @@ export type ApplyWizardProps = {
   // leaves those questions ordinary and editable.
   havenHistory?: HavenHistory | null;
   currentDepartments?: string[];
+  // A director's departments whose one-year term is not up by this cycle's term
+  // (ISO dates), so the intro can say why Renew is not offered for them.
+  termNotUp?: { department: string; termUpOn: string }[];
   // The same code -> name options page.tsx already resolves for the
   // DEPARTMENT_CHOICE field's own options. Reused here so the renewal-
   // department picker, its review-step row, and the transfer-blocked alert
@@ -71,6 +74,7 @@ export function ApplyWizard({
   prefill,
   havenHistory = null,
   currentDepartments = [],
+  termNotUp = [],
   departmentOptions = [],
   initialApplicantType = "NEW",
   initialAnswers = {},
@@ -586,7 +590,13 @@ export function ApplyWizard({
                 </RadioGroup>
                 )}
 
-                {ineligibleNote && (
+                {signedIn && !eligible && termNotUp.length > 0 && (
+                  <Alert tone="info">
+                    Your director term in {termNotUp.map((t) => `${departmentLabel(t.department)} runs until ${new Date(t.termUpOn).toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" })}`).join("; ")}, so it is not up for renewal in this cycle. Contact the recruitment team if this looks wrong.
+                  </Alert>
+                )}
+
+                {ineligibleNote && termNotUp.length === 0 && (
                   <Alert tone="warning">We do not see a current {roleNoun} membership for your account, so we have set you up as a new applicant. Your name and email are filled in below.</Alert>
                 )}
 

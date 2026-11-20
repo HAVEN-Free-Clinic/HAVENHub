@@ -85,4 +85,18 @@ describe("FieldPreview NOTICE", () => {
     // The trailing sentence punctuation stays outside the link.
     expect(el.textContent).toContain("for details.");
   });
+
+  it("frames an embedded deck in its embed form and still emits no form control", () => {
+    const el = mount(notice({ validation: { embedUrl: "https://docs.google.com/presentation/d/DECK1/edit?usp=sharing" } }));
+    const frame = el.querySelector("iframe");
+    expect(frame?.getAttribute("src")).toBe("https://docs.google.com/presentation/d/DECK1/embed?start=false&loop=false");
+    expect(frame?.getAttribute("title")).toBe("AI use");
+    expect(el.querySelector('a[href="https://docs.google.com/presentation/d/DECK1/view"]')).not.toBeNull();
+    expect(el.querySelectorAll("input, select, textarea")).toHaveLength(0);
+  });
+
+  it("frames nothing for a link outside the allowlist", () => {
+    const el = mount(notice({ validation: { embedUrl: "https://evil.example/page" } }));
+    expect(el.querySelector("iframe")).toBeNull();
+  });
 });

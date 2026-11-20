@@ -12,6 +12,7 @@ import { OptionsEditor } from "./options-editor";
 import type { Choice } from "@/modules/recruitment/engine/options";
 import { MAX_DEPARTMENT_RANK, departmentRankCount } from "@/modules/recruitment/engine/department-choice";
 import { DEFAULT_ACKNOWLEDGE_LABEL, isDisplayOnlyNotice, noticeAcknowledgeLabel, noticeDisplayLabel } from "@/modules/recruitment/engine/notice";
+import { NOTICE_EMBED_HINT, noticeEmbedUrl, resolveNoticeEmbed } from "@/modules/recruitment/engine/notice-embed";
 // From availability-key, NOT incoming-roster: this is a client component, and
 // that module imports prisma. See availability-key.ts.
 import { AVAILABILITY_FIELD_KEY } from "@/platform/recruitment/availability-key";
@@ -305,6 +306,28 @@ export function FieldCard({
 
           {isNotice && (
             <div className="space-y-3">
+              {/* Validated here so a bad paste gets an error instead of silently
+                  rendering nothing; the renderer re-checks regardless. Cleared
+                  by emptying the box, which drops the key rather than storing "". */}
+              <Field label="Embed slides or a PDF" hint={`Optional. ${NOTICE_EMBED_HINT}`}>
+                <Input
+                  type="url"
+                  inputMode="url"
+                  placeholder="https://docs.google.com/presentation/d/…"
+                  defaultValue={noticeEmbedUrl(field.validation)}
+                  disabled={!editable}
+                  onBlur={(e) => {
+                    const v = e.target.value.trim();
+                    if (v === noticeEmbedUrl(field.validation)) return;
+                    if (v && !resolveNoticeEmbed(v)) {
+                      setError("That link can't be embedded. Use a Google Slides, Docs, Drive or Canva share link, or a direct link to a .pdf.");
+                      return;
+                    }
+                    const { embedUrl: _e, ...rest } = field.validation ?? {};
+                    save({ validation: v ? { ...rest, embedUrl: v } : rest });
+                  }}
+                />
+              </Field>
               {/* Turning the tick on defaults it to required, because a
                   confirmation nobody has to give records nothing; turning it off
                   MUST clear required in the same save, or the notice is left

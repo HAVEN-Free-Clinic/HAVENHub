@@ -1560,3 +1560,29 @@ it("refuses a mock clinic with no cycle", async () => {
     ),
   ).rejects.toThrow("A mock clinic must belong to a recruitment cycle.");
 });
+
+it("checking a current member in at next term's info session sends them nothing", async () => {
+  const { term, deptA, lead } = await seed();
+  // Fully on this term's roster, and on nothing for next term yet, like every
+  // current volunteer while next term's recruitment info sessions run.
+  const member = await seedMember(term.id, deptA.id, "Current Vol", "current@yale.edu");
+  const next = await prisma.term.create({
+    data: {
+      code: "SP27",
+      name: "Spring 2027",
+      startDate: new Date("2027-01-10T12:00:00.000Z"),
+      endDate: new Date("2027-05-10T12:00:00.000Z"),
+      status: "PLANNING",
+    },
+  });
+  const event = await createEvent(
+    { termId: next.id, cycleId: null, kind: "INFO_SESSION", title: "Spring info session", startsAt: START, endsAt: null, location: null, notes: null },
+    lead.id,
+  );
+
+  const outcome = await recordEventCheckIn(event.id, { kind: "person", personId: member.id }, lead.id);
+
+  expect(outcome.nudgeQueued).toBe(false);
+  expect(await prisma.emailLog.count({ where: { template: "attendance-nudge" } })).toBe(0);
+  expect(await prisma.eventAttendance.count({ where: { eventId: event.id } })).toBe(1);
+});

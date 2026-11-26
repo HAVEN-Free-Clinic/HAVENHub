@@ -27,6 +27,7 @@ import { AVAILABILITY_FIELD_KEY } from "@/platform/recruitment/incoming-roster";
 import { openClinicDates } from "@/platform/attendings/open-clinic-date";
 import { LANGUAGES_FIELD_KEY, languageCodeFromAnswer } from "@/platform/languages";
 import { DUAL_ROLE_FIELDS, isChecked } from "@/platform/dual-roles/catalog";
+import { formatCalendarDate } from "@/platform/dates";
 
 export class CycleNotOpenError extends Error { constructor(m = "This application is closed.") { super(m); this.name = "CycleNotOpenError"; } }
 export class DuplicateApplicationError extends Error { constructor(m = "You have already applied.") { super(m); this.name = "DuplicateApplicationError"; } }
@@ -254,7 +255,7 @@ export async function submitApplication(slug: string, input: SubmitInput): Promi
       if (notUp) {
         throw fieldProblem(
           "renewalDepartment",
-          `Your director term in ${notUp.department} runs until ${notUp.termUpOn.toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" })}, so it is not up for renewal in this cycle.`,
+          `Your director term in ${notUp.department} runs until ${formatCalendarDate(notUp.termUpOn, { month: "long", year: "numeric" })}, so it is not up for renewal in this cycle.`,
         );
       }
       throw fieldProblem("renewalDepartment", "You can only renew in a department you currently belong to.");

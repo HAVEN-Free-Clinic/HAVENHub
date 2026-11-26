@@ -25,6 +25,7 @@ import { SignaturePad } from "@/platform/ui/signature-pad";
 import { cx } from "@/platform/ui/cx";
 import { PortalNotice } from "../portal-notice";
 import { YaleSignInButton } from "../yale-sign-in-button";
+import { formatCalendarDate } from "@/platform/dates";
 
 type Def = {
   slug: string;
@@ -592,7 +593,7 @@ export function ApplyWizard({
 
                 {signedIn && !eligible && termNotUp.length > 0 && (
                   <Alert tone="info">
-                    Your director term in {termNotUp.map((t) => `${departmentLabel(t.department)} runs until ${new Date(t.termUpOn).toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" })}`).join("; ")}, so it is not up for renewal in this cycle. Contact the recruitment team if this looks wrong.
+                    Your director term in {termNotUp.map((t) => `${departmentLabel(t.department)} runs until ${formatCalendarDate(new Date(t.termUpOn), { month: "long", year: "numeric" })}`).join("; ")}, so it is not up for renewal in this cycle. Contact the recruitment team if this looks wrong.
                   </Alert>
                 )}
 

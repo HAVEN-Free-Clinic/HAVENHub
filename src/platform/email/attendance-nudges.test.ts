@@ -11,12 +11,13 @@
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { prisma } from "@/platform/db";
 import { resetDb } from "@/platform/test/db";
-import { runAttendanceNudges, MAX_ATTENDANCE_NUDGES } from "./attendance-nudges";
+import type { AttendanceEventKind } from "@prisma/client";
+import { runAttendanceNudges, sendAttendanceNudge, MAX_ATTENDANCE_NUDGES } from "./attendance-nudges";
 
 const NOW = new Date("2026-09-03T12:00:00.000Z");
 const DAY = 24 * 60 * 60 * 1000;
 
-async function seedEvent(startsAt: Date) {
+async function seedEvent(startsAt: Date, kind: AttendanceEventKind = "INFO_SESSION") {
   const term = await prisma.term.create({
     data: {
       code: "FA26",
@@ -27,7 +28,7 @@ async function seedEvent(startsAt: Date) {
     },
   });
   const event = await prisma.attendanceEvent.create({
-    data: { termId: term.id, kind: "INFO_SESSION", title: "Fall info session", startsAt },
+    data: { termId: term.id, kind, title: kind === "INFO_SESSION" ? "Fall info session" : "Fall training", startsAt },
   });
   return { term, event };
 }
@@ -226,7 +227,8 @@ it("takes a row out of the stream once nothing is outstanding", async () => {
 });
 
 it("skips a linked member with no address rather than claiming the attempt", async () => {
-  const { event } = await seedEvent(new Date("2026-08-20T22:00:00.000Z"));
+  // A training event: the only kind a member is nudged about at all.
+  const { event } = await seedEvent(new Date("2026-08-20T22:00:00.000Z"), "TRAINING");
   const person = await prisma.person.create({
     data: { name: "Unreachable", status: "ACTIVE", contactEmail: null },
   });
@@ -250,4 +252,77 @@ it("skips a linked member with no address rather than claiming the attempt", asy
   const after = await prisma.eventAttendance.findUniqueOrThrow({ where: { id: row.id } });
   expect(after.nudgeCount).toBe(1);
   expect(after.nudgeLastSentAt?.getTime()).toBe(NOW.getTime() - 30 * DAY);
+});
+
+// A member checked in at an event that credits nothing (an info session, a
+// general meeting) was being told their onboarding was unfinished. At an info
+// session for next term's cycle that hit every current member, since none of
+// them is on next term's roster yet.
+
+/** A member with nothing on next term's roster, so `contract` is outstanding there. */
+async function seedMemberRow(eventId: string, opts: { nudgeCount?: number; nudgeLastSentAt?: Date | null } = {}) {
+  const person = await prisma.person.create({
+    data: { name: "Current Vol", status: "ACTIVE", contactEmail: "vol@yale.edu" },
+  });
+  const row = await prisma.eventAttendance.create({
+    data: {
+      eventId,
+      personId: person.id,
+      method: "STAFF",
+      checkedInAt: new Date("2026-08-20T22:00:00.000Z"),
+      blockersAtCheckIn: ["contract"],
+      nudgeCount: opts.nudgeCount ?? 0,
+      nudgeLastSentAt: opts.nudgeLastSentAt ?? null,
+    },
+  });
+  return { person, row };
+}
+
+it("never nudges a member checked in at an info session, and closes the row", async () => {
+  const { event } = await seedEvent(new Date("2026-08-20T22:00:00.000Z"), "INFO_SESSION");
+  const { row } = await seedMemberRow(event.id);
+
+  expect(await sendAttendanceNudge(row.id, null, NOW)).toBe(false);
+
+  expect(await nudgeCount()).toBe(0);
+  const after = await prisma.eventAttendance.findUniqueOrThrow({ where: { id: row.id } });
+  expect(after.resolvedAt).not.toBeNull();
+  expect(after.nudgeCount).toBe(0);
+});
+
+it("never nudges a member at an OTHER event either", async () => {
+  const { event } = await seedEvent(new Date("2026-08-20T22:00:00.000Z"), "OTHER");
+  const { row } = await seedMemberRow(event.id);
+  expect(await sendAttendanceNudge(row.id, null, NOW)).toBe(false);
+  expect(await nudgeCount()).toBe(0);
+});
+
+it("takes an info-session member row that was already emailed out of the follow-ups", async () => {
+  const { event } = await seedEvent(new Date("2026-08-20T22:00:00.000Z"), "INFO_SESSION");
+  const { row } = await seedMemberRow(event.id, { nudgeCount: 1, nudgeLastSentAt: new Date(NOW.getTime() - 30 * DAY) });
+
+  const result = await runAttendanceNudges(NOW);
+
+  expect(result.sent).toBe(0);
+  expect(result.resolved).toBe(1);
+  expect(await nudgeCount()).toBe(0);
+  const later = await runAttendanceNudges(new Date(NOW.getTime() + 30 * DAY));
+  expect(later.sent).toBe(0);
+  expect((await prisma.eventAttendance.findUniqueOrThrow({ where: { id: row.id } })).nudgeCount).toBe(1);
+});
+
+it("still nudges a member at training who has onboarding outstanding", async () => {
+  const { event } = await seedEvent(new Date("2026-08-20T22:00:00.000Z"), "TRAINING");
+  const { row } = await seedMemberRow(event.id);
+
+  expect(await sendAttendanceNudge(row.id, null, NOW)).toBe(true);
+  expect(await nudgeCount()).toBe(1);
+});
+
+it("still sends the apply reminder to a walk-up at an info session", async () => {
+  const { event } = await seedEvent(new Date("2026-08-20T22:00:00.000Z"), "INFO_SESSION");
+  const row = await seedWalkUp(event.id, { nudgeCount: 0 });
+
+  expect(await sendAttendanceNudge(row.id, null, NOW)).toBe(true);
+  expect(await nudgeCount()).toBe(1);
 });

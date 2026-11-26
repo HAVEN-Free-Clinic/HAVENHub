@@ -17,6 +17,7 @@
  * on a mid-run crash is recovered next interval, a duplicate never is.
  */
 
+import type { AttendanceEventKind } from "@prisma/client";
 import { prisma } from "@/platform/db";
 import { getSetting } from "@/platform/settings/service";
 import { log, errorAttrs } from "@/platform/logging";
@@ -59,7 +60,7 @@ type NudgeRow = {
   personId: string | null;
   attendeeName: string | null;
   attendeeEmail: string | null;
-  event: { title: string; startsAt: Date; termId: string; cycleId: string | null };
+  event: { title: string; startsAt: Date; termId: string; cycleId: string | null; kind: AttendanceEventKind };
   person: { id: string; name: string; contactEmail: string | null; entraObjectId: string | null } | null;
 };
 
@@ -68,9 +69,27 @@ const NUDGE_SELECT = {
   personId: true,
   attendeeName: true,
   attendeeEmail: true,
-  event: { select: { title: true, startsAt: true, termId: true, cycleId: true } },
+  event: { select: { title: true, startsAt: true, termId: true, cycleId: true, kind: true } },
   person: { select: { id: true, name: true, contactEmail: true, entraObjectId: true } },
 } as const;
+
+/**
+ * Whether checking in at this kind of event can be credited toward a member's
+ * clearance: training and the training-day mock clinic. Mirrors
+ * isTrainingDayKind in recruitment/services/attendance-events.ts.
+ *
+ * A member checked in anywhere else (an info session, a general meeting) has
+ * nothing that attendance could count toward, so "your attendance cannot be
+ * credited until you finish onboarding" is untrue for them. It is also measured
+ * against the event's term: an info session for next term's cycle flags every
+ * current member as owing next term's contract, so fully compliant volunteers
+ * and directors were told their onboarding was unfinished. Walk-ups are
+ * unaffected: their nudge is the "start your application" message, which an
+ * info session is meant to send.
+ */
+function creditsMemberAttendance(kind: AttendanceEventKind): boolean {
+  return kind === "TRAINING" || kind === "MOCK_CLINIC";
+}
 
 /**
  * Live blockers for one row, re-measured on every pass.
@@ -193,6 +212,17 @@ async function attemptNudge(
     select: NUDGE_SELECT,
   })) as NudgeRow | null;
   if (!row) return "skipped";
+
+  // A member at an event that credits nothing is never nudged. Resolving the row
+  // (rather than skipping it) also takes any already-sent row out of the
+  // recurring pass, so nobody gets the follow-ups either.
+  if (row.personId && !creditsMemberAttendance(row.event.kind)) {
+    await prisma.eventAttendance.updateMany({
+      where: { id: attendanceId, resolvedAt: null },
+      data: { resolvedAt: now },
+    });
+    return "resolved";
+  }
 
   const blockers = await liveBlockers(row, now);
 
